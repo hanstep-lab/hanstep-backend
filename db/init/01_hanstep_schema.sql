@@ -1,3 +1,4 @@
+SET NAMES utf8mb4;
 
 -- ---------------------------------------------------------------------
 -- A. 사용자 · 동의 · 온보딩
@@ -30,7 +31,7 @@ CREATE TABLE user_consents (
   created_at      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '생성',
   PRIMARY KEY (id),
   KEY ix_user_consents_user_type (user_id, consent_type, granted_at),
-  CONSTRAINT fk_user_consents_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_user_consents_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT ck_user_consents_status CHECK ((status = 'GRANTED' AND revoked_at IS NULL) OR (status = 'REVOKED' AND revoked_at IS NOT NULL)),
   CONSTRAINT ck_user_consents_expiry CHECK (expires_at IS NULL OR expires_at > granted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 동의 이력(append-only, 철회는 새 행 또는 status 갱신)';
@@ -48,7 +49,7 @@ CREATE TABLE onboarding_profiles (
   updated_at               DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
   PRIMARY KEY (id),
   CONSTRAINT uq_onboarding_profiles_user UNIQUE (user_id),
-  CONSTRAINT fk_onboarding_profiles_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_onboarding_profiles_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT ck_onboarding_profiles_income CHECK (declared_monthly_income IS NULL OR declared_monthly_income >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 온보딩 설문 응답(체류정보는 OCR로 받으므로 제외)';
 
@@ -62,7 +63,7 @@ CREATE TABLE onboarding_progress (
   updated_at    DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
   PRIMARY KEY (id),
   CONSTRAINT uq_onboarding_progress_step UNIQUE (user_id, step_code),
-  CONSTRAINT fk_onboarding_progress_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_onboarding_progress_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT ck_onboarding_progress_done CHECK (status <> 'COMPLETED' OR completed_at IS NOT NULL)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 온보딩 단계별 진행(FR-006)';
 
@@ -79,7 +80,7 @@ CREATE TABLE financial_goals (
   updated_at     DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
   PRIMARY KEY (id),
   KEY ix_financial_goals_user (user_id, status),
-  CONSTRAINT fk_financial_goals_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_financial_goals_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT ck_financial_goals_amount CHECK (target_amount IS NULL OR target_amount > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 금융 목표(온보딩 4단계)';
 
@@ -99,7 +100,7 @@ CREATE TABLE monthly_commitments (
   updated_at             DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
   PRIMARY KEY (id),
   KEY ix_monthly_commitments_user (user_id, is_active, commitment_type),
-  CONSTRAINT fk_monthly_commitments_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_monthly_commitments_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT ck_monthly_commitments_amount CHECK (amount >= 0),
   CONSTRAINT ck_monthly_commitments_due CHECK (due_day IS NULL OR due_day BETWEEN 1 AND 31)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 매달 반드시 확보할 금액. MANDATORY_SAVING은 가용자금에서 차감하지 않음';
@@ -121,7 +122,6 @@ CREATE TABLE documents (
   status               ENUM('UPLOADED','OCR_QUEUED','OCR_PROCESSING','PENDING_CONFIRMATION','CONFIRMED','FAILED') NOT NULL DEFAULT 'UPLOADED' COMMENT '처리 상태',
   ocr_model_version    VARCHAR(60)     NULL COMMENT '예: ppocrv5-ko-mobile-int8',
   ocr_latency_ms       INT UNSIGNED    NULL COMMENT 'OCR 처리시간(성능 지표)',
-  ocr_result_json      JSON            NULL COMMENT 'Worker 원 응답(등록번호 마스킹된 상태로만 저장)',
   failure_code         VARCHAR(50)     NULL COMMENT 'OCR_FAILED, LOW_QUALITY 등',
   original_deleted_at  DATETIME(3)     NULL COMMENT '원본 이미지 삭제 시각(추론 후 삭제 원칙)',
   retention_until      DATETIME(3)     NOT NULL COMMENT '원본 최대 보관 기한',
@@ -131,26 +131,26 @@ CREATE TABLE documents (
   PRIMARY KEY (id),
   CONSTRAINT uq_documents_user_hash UNIQUE (user_id, sha256),
   KEY ix_documents_user_type (user_id, document_type, created_at),
-  CONSTRAINT fk_documents_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_documents_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT ck_documents_confirmed CHECK (status <> 'CONFIRMED' OR confirmed_at IS NOT NULL)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 업로드 문서 메타 + OCR 원 응답(1계층)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 업로드 문서 메타(OCR 원 응답 JSON은 저장하지 않음, 필드값은 document_fields)';
 
 -- OCR 항목별 추출값·사용자 확정값 저장용 테이블 --
 CREATE TABLE document_fields (
   id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'ID',
   document_id        BIGINT UNSIGNED NOT NULL COMMENT '문서',
   field_key          VARCHAR(50)     NOT NULL COMMENT 'registrationNo, nameEn, nationality, visaType, issueDate, birthDate, stayExpiry, address 등',
-  extracted_value    VARCHAR(255)    NULL COMMENT 'OCR 추출값(문자열 그대로, 잘못 읽은 날짜도 보존)',
+  extracted_value    VARCHAR(255)    NULL COMMENT 'OCR 추출값(확인 전 임시 보관, 문서 확정 시 NULL로 삭제)',
   confidence         DECIMAL(5,4)    NULL COMMENT '신뢰도 0~1',
   is_masked          BOOLEAN         NOT NULL DEFAULT FALSE COMMENT '마스킹 저장 여부(등록번호=TRUE)',
-  confirmed_value    VARCHAR(255)    NULL COMMENT '사용자 확인·수정값(2계층)',
+  confirmed_value    VARCHAR(255)    NULL COMMENT '사용자 확인·수정값(visa_profiles 반영 후 NULL로 삭제)',
   status             ENUM('EXTRACTED','MISSING','CONFIRMED','CORRECTED') NOT NULL DEFAULT 'EXTRACTED' COMMENT '수정 전후 구분(FR-021)',
   confirmed_at       DATETIME(3)     NULL COMMENT '확인 시각',
   PRIMARY KEY (id),
   CONSTRAINT uq_document_fields_key UNIQUE (document_id, field_key),
-  CONSTRAINT fk_document_fields_document FOREIGN KEY (document_id) REFERENCES documents (id),
+  CONSTRAINT fk_document_fields_document FOREIGN KEY (document_id) REFERENCES documents (id) ON DELETE CASCADE,
   CONSTRAINT ck_document_fields_conf CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] OCR 필드별 추출값·확인값. 타입 부여는 visa_profiles 반영 시';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] OCR 필드별 추출값·확인값(확인 전 임시). 확정 후 값은 지우고 status·confidence만 남김(OCR 정확도 지표용)';
 
 -- ---------------------------------------------------------------------
 -- C. 체류 · 비자 프로필
@@ -175,17 +175,16 @@ CREATE TABLE visa_profiles (
   stay_expires_on         DATE            NULL COMMENT '체류 만료일',
   nationality_code        CHAR(3)         NULL COMMENT 'ISO 3166-1 alpha-3',
   birth_date              DATE            NULL COMMENT 'E-7-4 나이 점수용(나이는 저장하지 않고 계산)',
-  registration_no_masked  VARCHAR(20)     NULL COMMENT '외국인등록번호 마스킹값만(예: 990101-5******)',
   source_document_id      BIGINT UNSIGNED NULL COMMENT '근거 OCR 문서',
   evidence_status         ENUM('DECLARED','NEEDS_VERIFICATION','PARTIALLY_VERIFIED','VERIFIED') NOT NULL DEFAULT 'DECLARED' COMMENT '증빙 상태',
   created_at              DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '생성',
   updated_at              DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
   PRIMARY KEY (id),
   CONSTRAINT uq_visa_profiles_user UNIQUE (user_id),
-  CONSTRAINT fk_visa_profiles_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_visa_profiles_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT fk_visa_profiles_type FOREIGN KEY (visa_type_id) REFERENCES visa_types (id),
-  CONSTRAINT fk_visa_profiles_document FOREIGN KEY (source_document_id) REFERENCES documents (id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 현재 체류 프로필(OCR 확인값의 3계층)';
+  CONSTRAINT fk_visa_profiles_document FOREIGN KEY (source_document_id) REFERENCES documents (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 현재 체류 프로필(OCR 확정값의 유일한 보관처, 등록번호는 저장하지 않음)';
 
 -- 근무 이력(사업장·근속 기간) 저장용 테이블 --
 CREATE TABLE employment_histories (
@@ -205,8 +204,8 @@ CREATE TABLE employment_histories (
   updated_at               DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
   PRIMARY KEY (id),
   KEY ix_employment_histories_user (user_id, started_on),
-  CONSTRAINT fk_employment_histories_user FOREIGN KEY (user_id) REFERENCES users (id),
-  CONSTRAINT fk_employment_histories_doc FOREIGN KEY (evidence_document_id) REFERENCES documents (id),
+  CONSTRAINT fk_employment_histories_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_employment_histories_doc FOREIGN KEY (evidence_document_id) REFERENCES documents (id) ON DELETE SET NULL,
   CONSTRAINT ck_employment_histories_period CHECK (ended_on IS NULL OR ended_on >= started_on)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 근무 이력(근속·지역 가점, 근무처 변경 이력)';
 
@@ -224,8 +223,8 @@ CREATE TABLE visa_evidence (
   updated_at      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
   PRIMARY KEY (id),
   KEY ix_visa_evidence_user (user_id, evidence_type),
-  CONSTRAINT fk_visa_evidence_user FOREIGN KEY (user_id) REFERENCES users (id),
-  CONSTRAINT fk_visa_evidence_doc FOREIGN KEY (document_id) REFERENCES documents (id)
+  CONSTRAINT fk_visa_evidence_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_visa_evidence_doc FOREIGN KEY (document_id) REFERENCES documents (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 한국어·자격·추천 증빙(FR-025)';
 
 -- 연도별 공식 인정소득(소득금액증명원) 저장용 테이블 (후순위 가능: 1차 개발은 마이데이터 추정 소득 사용) --
@@ -241,8 +240,8 @@ CREATE TABLE income_records (
   updated_at           DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
   PRIMARY KEY (id),
   CONSTRAINT uq_income_records_year UNIQUE (user_id, income_year, source),
-  CONSTRAINT fk_income_records_user FOREIGN KEY (user_id) REFERENCES users (id),
-  CONSTRAINT fk_income_records_doc FOREIGN KEY (document_id) REFERENCES documents (id),
+  CONSTRAINT fk_income_records_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_income_records_doc FOREIGN KEY (document_id) REFERENCES documents (id) ON DELETE SET NULL,
   CONSTRAINT ck_income_records_amount CHECK (annual_amount >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 연도별 인정소득(E-7-4 최근 2년 평균, FR-026)';
 
@@ -334,7 +333,7 @@ CREATE TABLE e74_assessments (
   PRIMARY KEY (id),
   CONSTRAINT uq_e74_assessments_req UNIQUE (user_id, request_key),
   KEY ix_e74_assessments_user (user_id, is_scenario, created_at),
-  CONSTRAINT fk_e74_assessments_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_e74_assessments_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT fk_e74_assessments_set FOREIGN KEY (rule_set_id) REFERENCES e74_rule_sets (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] E-7-4 평가 결과(append-only, 덮어쓰지 않음 FR-031)';
 
@@ -350,7 +349,7 @@ CREATE TABLE e74_assessment_items (
   evidence_json   JSON            NULL COMMENT '판정 근거(사용한 입력 필드·증빙 ID)',
   PRIMARY KEY (id),
   CONSTRAINT uq_e74_assessment_items UNIQUE (assessment_id, rule_code),
-  CONSTRAINT fk_e74_assessment_items_a FOREIGN KEY (assessment_id) REFERENCES e74_assessments (id)
+  CONSTRAINT fk_e74_assessment_items_a FOREIGN KEY (assessment_id) REFERENCES e74_assessments (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 항목별 점수·요건 판정';
 
 -- 비자 전환 로드맵 저장용 테이블 --
@@ -365,8 +364,8 @@ CREATE TABLE visa_roadmaps (
   created_at          DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '생성',
   PRIMARY KEY (id),
   KEY ix_visa_roadmaps_user (user_id, created_at),
-  CONSTRAINT fk_visa_roadmaps_user FOREIGN KEY (user_id) REFERENCES users (id),
-  CONSTRAINT fk_visa_roadmaps_assessment FOREIGN KEY (assessment_id) REFERENCES e74_assessments (id)
+  CONSTRAINT fk_visa_roadmaps_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_visa_roadmaps_assessment FOREIGN KEY (assessment_id) REFERENCES e74_assessments (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 비자 성장 로드맵(재조회 시 LLM 재호출 없음)';
 
 -- 로드맵 단계(STEP 1~4) 저장용 테이블 --
@@ -385,8 +384,8 @@ CREATE TABLE visa_roadmap_steps (
   status                      ENUM('RECOMMENDED','IN_PROGRESS','DONE','SKIPPED') NOT NULL DEFAULT 'RECOMMENDED' COMMENT '진행 상태',
   PRIMARY KEY (id),
   CONSTRAINT uq_visa_roadmap_steps_order UNIQUE (roadmap_id, step_order),
-  CONSTRAINT fk_visa_roadmap_steps_roadmap FOREIGN KEY (roadmap_id) REFERENCES visa_roadmaps (id),
-  CONSTRAINT fk_visa_roadmap_steps_scn FOREIGN KEY (scenario_assessment_id) REFERENCES e74_assessments (id)
+  CONSTRAINT fk_visa_roadmap_steps_roadmap FOREIGN KEY (roadmap_id) REFERENCES visa_roadmaps (id) ON DELETE CASCADE,
+  CONSTRAINT fk_visa_roadmap_steps_scn FOREIGN KEY (scenario_assessment_id) REFERENCES e74_assessments (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 로드맵 실행 단계';
 
 -- ---------------------------------------------------------------------
@@ -419,9 +418,9 @@ CREATE TABLE data_connections (
   updated_at      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
   PRIMARY KEY (id),
   CONSTRAINT uq_data_connections UNIQUE (user_id, institution_id),
-  CONSTRAINT fk_data_connections_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_data_connections_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT fk_data_connections_inst FOREIGN KEY (institution_id) REFERENCES institutions (id),
-  CONSTRAINT fk_data_connections_consent FOREIGN KEY (consent_id) REFERENCES user_consents (id),
+  CONSTRAINT fk_data_connections_consent FOREIGN KEY (consent_id) REFERENCES user_consents (id) ON DELETE CASCADE,
   CONSTRAINT ck_data_connections_lookback CHECK (lookback_months BETWEEN 1 AND 60)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 기관별 연동 상태(MVP는 Mock 연결)';
 
@@ -443,8 +442,8 @@ CREATE TABLE ingestion_batches (
   finished_at    DATETIME(3)     NULL COMMENT '종료',
   PRIMARY KEY (id),
   CONSTRAINT uq_ingestion_batches_req UNIQUE (user_id, request_key),
-  CONSTRAINT fk_ingestion_batches_user FOREIGN KEY (user_id) REFERENCES users (id),
-  CONSTRAINT fk_ingestion_batches_conn FOREIGN KEY (connection_id) REFERENCES data_connections (id),
+  CONSTRAINT fk_ingestion_batches_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_ingestion_batches_conn FOREIGN KEY (connection_id) REFERENCES data_connections (id) ON DELETE CASCADE,
   CONSTRAINT ck_ingestion_batches_mock CHECK (source_type <> 'MOCK' OR is_mock = TRUE),
   CONSTRAINT ck_ingestion_batches_time CHECK (finished_at IS NULL OR finished_at >= started_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 수집 단위 출처·Mock 구분·관측 기간';
@@ -467,8 +466,8 @@ CREATE TABLE financial_accounts (
   user_id               BIGINT UNSIGNED NOT NULL COMMENT '소유자',
   institution_id        BIGINT UNSIGNED NOT NULL COMMENT '기관',
   batch_id              BIGINT UNSIGNED NOT NULL COMMENT '최초 적재 배치(목인지 아닌지 구분용)',
-  external_account_key  VARCHAR(100)    NOT NULL COMMENT '원천 계좌 식별자',
-  account_no_masked     VARCHAR(40)     NOT NULL COMMENT '마스킹 계좌번호(전체 번호 저장 금지)',
+  external_account_key  VARCHAR(100)    NOT NULL COMMENT '원천 계좌 식별자(조회·재수집 매칭용, Mock은 고정 ID). 실연동 시 계좌번호 원문이면 암호화 저장',
+  account_no_masked     VARCHAR(40)     NOT NULL COMMENT '화면 표시 전용 마스킹 번호(조회에 사용 안 함, 전체 번호 저장 금지)',
   account_type          ENUM('DEMAND','SAVINGS','INSTALLMENT','FOREIGN_CURRENCY','OTHER') NOT NULL COMMENT '입출금/예금/적금/외화',
   product_name          VARCHAR(200)    NULL COMMENT '상품명',
   currency              CHAR(3)         NOT NULL DEFAULT 'KRW' COMMENT '통화',
@@ -481,9 +480,9 @@ CREATE TABLE financial_accounts (
   updated_at            DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
   PRIMARY KEY (id),
   CONSTRAINT uq_financial_accounts_ext UNIQUE (user_id, institution_id, external_account_key),
-  CONSTRAINT fk_financial_accounts_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_financial_accounts_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT fk_financial_accounts_inst FOREIGN KEY (institution_id) REFERENCES institutions (id),
-  CONSTRAINT fk_financial_accounts_batch FOREIGN KEY (batch_id) REFERENCES ingestion_batches (id),
+  CONSTRAINT fk_financial_accounts_batch FOREIGN KEY (batch_id) REFERENCES ingestion_batches (id) ON DELETE CASCADE,
   CONSTRAINT ck_financial_accounts_period CHECK (closed_on IS NULL OR opened_on IS NULL OR closed_on >= opened_on)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] Mock 계좌';
 
@@ -493,7 +492,7 @@ CREATE TABLE financial_transactions (
   user_id                BIGINT UNSIGNED NOT NULL COMMENT '소유자(조회 성능용 중복)',
   account_id             BIGINT UNSIGNED NOT NULL COMMENT '계좌',
   batch_id               BIGINT UNSIGNED NOT NULL COMMENT '적재 배치',
-  external_txn_key       VARCHAR(100)    NOT NULL COMMENT '원천 거래 키(재수집 중복 방지)',
+  external_txn_key       VARCHAR(100)    NOT NULL COMMENT '원천 거래 키(재수집 중복 방지, 같은 거래는 항상 같은 키)',
   transacted_at          DATETIME(3)     NOT NULL COMMENT '거래 시각(UTC)',
   booked_date            DATE            NOT NULL COMMENT '거래일(KST 기준, 월 집계 기준)',
   direction              ENUM('INCOME','EXPENSE') NOT NULL COMMENT '입출금 방향(수입 인정 여부는 kind로 판정)',
@@ -511,9 +510,9 @@ CREATE TABLE financial_transactions (
   CONSTRAINT uq_financial_transactions_ext UNIQUE (account_id, external_txn_key),
   KEY ix_financial_transactions_user_date (user_id, booked_date),
   KEY ix_financial_transactions_user_cat (user_id, category_code, booked_date),
-  CONSTRAINT fk_financial_transactions_user FOREIGN KEY (user_id) REFERENCES users (id),
-  CONSTRAINT fk_financial_transactions_acct FOREIGN KEY (account_id) REFERENCES financial_accounts (id),
-  CONSTRAINT fk_financial_transactions_batch FOREIGN KEY (batch_id) REFERENCES ingestion_batches (id),
+  CONSTRAINT fk_financial_transactions_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_financial_transactions_acct FOREIGN KEY (account_id) REFERENCES financial_accounts (id) ON DELETE CASCADE,
+  CONSTRAINT fk_financial_transactions_batch FOREIGN KEY (batch_id) REFERENCES ingestion_batches (id) ON DELETE CASCADE,
   CONSTRAINT fk_financial_transactions_cat FOREIGN KEY (category_code) REFERENCES transaction_categories (code),
   CONSTRAINT ck_financial_transactions_amount CHECK (amount > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] Mock 거래내역 + 분류';
@@ -539,9 +538,9 @@ CREATE TABLE loans (
   updated_at                 DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
   PRIMARY KEY (id),
   CONSTRAINT uq_loans_ext UNIQUE (user_id, institution_id, external_loan_key),
-  CONSTRAINT fk_loans_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_loans_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT fk_loans_inst FOREIGN KEY (institution_id) REFERENCES institutions (id),
-  CONSTRAINT fk_loans_batch FOREIGN KEY (batch_id) REFERENCES ingestion_batches (id),
+  CONSTRAINT fk_loans_batch FOREIGN KEY (batch_id) REFERENCES ingestion_batches (id) ON DELETE CASCADE,
   CONSTRAINT ck_loans_amounts CHECK (principal >= 0 AND outstanding_balance >= 0),
   CONSTRAINT ck_loans_rate CHECK (annual_interest_rate IS NULL OR annual_interest_rate >= 0),
   CONSTRAINT ck_loans_period CHECK (maturity_on IS NULL OR maturity_on >= started_on)
@@ -580,7 +579,7 @@ CREATE TABLE financial_analyses (
   PRIMARY KEY (id),
   CONSTRAINT uq_financial_analyses_req UNIQUE (user_id, request_key),
   KEY ix_financial_analyses_user (user_id, created_at),
-  CONSTRAINT fk_financial_analyses_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_financial_analyses_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT ck_financial_analyses_period CHECK (period_to >= period_from)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 현금흐름 분석 결과(append-only, 홈·챗봇 공용 수치 원천)';
 
@@ -613,7 +612,7 @@ CREATE TABLE ai_jobs (
   CONSTRAINT uq_ai_jobs_idem UNIQUE (job_type, idempotency_key),
   KEY ix_ai_jobs_user (user_id, created_at),
   KEY ix_ai_jobs_status (status, updated_at),
-  CONSTRAINT fk_ai_jobs_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_ai_jobs_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT ck_ai_jobs_done CHECK (status NOT IN ('COMPLETED','FAILED') OR completed_at IS NOT NULL),
   CONSTRAINT ck_ai_jobs_retry CHECK (retry_count <= max_retries)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] RabbitMQ 비동기 작업 단일 진실(Spring만 갱신)';
@@ -628,7 +627,7 @@ CREATE TABLE chat_sessions (
   created_at       DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '생성',
   PRIMARY KEY (id),
   KEY ix_chat_sessions_user (user_id, status, last_message_at),
-  CONSTRAINT fk_chat_sessions_user FOREIGN KEY (user_id) REFERENCES users (id)
+  CONSTRAINT fk_chat_sessions_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 채팅 세션';
 
 -- AI 채팅 메시지 저장용 테이블 --
@@ -651,8 +650,8 @@ CREATE TABLE chat_messages (
   CONSTRAINT uq_chat_messages_client UNIQUE (session_id, client_message_id),
   KEY ix_chat_messages_session (session_id, created_at, id),
   KEY ix_chat_messages_run (run_id),
-  CONSTRAINT fk_chat_messages_session FOREIGN KEY (session_id) REFERENCES chat_sessions (id),
-  CONSTRAINT fk_chat_messages_reply FOREIGN KEY (reply_to_id) REFERENCES chat_messages (id)
+  CONSTRAINT fk_chat_messages_session FOREIGN KEY (session_id) REFERENCES chat_sessions (id) ON DELETE CASCADE,
+  CONSTRAINT fk_chat_messages_reply FOREIGN KEY (reply_to_id) REFERENCES chat_messages (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 채팅 메시지(스트림 청크별 저장 금지 FR-050)';
 
 -- AI 답변 중 도구 호출 기록 저장용 테이블 --
@@ -672,7 +671,7 @@ CREATE TABLE chat_tool_calls (
   PRIMARY KEY (id),
   CONSTRAINT uq_chat_tool_calls_order UNIQUE (message_id, call_order),
   KEY ix_chat_tool_calls_tool (tool_name, status),
-  CONSTRAINT fk_chat_tool_calls_message FOREIGN KEY (message_id) REFERENCES chat_messages (id)
+  CONSTRAINT fk_chat_tool_calls_message FOREIGN KEY (message_id) REFERENCES chat_messages (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 도구 호출 기록(AI 평가 지표: 호출 정확도·성공률·지연)';
 
 -- AI 답변 근거 출처 저장용 테이블 --
@@ -685,7 +684,7 @@ CREATE TABLE chat_message_sources (
   page_label   VARCHAR(50)     NULL COMMENT '페이지·조항',
   PRIMARY KEY (id),
   KEY ix_chat_message_sources_msg (message_id),
-  CONSTRAINT fk_chat_message_sources_msg FOREIGN KEY (message_id) REFERENCES chat_messages (id)
+  CONSTRAINT fk_chat_message_sources_msg FOREIGN KEY (message_id) REFERENCES chat_messages (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 답변 근거(sources:[{type,id}])';
 
 -- ---------------------------------------------------------------------
@@ -766,8 +765,8 @@ CREATE TABLE product_recommendations (
   created_at           DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '생성',
   PRIMARY KEY (id),
   KEY ix_product_recommendations_user (user_id, created_at),
-  CONSTRAINT fk_product_recommendations_user FOREIGN KEY (user_id) REFERENCES users (id),
-  CONSTRAINT fk_product_recommendations_an FOREIGN KEY (analysis_id) REFERENCES financial_analyses (id)
+  CONSTRAINT fk_product_recommendations_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_product_recommendations_an FOREIGN KEY (analysis_id) REFERENCES financial_analyses (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 상품 추천 결과(가입·승인과 구분)';
 
 -- 추천 상품 목록·조건 판정 저장용 테이블 (후순위: P1, 2차 개발) --
@@ -782,7 +781,7 @@ CREATE TABLE product_recommendation_items (
   source_refs_json    JSON            NULL COMMENT '근거 청크 참조',
   PRIMARY KEY (id),
   CONSTRAINT uq_product_recommendation_items UNIQUE (recommendation_id, rank_no),
-  CONSTRAINT fk_product_rec_items_rec FOREIGN KEY (recommendation_id) REFERENCES product_recommendations (id),
+  CONSTRAINT fk_product_rec_items_rec FOREIGN KEY (recommendation_id) REFERENCES product_recommendations (id) ON DELETE CASCADE,
   CONSTRAINT fk_product_rec_items_prod FOREIGN KEY (product_id) REFERENCES financial_products (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 추천 후보';
 
@@ -824,9 +823,9 @@ CREATE TABLE credit_assessments (
   PRIMARY KEY (id),
   CONSTRAINT uq_credit_assessments_req UNIQUE (user_id, request_key),
   KEY ix_credit_assessments_user (user_id, created_at),
-  CONSTRAINT fk_credit_assessments_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_credit_assessments_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT fk_credit_assessments_model FOREIGN KEY (model_id) REFERENCES credit_models (id),
-  CONSTRAINT fk_credit_assessments_consent FOREIGN KEY (consent_id) REFERENCES user_consents (id),
+  CONSTRAINT fk_credit_assessments_consent FOREIGN KEY (consent_id) REFERENCES user_consents (id) ON DELETE CASCADE,
   CONSTRAINT ck_credit_assessments_prob CHECK (risk_probability IS NULL OR (risk_probability >= 0 AND risk_probability <= 1)),
   CONSTRAINT ck_credit_assessments_window CHECK (window_to >= window_from),
   CONSTRAINT ck_credit_assessments_display CHECK (display_score IS NULL OR display_score <= 100)
@@ -843,7 +842,7 @@ CREATE TABLE credit_feature_values (
   calculation_version VARCHAR(40) NOT NULL COMMENT '특성 계산 버전',
   PRIMARY KEY (id),
   CONSTRAINT uq_credit_feature_values UNIQUE (assessment_id, feature_code),
-  CONSTRAINT fk_credit_feature_values_a FOREIGN KEY (assessment_id) REFERENCES credit_assessments (id),
+  CONSTRAINT fk_credit_feature_values_a FOREIGN KEY (assessment_id) REFERENCES credit_assessments (id) ON DELETE CASCADE,
   CONSTRAINT ck_credit_feature_values_missing CHECK ((is_missing = TRUE AND feature_value IS NULL) OR (is_missing = FALSE AND feature_value IS NOT NULL))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 평가 입력 특성 스냅샷(국적·성별·나이 사용 금지)';
 
@@ -887,7 +886,7 @@ CREATE TABLE fx_alerts (
   PRIMARY KEY (id),
   KEY ix_fx_alerts_active (status, currency),
   KEY ix_fx_alerts_user (user_id, status),
-  CONSTRAINT fk_fx_alerts_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_fx_alerts_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT fk_fx_alerts_rate FOREIGN KEY (triggered_rate_id) REFERENCES exchange_rates (id),
   CONSTRAINT ck_fx_alerts_target CHECK (target_rate > 0),
   CONSTRAINT ck_fx_alerts_trigger CHECK (status <> 'TRIGGERED' OR triggered_at IS NOT NULL)
