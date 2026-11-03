@@ -115,7 +115,7 @@ CREATE TABLE documents (
   user_id              BIGINT UNSIGNED NOT NULL COMMENT '소유자',
   document_type        ENUM('ARC','DRIVER_LICENSE','CERTIFICATE','INSURANCE_PDF','OTHER') NOT NULL COMMENT 'ARC=외국인등록증',
   side                 ENUM('FRONT','BACK','SINGLE') NOT NULL DEFAULT 'SINGLE' COMMENT '면',
-  object_key           VARCHAR(512)    NULL COMMENT 'MinIO 비공개 버킷 키(원본 삭제 후 NULL)',
+  object_key           VARCHAR(512)    NULL COMMENT 'R2 hanstep-arc-private 버킷 키(원본 삭제 후 NULL)',
   content_type         VARCHAR(100)    NOT NULL COMMENT 'MIME',
   file_size_bytes      INT UNSIGNED    NOT NULL COMMENT '파일 크기',
   sha256               CHAR(64)        NOT NULL COMMENT '중복 업로드 판별',
@@ -251,7 +251,7 @@ CREATE TABLE income_records (
 
 -- 비자 정책 원문 정보(RAG 근거 문서) 저장용 테이블 --
 CREATE TABLE policy_documents (
-  id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '정책 문서 ID(= Chroma 메타 policy_document_id)',
+  id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '정책 문서 ID(= MongoDB 청크 메타 policy_document_id)',
   source_type         ENUM('LAW','ADMIN_RULE','NOTICE','GUIDE','SCORE_TABLE') NOT NULL COMMENT '법령/행정규칙/공고/안내/점수표',
   title               VARCHAR(300)    NOT NULL COMMENT '문서 제목',
   issuing_agency      VARCHAR(100)    NOT NULL COMMENT '발행기관',
@@ -263,9 +263,9 @@ CREATE TABLE policy_documents (
   effective_to        DATE            NULL COMMENT '종료일(미포함)',
   policy_version      VARCHAR(40)     NOT NULL COMMENT '예: E74-2026-v1',
   content_hash        CHAR(64)        NOT NULL COMMENT '변경 감지',
-  object_key          VARCHAR(512)    NULL COMMENT 'MinIO 원문 파일',
+  object_key          VARCHAR(512)    NULL COMMENT 'R2 hanstep-visa-policies 원문 파일 키',
   review_status       ENUM('DRAFT','APPROVED','NEEDS_REVIEW','RETIRED') NOT NULL DEFAULT 'DRAFT' COMMENT 'APPROVED만 검색 대상',
-  chroma_collection   VARCHAR(100)    NULL COMMENT 'visa_policy_chunks',
+  chroma_collection   VARCHAR(100)    NULL COMMENT 'MongoDB 컬렉션 이름(예: visa_policy_chunks, 컬럼명은 이전 Chroma 기준)',
   chunk_count         INT UNSIGNED    NULL COMMENT '적재 청크 수',
   embedding_model     VARCHAR(100)    NULL COMMENT '임베딩 모델',
   ingested_at         DATETIME(3)     NULL COMMENT '인덱싱 완료',
@@ -275,7 +275,7 @@ CREATE TABLE policy_documents (
   CONSTRAINT uq_policy_documents_hash UNIQUE (content_hash),
   KEY ix_policy_documents_visa (visa_type_code, review_status, effective_from),
   CONSTRAINT ck_policy_documents_period CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to > effective_from)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 비자 정책 원문 메타(청크·벡터는 Chroma)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 비자 정책 원문 메타(청크·벡터는 MongoDB Vector Search)';
 
 -- E-7-4 점수표 버전 저장용 테이블 --
 CREATE TABLE e74_rule_sets (
@@ -680,7 +680,7 @@ CREATE TABLE chat_message_sources (
   message_id   BIGINT UNSIGNED NOT NULL COMMENT 'ASSISTANT 메시지',
   source_type  ENUM('POLICY_DOCUMENT','PRODUCT_DOCUMENT','FINANCIAL_ANALYSIS','E74_ASSESSMENT','VISA_ROADMAP') NOT NULL COMMENT '근거 종류',
   source_id    BIGINT UNSIGNED NOT NULL COMMENT '근거 행 ID',
-  chunk_ref    VARCHAR(100)    NULL COMMENT 'Chroma 청크 ID',
+  chunk_ref    VARCHAR(100)    NULL COMMENT 'MongoDB 청크 ID',
   page_label   VARCHAR(50)     NULL COMMENT '페이지·조항',
   PRIMARY KEY (id),
   KEY ix_chat_message_sources_msg (message_id),
@@ -718,12 +718,12 @@ CREATE TABLE financial_products (
 
 -- 상품설명서 원문 정보 저장용 테이블 (후순위: P1, 2차 개발) --
 CREATE TABLE product_documents (
-  id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '상품 문서 ID(= Chroma 메타 product_document_id)',
+  id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '상품 문서 ID(= MongoDB 청크 메타 product_document_id)',
   product_id        BIGINT UNSIGNED NOT NULL COMMENT '상품',
   doc_kind          ENUM('PRODUCT_DESCRIPTION','TERMS','RATE_SHEET','FOREIGNER_GUIDE') NOT NULL COMMENT '설명서/약관/금리/외국인 안내',
   document_version  VARCHAR(40)     NOT NULL COMMENT '문서 버전',
   source_url        VARCHAR(1000)   NOT NULL COMMENT '공식 원문',
-  object_key        VARCHAR(512)    NULL COMMENT 'MinIO 원문',
+  object_key        VARCHAR(512)    NULL COMMENT 'R2 hanstep-financial-products 원문 파일 키',
   content_hash      CHAR(64)        NOT NULL COMMENT '변경 감지',
   fetched_at        DATETIME(3)     NOT NULL COMMENT '수집 시각(시행일과 구분)',
   effective_from    DATE            NULL COMMENT '시행일',
@@ -734,7 +734,7 @@ CREATE TABLE product_documents (
   PRIMARY KEY (id),
   CONSTRAINT uq_product_documents_ver UNIQUE (product_id, doc_kind, document_version),
   CONSTRAINT fk_product_documents_product FOREIGN KEY (product_id) REFERENCES financial_products (id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 상품 원문 메타(청크는 Chroma)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 상품 원문 메타(청크는 MongoDB Vector Search)';
 
 -- 상품 가입 조건 저장용 테이블 (후순위: P1, 2차 개발) --
 CREATE TABLE product_eligibility_rules (
@@ -786,7 +786,7 @@ CREATE TABLE product_recommendation_items (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 추천 후보';
 
 -- ---------------------------------------------------------------------
--- I. 모의 대안신용평가 (재현 P1) — 학습 데이터는 서비스 DB 밖(MinIO CSV)
+-- I. 모의 대안신용평가 (재현 P1) — 학습 데이터는 서비스 DB 밖(R2 CSV)
 -- ---------------------------------------------------------------------
 
 -- 모의 금융 진단 모델 버전 저장용 테이블 (후순위: P1 재현, 2차 개발) --
@@ -798,7 +798,7 @@ CREATE TABLE credit_models (
   training_data    VARCHAR(300)    NOT NULL COMMENT '학습 데이터 설명(합성 여부 명시)',
   is_synthetic_trained BOOLEAN     NOT NULL DEFAULT TRUE COMMENT '합성 데이터 학습 여부',
   metrics_json     JSON            NULL COMMENT 'ROC-AUC, PR-AUC, 보정 지표',
-  artifact_key     VARCHAR(512)    NULL COMMENT 'MinIO 모델 파일',
+  artifact_key     VARCHAR(512)    NULL COMMENT 'R2 모델 파일',
   status           ENUM('DRAFT','ACTIVE','RETIRED') NOT NULL DEFAULT 'DRAFT' COMMENT '상태',
   created_at       DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '생성',
   PRIMARY KEY (id),
