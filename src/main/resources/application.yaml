@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: hanstep-backend
+  config:
+    import: optional:file:.env[.properties]
+  datasource:
+    url: jdbc:mysql://localhost:${MYSQL_PORT:3307}/${MYSQL_DATABASE:hanstep}?serverTimezone=UTC&characterEncoding=UTF-8
+    username: root
+    password: ${MYSQL_ROOT_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+server:
+  port: 8080
