@@ -27,6 +27,25 @@ out/
 # ===== VS Code =====
 .vscode/
 
+# ===== Eclipse / STS =====
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+# ===== NetBeans =====
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
 # ===== Spring Initializr 생성 파일 =====
 HELP.md
 
