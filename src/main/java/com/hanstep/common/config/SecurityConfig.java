@@ -20,6 +20,12 @@ public class SecurityConfig {
             "/api/v1/health"
     };
 
+    private final SecurityErrorHandler securityErrorHandler;
+
+    public SecurityConfig(SecurityErrorHandler securityErrorHandler) {
+        this.securityErrorHandler = securityErrorHandler;
+    }
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -28,6 +34,7 @@ public class SecurityConfig {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(securityErrorHandler))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_URLS).permitAll()
                         .anyRequest().authenticated());
