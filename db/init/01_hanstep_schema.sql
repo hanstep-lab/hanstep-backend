@@ -88,7 +88,7 @@ CREATE TABLE financial_goals (
 CREATE TABLE monthly_commitments (
   id                     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '필수 확보액 ID',
   user_id                BIGINT UNSIGNED NOT NULL COMMENT '사용자',
-  commitment_type        ENUM('REMITTANCE','RENT','UTILITY','TELECOM','MANDATORY_SAVING','LIVING_MINIMUM','OTHER') NOT NULL COMMENT '항목 유형(타입별 다중 행)',
+  commitment_type        ENUM('REMITTANCE','RENT','UTILITY','TELECOM','MANDATORY_SAVING','LIVING_MINIMUM','VARIABLE_EXPENSE','OTHER') NOT NULL COMMENT '항목 유형(타입별 다중 행). VARIABLE_EXPENSE=사용자가 입력한 예상 변동지출(식비·교통·여가 등, 여유자금 계산 시 차감)',
   label                  VARCHAR(100)    NULL COMMENT '사용자 표시명(예: 월세)',
   amount                 DECIMAL(18,2)   NOT NULL COMMENT '월 금액',
   currency               CHAR(3)         NOT NULL DEFAULT 'KRW' COMMENT '통화',
