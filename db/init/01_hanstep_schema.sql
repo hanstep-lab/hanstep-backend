@@ -847,30 +847,33 @@ CREATE TABLE credit_feature_values (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 평가 입력 특성 스냅샷(국적·성별·나이 사용 금지)';
 
 -- ---------------------------------------------------------------------
--- J. (P1) 환율 · 목표 환율 알림 — 범위 확정 전(1027 미결), 1차 개발 제외
+-- J. (P1) 환율 · 목표 환율 알림 · 해외송금 수취인 — 11/4 범위 확정(수출입은행 일별 고시 + 상용 API 시장 환율 참고값)
 -- ---------------------------------------------------------------------
 
--- 일별 고시 환율 저장용 테이블 (후순위: 환율 기능 포함 여부 미결) --
+-- 환율 저장용 테이블 (수출입은행 일별 고시 + 상용 API 시장 환율 참고값, 스케줄러 1시간 주기 수집) --
 CREATE TABLE exchange_rates (
   id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'ID',
   currency        CHAR(3)         NOT NULL COMMENT '통화(USD, VND 등)',
   unit_amount     INT UNSIGNED    NOT NULL DEFAULT 1 COMMENT '고시 단위(JPY·IDR·VND 100단위 등)',
-  rate_date       DATE            NOT NULL COMMENT '고시일(KST)',
-  base_rate       DECIMAL(18,4)   NOT NULL COMMENT '매매기준율(KRW / unit_amount)',
-  send_rate       DECIMAL(18,4)   NULL COMMENT '전신환 보낼 때(TTS)',
-  receive_rate    DECIMAL(18,4)   NULL COMMENT '전신환 받을 때(TTB)',
-  cash_buy_rate   DECIMAL(18,4)   NULL COMMENT '현찰 살 때(원천 미제공 시 NULL)',
-  cash_sell_rate  DECIMAL(18,4)   NULL COMMENT '현찰 팔 때(원천 미제공 시 NULL)',
-  source          ENUM('KOREAEXIM','ECOS','MOCK') NOT NULL COMMENT '출처(수출입은행·한국은행·데모)',
-  fetched_at      DATETIME(3)     NOT NULL COMMENT '수집 시각(UTC)',
+  rate_date       DATE            NOT NULL COMMENT '기준일(KST). 기간 평균은 영업일별 마지막 rate_at 값으로 조회 시 계산(저장 안 함)',
+  rate_at         DATETIME(3)     NOT NULL COMMENT '값의 기준 시각(UTC). KOREAEXIM은 시각 미제공이라 rate_date 00:00 KST로 저장(하루 1건), MARKET_REF는 원천 기준 시각(화면 "HH:mm 기준")',
+  base_rate       DECIMAL(18,4)   NOT NULL COMMENT '매매기준율(KRW / unit_amount). MARKET_REF는 시장 환율 참고값',
+  send_rate       DECIMAL(18,4)   NULL COMMENT '송금 보낼 때(TTS, KOREAEXIM만)',
+  receive_rate    DECIMAL(18,4)   NULL COMMENT '송금 받을 때(TTB, KOREAEXIM만)',
+  source          ENUM('KOREAEXIM','MARKET_REF','MOCK') NOT NULL COMMENT '출처(수출입은행 공식 고시 / 상용 API 시장 환율 참고값 / 데모)',
+  provider        VARCHAR(50)     NULL COMMENT 'MARKET_REF 상용 API 이름(미확정, 예: fxfeed)',
+  is_mock         BOOLEAN         NOT NULL DEFAULT FALSE COMMENT '데모 데이터 여부',
+  fetched_at      DATETIME(3)     NOT NULL COMMENT '수집 시각(UTC, 장애 시 마지막 값 표시 판단용)',
   created_at      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '생성',
   PRIMARY KEY (id),
-  CONSTRAINT uq_exchange_rates_day UNIQUE (currency, rate_date, source),
-  KEY ix_exchange_rates_date (rate_date),
-  CONSTRAINT ck_exchange_rates_base CHECK (base_rate > 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 일별 고시 환율(평균·추이는 이 테이블에서 계산, LLM 생성 금지)';
+  CONSTRAINT uq_exchange_rates_at UNIQUE (currency, source, rate_at),
+  KEY ix_exchange_rates_cur_date (currency, rate_date, rate_at),
+  CONSTRAINT ck_exchange_rates_base CHECK (base_rate > 0),
+  CONSTRAINT ck_exchange_rates_mock CHECK (source <> 'MOCK' OR is_mock = TRUE),
+  CONSTRAINT ck_exchange_rates_tt CHECK (source <> 'MARKET_REF' OR (send_rate IS NULL AND receive_rate IS NULL))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 환율(평균·추이는 이 테이블에서 계산, LLM 생성 금지, "실시간" 표기 금지)';
 
--- 목표 환율 알림 설정 저장용 테이블 (후순위: 환율 기능 포함 여부 미결) --
+-- 목표 환율 알림 설정 저장용 테이블 (P1, 앱 내 알림만. 카카오 알림톡·자동 예약 송금 없음) --
 CREATE TABLE fx_alerts (
   id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'ID',
   user_id         BIGINT UNSIGNED NOT NULL COMMENT '사용자',
@@ -891,3 +894,29 @@ CREATE TABLE fx_alerts (
   CONSTRAINT ck_fx_alerts_target CHECK (target_rate > 0),
   CONSTRAINT ck_fx_alerts_trigger CHECK (status <> 'TRIGGERED' OR triggered_at IS NOT NULL)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 목표 환율 알림(알림만, 자동 송금 없음)';
+
+-- 해외송금 받는 분 저장용 테이블 (TR-001 송금 화면·챗봇 재질의용. 송금 실행은 하지 않고 SOL 송금 화면으로 넘김) --
+CREATE TABLE remittance_recipients (
+  id                     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '수취인 ID',
+  user_id                BIGINT UNSIGNED NOT NULL COMMENT '송금하는 사용자',
+  external_recipient_key VARCHAR(100)    NOT NULL COMMENT 'SOL 등록 수취인 식별값(Mock은 고정 ID)',
+  name_en                VARCHAR(200)    NOT NULL COMMENT '받는 분 영문 이름(해외송금 필수, 거래내역 counterparty_name과 같은 표기)',
+  relationship           ENUM('MOTHER','FATHER','SPOUSE','CHILD','SIBLING','SELF','OTHER') NULL COMMENT '관계(사용자가 확인한 값만. 거래내역으로 추정해 저장하지 않음)',
+  country_code           CHAR(2)         NOT NULL COMMENT '받는 나라(ISO 3166-1 alpha-2, 예: VN)',
+  currency               CHAR(3)         NOT NULL COMMENT '받는 통화(예: VND)',
+  bank_name              VARCHAR(100)    NOT NULL COMMENT '받는 은행 이름(예: Vietcombank)',
+  swift_code             VARCHAR(11)     NULL COMMENT '받는 은행 SWIFT(BIC) 코드(8자리 또는 11자리)',
+  account_no_masked      VARCHAR(50)     NOT NULL COMMENT '화면 표시용 마스킹 계좌번호(원문 저장 안 함)',
+  source                 ENUM('MOCK','SOL','USER') NOT NULL DEFAULT 'MOCK' COMMENT '출처(Mock / SOL 등록 수취인 / 사용자 입력)',
+  is_mock                BOOLEAN         NOT NULL DEFAULT TRUE COMMENT 'Mock 여부',
+  is_active              BOOLEAN         NOT NULL DEFAULT TRUE COMMENT '사용 여부',
+  relationship_confirmed_at DATETIME(3)  NULL COMMENT '사용자가 관계를 확인한 시각(재질의 응답)',
+  created_at             DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '생성',
+  updated_at             DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
+  PRIMARY KEY (id),
+  CONSTRAINT uq_remittance_recipients_ext UNIQUE (user_id, external_recipient_key),
+  KEY ix_remittance_recipients_user (user_id, is_active),
+  CONSTRAINT fk_remittance_recipients_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT ck_remittance_recipients_swift CHECK (swift_code IS NULL OR CHAR_LENGTH(swift_code) IN (8, 11)),
+  CONSTRAINT ck_remittance_recipients_mock CHECK (source <> 'MOCK' OR is_mock = TRUE)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 해외송금 받는 분(Mock 시드 1건, 송금 실행 없음)';
