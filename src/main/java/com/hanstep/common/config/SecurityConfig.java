@@ -1,5 +1,7 @@
 package com.hanstep.common.config;
 
+import com.hanstep.common.security.JwtAuthenticationFilter;
+import com.hanstep.common.security.JwtTokenProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -7,6 +9,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -17,13 +20,17 @@ public class SecurityConfig {
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/v3/api-docs/**",
-            "/api/v1/health"
+            "/api/v1/health",
+            "/api/v1/auth/entry",
+            "/error"
     };
 
     private final SecurityErrorHandler securityErrorHandler;
+    private final JwtTokenProvider jwtTokenProvider;
 
-    public SecurityConfig(SecurityErrorHandler securityErrorHandler) {
+    public SecurityConfig(SecurityErrorHandler securityErrorHandler, JwtTokenProvider jwtTokenProvider) {
         this.securityErrorHandler = securityErrorHandler;
+        this.jwtTokenProvider = jwtTokenProvider;
     }
 
     @Bean
@@ -37,7 +44,9 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(securityErrorHandler))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_URLS).permitAll()
-                        .anyRequest().authenticated());
+                        .anyRequest().authenticated())
+                .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider),
+                        UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
