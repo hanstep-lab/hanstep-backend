@@ -871,7 +871,7 @@ CREATE TABLE exchange_rates (
   CONSTRAINT ck_exchange_rates_base CHECK (base_rate > 0),
   CONSTRAINT ck_exchange_rates_mock CHECK (source <> 'MOCK' OR is_mock = TRUE),
   CONSTRAINT ck_exchange_rates_tt CHECK (source <> 'MARKET_REF' OR (send_rate IS NULL AND receive_rate IS NULL))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 환율(평균·추이는 이 테이블에서 계산, LLM 생성 금지, "실시간" 표기 금지)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 환율(평균·추이는 이 테이블에서 계산, LLM 생성 금지, "실시간" 표기 금지)';
 
 -- 목표 환율 알림 설정 저장용 테이블 (P1, 앱 내 알림만. 카카오 알림톡·자동 예약 송금 없음) --
 CREATE TABLE fx_alerts (
@@ -919,4 +919,4 @@ CREATE TABLE remittance_recipients (
   CONSTRAINT fk_remittance_recipients_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT ck_remittance_recipients_swift CHECK (swift_code IS NULL OR CHAR_LENGTH(swift_code) IN (8, 11)),
   CONSTRAINT ck_remittance_recipients_mock CHECK (source <> 'MOCK' OR is_mock = TRUE)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 해외송금 받는 분(Mock 시드 1건, 송금 실행 없음)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 해외송금 받는 분(Mock 시드 1건, 송금 실행 없음)';
