@@ -30,6 +30,9 @@ class MockMydataFileTest {
             "TRANSFER", "SAVINGS", "CARD_PAYMENT");
     private static final Set<String> TRANSACTION_KINDS = Set.of("NORMAL", "OWN_TRANSFER", "SAVINGS_TRANSFER",
             "LOAN_DISBURSEMENT", "LOAN_REPAYMENT", "CARD_SETTLEMENT");
+    // financial_accounts.account_type ENUM
+    private static final Set<String> ACCOUNT_TYPES = Set.of("DEMAND", "SAVINGS", "INSTALLMENT", "FOREIGN_CURRENCY",
+            "CARD", "OTHER");
 
     @Test
     void 은행_거래는_12개월_매달_급여_송금_공과금이_있다() throws IOException {
@@ -101,6 +104,15 @@ class MockMydataFileTest {
             long amount = t.has("trans_amt") ? t.path("trans_amt").asLong() : t.path("approved_amt").asLong();
             assertThat(amount).isPositive(); // ck_financial_transactions_amount
         }
+    }
+
+    @Test
+    void 계좌_유형은_DB_ENUM_값이고_카드는_CARD() throws IOException {
+        JsonNode bankAccount = read("bank-shinhan.json").path("account_list").get(0);
+        JsonNode card = read("card-shinhan.json").path("card_list").get(0);
+
+        assertThat(ACCOUNT_TYPES).contains(bankAccount.path("account_type").asString());
+        assertThat(card.path("account_type").asString()).isEqualTo("CARD");
     }
 
     @Test

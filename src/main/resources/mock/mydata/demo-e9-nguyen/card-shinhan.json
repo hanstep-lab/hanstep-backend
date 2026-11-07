@@ -40,6 +40,7 @@
       "card_key": "mock-shc-card-001",
       "card_num_masked": "5107-37**-****-3391",
       "card_name": "신한카드 Mock 신용카드",
+      "account_type": "CARD",
       "card_type": "CREDIT",
       "issue_date": "2023-06-12",
       "payment_account_key": "mock-shb-acc-001",

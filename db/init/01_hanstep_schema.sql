@@ -468,7 +468,7 @@ CREATE TABLE financial_accounts (
   batch_id              BIGINT UNSIGNED NOT NULL COMMENT '최초 적재 배치(목인지 아닌지 구분용)',
   external_account_key  VARCHAR(100)    NOT NULL COMMENT '원천 계좌 식별자(조회·재수집 매칭용, Mock은 고정 ID). 실연동 시 계좌번호 원문이면 암호화 저장',
   account_no_masked     VARCHAR(40)     NOT NULL COMMENT '화면 표시 전용 마스킹 번호(조회에 사용 안 함, 전체 번호 저장 금지)',
-  account_type          ENUM('DEMAND','SAVINGS','INSTALLMENT','FOREIGN_CURRENCY','OTHER') NOT NULL COMMENT '입출금/예금/적금/외화',
+  account_type          ENUM('DEMAND','SAVINGS','INSTALLMENT','FOREIGN_CURRENCY','CARD','OTHER') NOT NULL COMMENT '입출금/예금/적금/외화/카드(신용·체크카드)',
   product_name          VARCHAR(200)    NULL COMMENT '상품명',
   currency              CHAR(3)         NOT NULL DEFAULT 'KRW' COMMENT '통화',
   balance               DECIMAL(18,2)   NOT NULL DEFAULT 0 COMMENT '잔액',
