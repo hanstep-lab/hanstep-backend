@@ -1,6 +1,7 @@
 package com.hanstep.onboarding.dto;
 
 import com.hanstep.common.dto.Money;
+import com.hanstep.onboarding.domain.OnboardingProfile;
 import com.hanstep.onboarding.domain.ResidencePurpose;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
@@ -23,4 +24,16 @@ public record OnboardingProfileResponse(
         @Schema(description = "사업주 숙소 제공 여부", example = "false", nullable = true)
         Boolean housingProvided
 ) {
+
+    /** 아직 저장한 적 없는 사용자. */
+    public static OnboardingProfileResponse empty() {
+        return new OnboardingProfileResponse(null, null, null, null, null);
+    }
+
+    public static OnboardingProfileResponse from(OnboardingProfile profile) {
+        Money income = profile.getDeclaredMonthlyIncome() == null ? null
+                : Money.krw(profile.getDeclaredMonthlyIncome().longValue());
+        return new OnboardingProfileResponse(profile.getResidencePurpose(), income, profile.getKoreaEntryDate(),
+                profile.getResidenceRegionCode(), profile.getHousingProvided());
+    }
 }

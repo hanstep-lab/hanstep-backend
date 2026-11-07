@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -15,7 +16,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * onboarding_progress 테이블. 사용자·단계마다 1행(UNIQUE user_id, step_code).
- * 행이 없는 단계는 NOT_STARTED 로 본다. 단계 저장(ONB-03)은 온보딩 BE 작업에서 추가한다.
+ * 행이 없는 단계는 NOT_STARTED 로 본다.
  */
 @Entity
 @Table(name = "onboarding_progress")
@@ -40,9 +41,22 @@ public class OnboardingProgress {
             "enum('NOT_STARTED','IN_PROGRESS','COMPLETED','SKIPPED')")
     private OnboardingStepStatus status;
 
+    // DB 는 UTC(hibernate.jdbc.time_zone). 응답 때 +09:00 으로 바꾼다
     @Column(name = "completed_at")
-    private LocalDateTime completedAt;
+    private Instant completedAt;
 
     @Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
     private LocalDateTime updatedAt;
+
+    public OnboardingProgress(Long userId, OnboardingStep stepCode) {
+        this.userId = userId;
+        this.stepCode = stepCode;
+        this.status = OnboardingStepStatus.NOT_STARTED;
+    }
+
+    /** 완료 또는 건너뜀. 다시 보내면 상태·시각을 덮어쓴다. */
+    public void finish(OnboardingStepStatus status, Instant at) {
+        this.status = status;
+        this.completedAt = at;
+    }
 }

@@ -58,4 +58,8 @@ public class User {
     public boolean isActive() {
         return status == UserStatus.ACTIVE;
     }
+
+    public void changeLanguage(Language language) {
+        this.preferredLanguage = language;
+    }
 }
