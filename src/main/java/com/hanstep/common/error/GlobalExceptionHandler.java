@@ -8,8 +8,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
@@ -38,6 +40,20 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleUnreadable(HttpMessageNotReadableException e) {
         return build(ErrorCode.VALIDATION_ERROR, "malformed request body", null);
+    }
+
+    // 경로·쿼리 값 형식 오류 (예: 없는 stepCode)
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        return build(ErrorCode.VALIDATION_ERROR, null,
+                Map.of("fields", List.of(Map.of("field", e.getName(), "reason", "invalid value"))));
+    }
+
+    // 필수 헤더 누락 (예: Idempotency-Key)
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException e) {
+        return build(ErrorCode.VALIDATION_ERROR, null,
+                Map.of("fields", List.of(Map.of("field", e.getHeaderName(), "reason", "required header"))));
     }
 
     // 없는 주소
