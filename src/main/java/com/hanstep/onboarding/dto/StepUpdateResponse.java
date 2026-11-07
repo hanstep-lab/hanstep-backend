@@ -1,9 +1,12 @@
 package com.hanstep.onboarding.dto;
 
+import com.hanstep.onboarding.domain.OnboardingProgress;
+import com.hanstep.onboarding.domain.OnboardingState;
 import com.hanstep.onboarding.domain.OnboardingStep;
 import com.hanstep.onboarding.domain.OnboardingStepStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Schema(description = "단계 저장 결과와 다음 이동할 단계")
 public record StepUpdateResponse(
@@ -23,4 +26,9 @@ public record StepUpdateResponse(
                 example = "GOALS", nullable = true)
         OnboardingStep currentStep
 ) {
+
+    public static StepUpdateResponse of(OnboardingProgress saved, OnboardingState state) {
+        return new StepUpdateResponse(saved.getStepCode(), saved.getStatus(),
+                saved.getCompletedAt().atOffset(ZoneOffset.ofHours(9)), state.completed(), state.currentStep());
+    }
 }
