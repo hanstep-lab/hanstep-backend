@@ -37,8 +37,8 @@ public class ConsentController {
     }
 
     @Operation(summary = "동의 일괄 저장 (CNS-02)",
-            description = "ON-003A 마이데이터 연결 동의에서는 MYDATA·MYDATA_TERMS 두 건을 모두 agreed=true 로 보낸다"
-                    + "(둘 중 하나라도 없으면 MYD-02 가 403 CONSENT_REQUIRED). agreed=false 는 철회로 이력에 남긴다. "
+            description = "ON-003A 마이데이터 연결 동의에서는 MYDATA·MYDATA_TERMS 두 건을 모두 granted=true 로 보낸다"
+                    + "(둘 중 하나라도 없으면 MYD-02 가 403 CONSENT_REQUIRED). granted=false 는 철회(REVOKED)로 이력에 남긴다. "
                     + "저장한 종류의 최신 상태를 돌려준다. [계약 단계: 고정 예시 응답]")
     @ApiResponse(responseCode = "201", description = "저장 성공")
     @ApiResponse(responseCode = "200", description = "같은 Idempotency-Key 재요청: 처음 결과를 그대로 반환")

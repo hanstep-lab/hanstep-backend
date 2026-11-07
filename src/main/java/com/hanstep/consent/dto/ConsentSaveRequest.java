@@ -10,8 +10,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 
-@Schema(description = "동의 일괄 저장. 마이데이터 연결(ON-003A)에서는 MYDATA·MYDATA_TERMS 가 모두 agreed=true 여야 한다. "
-        + "agreed=false 는 철회로 기록(이력 유지)")
+@Schema(description = "동의 일괄 저장. 마이데이터 연결(ON-003A)에서는 MYDATA·MYDATA_TERMS 가 모두 granted=true 여야 한다. "
+        + "granted=false 는 철회(REVOKED)로 기록(이력 유지)")
 public record ConsentSaveRequest(
         @ArraySchema(arraySchema = @Schema(description = "저장할 동의 목록"))
         @NotEmpty
@@ -30,9 +30,9 @@ public record ConsentSaveRequest(
             @Size(max = 40)
             String policyVersion,
 
-            @Schema(description = "true=동의, false=철회", example = "true")
+            @Schema(description = "true=동의(GRANTED), false=철회(REVOKED)", example = "true")
             @NotNull
-            Boolean agreed
+            Boolean granted
     ) {
     }
 }
