@@ -1,6 +1,7 @@
 package com.hanstep.goal.dto;
 
 import com.hanstep.common.dto.Money;
+import com.hanstep.goal.domain.FinancialGoal;
 import com.hanstep.goal.domain.GoalStatus;
 import com.hanstep.goal.domain.GoalType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -24,4 +25,10 @@ public record GoalResponse(
         @Schema(description = "상태. 목록 조회는 ACTIVE 만 반환", example = "ACTIVE")
         GoalStatus status
 ) {
+
+    public static GoalResponse from(FinancialGoal goal) {
+        Money amount = goal.getTargetAmount() == null ? null
+                : new Money(goal.getTargetAmount().longValue(), goal.getCurrency());
+        return new GoalResponse(goal.getId(), goal.getGoalType(), amount, goal.getTargetDate(), goal.getStatus());
+    }
 }
