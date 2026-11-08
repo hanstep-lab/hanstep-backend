@@ -107,7 +107,7 @@ public final class DemoExamples {
         return new OnboardingSummaryResponse(
                 new OnboardingSummaryResponse.User(1L, "NGUYEN VAN MINH", Language.en, "VNM"),
                 new OnboardingSummaryResponse.Visa("E-9", "Non-professional Employment", STAY_EXPIRES_ON,
-                        daysRemaining),
+                        daysRemaining, 10),
                 goals().goals(),
                 commitments(),
                 new OnboardingSummaryResponse.Balance(
@@ -168,9 +168,10 @@ public final class DemoExamples {
 
     public static GoalListResponse goals() {
         return new GoalListResponse(List.of(
-                new GoalResponse(1L, GoalType.LUMP_SUM, Money.krw(6_000_000), STAY_EXPIRES_ON, GoalStatus.ACTIVE),
-                new GoalResponse(2L, GoalType.REMITTANCE, null, null, GoalStatus.ACTIVE),
-                new GoalResponse(3L, GoalType.LIVING_COST, null, null, GoalStatus.ACTIVE)));
+                new GoalResponse(1L, GoalType.LUMP_SUM, Money.krw(6_000_000), STAY_EXPIRES_ON, GoalStatus.ACTIVE,
+                        Money.krw(600_000)),
+                new GoalResponse(2L, GoalType.REMITTANCE, null, null, GoalStatus.ACTIVE, null),
+                new GoalResponse(3L, GoalType.LIVING_COST, null, null, GoalStatus.ACTIVE, null)));
     }
 
     // ---- 필수 확보액 ----

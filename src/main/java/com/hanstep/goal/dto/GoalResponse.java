@@ -1,6 +1,7 @@
 package com.hanstep.goal.dto;
 
 import com.hanstep.common.dto.Money;
+import com.hanstep.common.time.KstDates;
 import com.hanstep.goal.domain.FinancialGoal;
 import com.hanstep.goal.domain.GoalStatus;
 import com.hanstep.goal.domain.GoalType;
@@ -23,12 +24,21 @@ public record GoalResponse(
         LocalDate targetDate,
 
         @Schema(description = "상태. 목록 조회는 ACTIVE 만 반환", example = "ACTIVE")
-        GoalStatus status
+        GoalStatus status,
+
+        @Schema(description = "목표 달성에 필요한 월 저축액(계산값). 목표 금액 ÷ 목표일까지 남은 개월 수(꽉 찬 달, 최소 1), "
+                + "원 단위 올림. 목표 금액·목표일이 없거나 목표일이 지났으면 null",
+                example = "{\"amount\": 600000, \"currency\": \"KRW\"}", nullable = true)
+        Money monthlyRequired
 ) {
 
-    public static GoalResponse from(FinancialGoal goal) {
+    public static GoalResponse from(FinancialGoal goal, LocalDate today) {
         Money amount = goal.getTargetAmount() == null ? null
                 : new Money(goal.getTargetAmount().longValue(), goal.getCurrency());
-        return new GoalResponse(goal.getId(), goal.getGoalType(), amount, goal.getTargetDate(), goal.getStatus());
+        Long required = amount == null ? null
+                : KstDates.monthlyRequired(amount.amount(), today, goal.getTargetDate());
+        Money monthlyRequired = required == null ? null : new Money(required, goal.getCurrency());
+        return new GoalResponse(goal.getId(), goal.getGoalType(), amount, goal.getTargetDate(), goal.getStatus(),
+                monthlyRequired);
     }
 }

@@ -1,7 +1,6 @@
 package com.hanstep.onboarding.controller;
 
 import com.hanstep.common.error.ErrorResponse;
-import com.hanstep.common.example.DemoExamples;
 import com.hanstep.onboarding.domain.OnboardingStep;
 import com.hanstep.onboarding.dto.OnboardingProfileRequest;
 import com.hanstep.onboarding.dto.OnboardingProfileResponse;
@@ -27,7 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 온보딩 ON-001 ~ ON-006. ONB-01~03 은 DB 로직, ONB-04(최종 확인)는 아직 고정 예시 응답.
+ * 온보딩 ON-001 ~ ON-006. ONB-01~04.
  */
 @Tag(name = "Onboarding", description = "온보딩 진행·프로필·최종 확인 (ON-001 ~ ON-006)")
 @RestController
@@ -85,12 +84,12 @@ public class OnboardingController {
     @Operation(summary = "온보딩 최종 확인 데이터 (ONB-04)",
             description = "ON-006 화면 전체를 한 번에. 잔여일(daysRemaining)·합계·여유자금(spare)은 계산값이고 "
                     + "spare = avgMonthlyIncome − fixedLiving − remittance − variableExpense (MANDATORY_SAVING 은 빼지 않음). "
-                    + "등록증을 확정하지 않았으면 visa 는 null. [계약 단계: 고정 예시 응답, daysRemaining 만 오늘 기준 계산]")
+                    + "등록증을 확정하지 않았으면 visa 는 null. balance 는 FIN-05 연동 전까지 null.")
     @ApiResponse(responseCode = "200", description = "성공")
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @GetMapping("/summary")
     public OnboardingSummaryResponse getSummary(@Parameter(hidden = true) @AuthenticationPrincipal Long userId) {
-        return DemoExamples.summary();
+        return onboardingService.getSummary(userId);
     }
 }
