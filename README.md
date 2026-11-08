@@ -19,3 +19,9 @@ docker compose up -d      # MySQL(3307), RabbitMQ, MongoDB 실행
 - 외부 API: `/api/v1`, 내부 API(AI 서버용): `/internal/v1`
 - 오류 응답: `{ code, message, details, requestId }`
 - 스키마 기준: `db/init/*.sql`
+
+### 인증 (앱인앱 진입)
+- 자체 로그인 없음. `POST /api/v1/auth/entry` 에 SOL 진입 토큰을 보내 JWT를 받는다. 데모 토큰: `demo-e9-nguyen` (`db/init/03_hanstep_demo_seed.sql`)
+- 이후 요청은 `Authorization: Bearer {accessToken}`. 만료(기본 1시간) 시 401 → 다시 `/auth/entry`
+- `.env`에 `JWT_SECRET`이 없으면 서버가 시작되지 않는다. 만드는 방법은 `.env.example` 참고
+- Swagger: http://localhost:8080/swagger-ui.html → Authorize 버튼에 accessToken 입력
