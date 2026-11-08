@@ -15,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +33,9 @@ class OnboardingContractTest {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private String bearer;
 
@@ -125,6 +129,11 @@ class OnboardingContractTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details.fields[0].field").value("Idempotency-Key"));
 
+        // MYD-02 는 MYDATA·MYDATA_TERMS 동의가 있어야 한다(없으면 403). 롤백되므로 실제 데이터는 그대로
+        for (String type : new String[] {"MYDATA", "MYDATA_TERMS"}) {
+            jdbcTemplate.update("INSERT INTO user_consents (user_id, consent_type, policy_version, status, granted_at) "
+                    + "VALUES (1, ?, 'test', 'GRANTED', NOW(3))", type);
+        }
         mockMvc.perform(post("/api/v1/mydata/connections")
                         .header(HttpHeaders.AUTHORIZATION, bearer)
                         .header("Idempotency-Key", "test-key-1")
