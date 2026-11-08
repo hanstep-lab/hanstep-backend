@@ -5,7 +5,6 @@ import com.hanstep.common.error.ErrorCode;
 import com.hanstep.mydata.domain.BatchStatus;
 import com.hanstep.mydata.domain.DataConnection;
 import com.hanstep.mydata.domain.FinancialAccount;
-import com.hanstep.mydata.domain.FinancialTransaction;
 import com.hanstep.mydata.domain.IngestionBatch;
 import com.hanstep.mydata.domain.MydataScope;
 import com.hanstep.mydata.repository.DataConnectionRepository;
@@ -14,11 +13,12 @@ import com.hanstep.mydata.repository.FinancialTransactionRepository;
 import com.hanstep.mydata.repository.IngestionBatchRepository;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
@@ -34,22 +34,31 @@ import tools.jackson.databind.json.JsonMapper;
 public class MockIngestionService {
 
     private static final ObjectMapper MAPPER = JsonMapper.builder().build();
+    private static final int TXN_BATCH_SIZE = 1_000;
+    // (account_id, external_txn_key) 중복만 건너뛴다(재수집). 외래키·CHECK 위반은 오류로 적재 실패.
+    // classification_source 는 DB 기본값
+    private static final String INSERT_TXN = "INSERT INTO financial_transactions (user_id, account_id, "
+            + "batch_id, external_txn_key, transacted_at, booked_date, direction, amount, currency, "
+            + "counterparty_name, counterparty_bank, memo, category_code, transaction_kind) "
+            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id";
 
     private final IngestionBatchRepository batchRepository;
     private final DataConnectionRepository connectionRepository;
     private final FinancialAccountRepository accountRepository;
     private final FinancialTransactionRepository transactionRepository;
+    private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate tx;
 
     public MockIngestionService(IngestionBatchRepository batchRepository,
                                 DataConnectionRepository connectionRepository,
                                 FinancialAccountRepository accountRepository,
                                 FinancialTransactionRepository transactionRepository,
-                                TransactionTemplate tx) {
+                                JdbcTemplate jdbcTemplate, TransactionTemplate tx) {
         this.batchRepository = batchRepository;
         this.connectionRepository = connectionRepository;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
+        this.jdbcTemplate = jdbcTemplate;
         this.tx = tx;
     }
 
@@ -89,7 +98,6 @@ public class MockIngestionService {
         Instant syncedAt = now();
         LocalDate coverageFrom = null;
         LocalDate coverageTo = null;
-        int inserted = 0;
 
         for (Target target : targets) {
             DataConnection connection = connectionRepository
@@ -122,19 +130,30 @@ public class MockIngestionService {
                 }
 
                 Long accountId = account.getId();
-                Set<String> existing = new HashSet<>(transactionRepository.findExternalTxnKeysByAccountId(accountId));
-                List<FinancialTransaction> fresh = a.transactions().stream()
+                List<MockMydataReader.Transaction> inPeriod = a.transactions().stream()
                         .filter(t -> !t.bookedDate().isBefore(from))
-                        .filter(t -> existing.add(t.externalKey()))
-                        .map(t -> new FinancialTransaction(userId, accountId, batchId, t.externalKey(),
-                                t.transactedAt(), t.bookedDate(), t.direction(), t.amount(), t.currency(),
-                                t.counterpartyName(), t.counterpartyBank(), t.memo(), t.categoryCode(),
-                                t.transactionKind()))
                         .toList();
-                transactionRepository.saveAll(fresh); // A안: JPA saveAll(IDENTITY 라 행마다 INSERT 1번)
-                inserted += fresh.size();
+                // B안: 1,000건씩 묶어 INSERT(rewriteBatchedStatements 로 묶음마다 다중 행 INSERT 1번)
+                jdbcTemplate.batchUpdate(INSERT_TXN, inPeriod, TXN_BATCH_SIZE, (ps, t) -> {
+                    ps.setLong(1, userId);
+                    ps.setLong(2, accountId);
+                    ps.setLong(3, batchId);
+                    ps.setString(4, t.externalKey());
+                    ps.setObject(5, LocalDateTime.ofInstant(t.transactedAt(), ZoneOffset.UTC));
+                    ps.setObject(6, t.bookedDate());
+                    ps.setString(7, t.direction().name());
+                    ps.setBigDecimal(8, t.amount());
+                    ps.setString(9, t.currency());
+                    ps.setString(10, t.counterpartyName());
+                    ps.setString(11, t.counterpartyBank());
+                    ps.setString(12, t.memo());
+                    ps.setString(13, t.categoryCode());
+                    ps.setString(14, t.transactionKind().name());
+                });
             }
         }
+        // 다중 행 INSERT 는 행별 갱신 수를 주지 않으므로(SUCCESS_NO_INFO) 이번 배치가 넣은 행을 센다
+        int inserted = transactionRepository.countByBatchId(batchId);
         batch.succeed(coverageFrom, coverageTo, inserted, now());
     }
 
