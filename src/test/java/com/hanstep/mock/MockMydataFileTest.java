@@ -17,7 +17,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 마이데이터 Mock 원천 파일(src/main/resources/mock/mydata) 형식 검증.
- * 시연 페르소나 값(DemoExamples)과 DB 칸(financial_transactions 등)에 맞는지 본다. 점수 계산은 하지 않는다.
+ * 시연 페르소나 값(DemoExamples)과 DB 칸(financial_transactions 등)에 맞는지 확인. 점수 계산은 하지 않음.
  */
 class MockMydataFileTest {
 

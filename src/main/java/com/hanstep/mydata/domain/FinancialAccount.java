@@ -16,7 +16,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * financial_accounts 테이블. (user_id, institution_id, external_account_key) UNIQUE 로 재수집 때 같은 계좌를 찾는다.
+ * financial_accounts 테이블. (user_id, institution_id, external_account_key) UNIQUE 로 재수집 때 같은 계좌를 찾음.
  * batch_id 는 최초 적재 배치. account_no_masked 는 화면 표시 전용.
  */
 @Entity
@@ -84,7 +84,7 @@ public class FinancialAccount {
         this.openedOn = openedOn;
     }
 
-    /** 재수집: 잔액만 원천 값으로 갱신한다. */
+    /** 재수집: 잔액만 원천 값으로 갱신함. */
     public void refreshBalance(BigDecimal balance, Instant balanceAsOf) {
         this.balance = balance;
         this.balanceAsOf = balanceAsOf;

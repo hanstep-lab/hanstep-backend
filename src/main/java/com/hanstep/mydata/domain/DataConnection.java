@@ -13,7 +13,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/** data_connections 테이블. 사용자·기관당 1행(UNIQUE). 다시 연결하면 같은 행을 갱신한다. */
+/** data_connections 테이블. 사용자·기관당 1행(UNIQUE). 다시 연결하면 같은 행을 갱신함. */
 @Entity
 @Table(name = "data_connections")
 @Getter

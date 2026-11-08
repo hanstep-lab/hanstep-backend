@@ -27,8 +27,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
- * MYD-02. PENDING 배치가 실제로 커밋돼야 멱등·동시성을 볼 수 있어 롤백하지 않는다.
- * 테스트 전용 사용자를 만들고 끝나면 지운다(users ON DELETE CASCADE 로 동의·연결·배치·계좌·거래도 지워짐).
+ * MYD-02. PENDING 배치가 실제로 커밋돼야 멱등·동시성을 볼 수 있어 롤백하지 않음.
+ * 테스트 전용 사용자를 만들고 끝나면 지움(users ON DELETE CASCADE 로 동의·연결·배치·계좌·거래도 지워짐).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -97,7 +97,7 @@ class MydataApiTest {
         assertThat(batch.get("finished_at")).isNotNull();
         assertThat(transactionCount()).isEqualTo(BANK_TXNS + CARD_TXNS);
 
-        // _dtime 은 KST → transacted_at 은 UTC, booked_date 는 KST 날짜(자정 근처면 날짜가 달라진다)
+        // _dtime 은 KST → transacted_at 은 UTC, booked_date 는 KST 날짜(자정 근처면 날짜가 달라짐)
         assertThat(jdbcTemplate.queryForObject("SELECT CONCAT(transacted_at, ' / ', booked_date, ' / ', direction) "
                 + "FROM financial_transactions WHERE user_id = ? AND external_txn_key = 'SHC-20251101-01'",
                 String.class, userId)).isEqualTo("2025-10-31 22:15:12.000 / 2025-11-01 / EXPENSE");

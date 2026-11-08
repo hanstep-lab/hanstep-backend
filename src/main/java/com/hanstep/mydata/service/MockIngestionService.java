@@ -27,15 +27,15 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * MYD-02 의 적재 부분. ingestion_batches → data_connections · financial_accounts → financial_transactions.
  *
- * <p>트랜잭션을 셋으로 나눈다. ① PENDING 배치 INSERT(바로 커밋, 같은 키 동시 요청은 UNIQUE 충돌)
- * ② 적재 + SUCCEEDED ③ 실패하면 FAILED. 그래서 이 메서드는 @Transactional 을 붙이지 않는다.
+ * <p>트랜잭션을 셋으로 나눔. ① PENDING 배치 INSERT(바로 커밋, 같은 키 동시 요청은 UNIQUE 충돌)
+ * ② 적재 + SUCCEEDED ③ 실패하면 FAILED. 그래서 이 메서드는 @Transactional 을 붙이지 않음.
  */
 @Service
 public class MockIngestionService {
 
     private static final ObjectMapper MAPPER = JsonMapper.builder().build();
     private static final int TXN_BATCH_SIZE = 1_000;
-    // (account_id, external_txn_key) 중복만 건너뛴다(재수집). 외래키·CHECK 위반은 오류로 적재 실패.
+    // (account_id, external_txn_key) 중복만 건너뜀(재수집). 외래키·CHECK 위반은 오류로 적재 실패.
     // classification_source 는 DB 기본값
     private static final String INSERT_TXN = "INSERT INTO financial_transactions (user_id, account_id, "
             + "batch_id, external_txn_key, transacted_at, booked_date, direction, amount, currency, "
@@ -63,7 +63,7 @@ public class MockIngestionService {
     }
 
     /**
-     * @return true 면 이번 요청이 적재했다. false 면 같은 키가 이미 SUCCEEDED(재요청).
+     * @return true 면 이번 요청에서 적재. false 면 같은 키가 이미 SUCCEEDED(재요청).
      * @throws BusinessException 같은 키가 처리 중(PENDING)이면 DUPLICATE_REQUEST, 실패(FAILED)했으면 INVALID_STATE
      */
     public boolean ingest(Long userId, String requestKey, Long consentId, List<MydataScope> scopes,
@@ -152,7 +152,7 @@ public class MockIngestionService {
                 });
             }
         }
-        // 다중 행 INSERT 는 행별 갱신 수를 주지 않으므로(SUCCESS_NO_INFO) 이번 배치가 넣은 행을 센다
+        // 다중 행 INSERT 는 행별 갱신 수를 주지 않으므로(SUCCESS_NO_INFO) 이번 배치가 넣은 행 수를 조회
         int inserted = transactionRepository.countByBatchId(batchId);
         batch.succeed(coverageFrom, coverageTo, inserted, now());
     }

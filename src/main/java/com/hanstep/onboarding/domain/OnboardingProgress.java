@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * onboarding_progress 테이블. 사용자·단계마다 1행(UNIQUE user_id, step_code).
- * 행이 없는 단계는 NOT_STARTED 로 본다.
+ * 행이 없는 단계는 NOT_STARTED 로 간주.
  */
 @Entity
 @Table(name = "onboarding_progress")
@@ -41,7 +41,7 @@ public class OnboardingProgress {
             "enum('NOT_STARTED','IN_PROGRESS','COMPLETED','SKIPPED')")
     private OnboardingStepStatus status;
 
-    // DB 는 UTC(hibernate.jdbc.time_zone). 응답 때 +09:00 으로 바꾼다
+    // DB 는 UTC(hibernate.jdbc.time_zone). 응답 때 +09:00 으로 바꿈
     @Column(name = "completed_at")
     private Instant completedAt;
 
@@ -54,7 +54,7 @@ public class OnboardingProgress {
         this.status = OnboardingStepStatus.NOT_STARTED;
     }
 
-    /** 완료 또는 건너뜀. 다시 보내면 상태·시각을 덮어쓴다. */
+    /** 완료 또는 건너뜀. 다시 보내면 상태·시각을 덮어씀. */
     public void finish(OnboardingStepStatus status, Instant at) {
         this.status = status;
         this.completedAt = at;

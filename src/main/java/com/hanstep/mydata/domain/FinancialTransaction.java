@@ -16,7 +16,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * financial_transactions 테이블. (account_id, external_txn_key) UNIQUE 로 재수집 중복을 막는다.
+ * financial_transactions 테이블. (account_id, external_txn_key) UNIQUE 로 재수집 중복을 막음.
  * transacted_at 은 UTC, booked_date 는 KST 날짜. classification_source 는 DB 기본값(SOURCE).
  */
 @Entity

@@ -21,12 +21,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * MYD-02 적재 측정(B안: 거래만 JdbcTemplate.batchUpdate 1,000건 묶음). 기본 test 에서는 빠진다: ./gradlew perfTest
+ * MYD-02 적재 측정(B안: 거래만 JdbcTemplate.batchUpdate 1,000건 묶음). 기본 test 에서는 빠짐: ./gradlew perfTest
  *
- * <p>사용자 N명을 만들고 같은 원천 파일을 사용자별로 적재한다(외부 키에 -u{i} 를 붙여 겹치지 않게).
- * 워밍업 1회 + 측정 N=100 은 5회, N=1,000 은 3회(B안도 같은 조건으로 잰다). 회차마다 배치·연결을 지우고(계좌·거래는 CASCADE) 시작한다.
+ * <p>사용자 N명을 만들고 같은 원천 파일을 사용자별로 적재함(외부 키에 -u{i} 를 붙여 겹치지 않게).
+ * 워밍업 1회 + 측정 N=100 은 5회, N=1,000 은 3회(B안도 같은 조건으로 측정). 회차마다 배치·연결을 지우고(계좌·거래는 CASCADE) 시작함.
  * 시간은 N명 적재 전체(ingest 호출 N번). INSERT 수는 MySQL Com_insert 의 측정 전후 차이(DB 가 실제로 받은 INSERT 문 수).
- * rewriteBatchedStatements 를 켜면 Hibernate Statistics 는 묶음 INSERT 를 세지 못해 참고값(JPA 엔티티 INSERT)으로만 찍는다.
+ * rewriteBatchedStatements 를 켜면 Hibernate Statistics 는 묶음 INSERT 를 세지 못해 참고값(JPA 엔티티 INSERT)으로만 출력.
  */
 @Tag("perf")
 @SpringBootTest(properties = {
@@ -133,12 +133,12 @@ class MockIngestionPerfTest {
         Files.writeString(REPORT, row + "\n", StandardCharsets.UTF_8, StandardOpenOption.APPEND);
     }
 
-    /** 서버 전체 INSERT 문 누적 수. 측정 중에는 이 테스트만 DB 를 쓴다. */
+    /** 서버 전체 INSERT 문 누적 수. 측정 중에는 이 테스트만 DB 를 씀. */
     private long comInsert() {
         return jdbcTemplate.queryForObject("SHOW GLOBAL STATUS LIKE 'Com_insert'", (rs, i) -> rs.getLong(2));
     }
 
-    /** N명과 MYDATA 동의를 만든다(측정 밖). */
+    /** N명과 MYDATA 동의 생성(측정 밖). */
     private List<long[]> createUsers(int n) {
         List<Object[]> userRows = new ArrayList<>();
         for (int i = 0; i < n; i++) {
@@ -176,7 +176,7 @@ class MockIngestionPerfTest {
         return source.accounts().stream().mapToInt(a -> a.transactions().size()).sum();
     }
 
-    /** 같은 원천을 사용자별로 쓰되 외부 계좌·거래 키에 사용자 구분값을 붙인다. */
+    /** 같은 원천을 사용자별로 쓰되 외부 계좌·거래 키에 사용자 구분값을 붙임. */
     private static MockMydataReader.Source withSuffix(MockMydataReader.Source source, String suffix) {
         List<MockMydataReader.Account> accounts = source.accounts().stream()
                 .map(a -> new MockMydataReader.Account(a.externalKey() + suffix, a.accountNoMasked(), a.accountType(),

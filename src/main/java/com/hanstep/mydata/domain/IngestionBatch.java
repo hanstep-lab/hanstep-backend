@@ -15,8 +15,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * ingestion_batches 테이블. MYD-02 요청 1건 = 배치 1개(기관이 여러 개라 connection_id 는 비워 둔다).
- * (user_id, request_key) UNIQUE 가 Idempotency-Key 멱등을 맡는다. 시각 칸은 UTC.
+ * ingestion_batches 테이블. MYD-02 요청 1건 = 배치 1개(기관이 여러 개라 connection_id 는 비워 둠).
+ * (user_id, request_key) UNIQUE 가 Idempotency-Key 멱등을 맡음. 시각 칸은 UTC.
  */
 @Entity
 @Table(name = "ingestion_batches")
@@ -63,7 +63,7 @@ public class IngestionBatch {
     @Column(name = "finished_at")
     private Instant finishedAt;
 
-    /** 처리 시작 때 PENDING 으로 먼저 넣는다. */
+    /** 처리 시작 때 PENDING 으로 먼저 넣음. */
     public static IngestionBatch startMock(Long userId, String requestKey, Instant startedAt) {
         IngestionBatch batch = new IngestionBatch();
         batch.userId = userId;

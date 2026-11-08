@@ -7,7 +7,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 
 /**
  * 금액 공통 형식 {"amount": 정수, "currency": "KRW"}.
- * DB 는 DECIMAL(18,2) 이지만 API 는 원 단위 정수만 주고받는다.
+ * DB 는 DECIMAL(18,2) 이지만 API 는 원 단위 정수만 주고받음.
  */
 @Schema(description = "금액. amount 는 정수(원 단위), currency 는 ISO 4217 코드")
 public record Money(

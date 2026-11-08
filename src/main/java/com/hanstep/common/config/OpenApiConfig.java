@@ -10,7 +10,7 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * Swagger UI(/swagger-ui.html) 설정.
- * 오른쪽 위 Authorize 버튼에 /auth/entry 로 받은 accessToken 을 넣으면 이후 요청에 Bearer 헤더가 붙는다.
+ * 오른쪽 위 Authorize 버튼에 /auth/entry 로 받은 accessToken 을 넣으면 이후 요청에 Bearer 헤더가 붙음.
  */
 @Configuration
 public class OpenApiConfig {

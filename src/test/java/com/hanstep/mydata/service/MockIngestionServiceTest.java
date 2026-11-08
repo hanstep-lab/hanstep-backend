@@ -16,8 +16,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * 묶음 INSERT 는 중복 키만 건너뛰고(ON DUPLICATE KEY UPDATE), 외래키 위반은 적재 실패여야 한다.
- * FAILED 배치가 커밋돼야 하므로 롤백하지 않고, 테스트 사용자를 끝나면 지운다(CASCADE).
+ * 묶음 INSERT 는 중복 키만 건너뛰고(ON DUPLICATE KEY UPDATE), 외래키 위반은 적재 실패여야 함.
+ * FAILED 배치가 커밋돼야 하므로 롤백하지 않고, 테스트 사용자를 끝나면 지움(CASCADE).
  */
 @SpringBootTest
 class MockIngestionServiceTest {
@@ -71,7 +71,7 @@ class MockIngestionServiceTest {
                 Long.class, userId)).isZero();
     }
 
-    /** 마지막 거래 1건만 category_code 를 기준표에 없는 값으로 바꾼다(앞 행들은 정상). */
+    /** 마지막 거래 1건만 category_code 를 기준표에 없는 값으로 바꿈(앞 행들은 정상). */
     private static MockMydataReader.Source withOneUnknownCategory(MockMydataReader.Source source) {
         AtomicBoolean changed = new AtomicBoolean();
         List<MockMydataReader.Account> accounts = source.accounts().stream()

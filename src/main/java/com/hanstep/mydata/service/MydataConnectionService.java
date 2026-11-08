@@ -31,7 +31,7 @@ import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
-/** MYD-02. 검사(404·403·키 형식) 후 적재를 맡기고, 연결 상태 전체(MYD-03 형식)를 돌려준다. */
+/** MYD-02. 검사(404·403·키 형식) 후 적재를 맡기고, 연결 상태 전체(MYD-03 형식)를 돌려줌. */
 @Service
 public class MydataConnectionService {
 
@@ -81,7 +81,7 @@ public class MydataConnectionService {
         return new ConnectResult(connections(userId), created);
     }
 
-    /** 사용자의 연결 상태 전체. 계좌·거래 수는 DB 에서 센다. */
+    /** 사용자의 연결 상태 전체. 계좌·거래 수는 DB 에서 집계. */
     private ConnectionListResponse connections(Long userId) {
         List<DataConnection> rows = connectionRepository.findAllByUserIdOrderById(userId);
         Map<Long, Institution> institutions = institutionRepository
@@ -102,7 +102,7 @@ public class MydataConnectionService {
         return new ConnectionListResponse(connected, connections);
     }
 
-    /** 없는 기관 ID 가 하나라도 있으면 404. 요청 순서를 지킨다. */
+    /** 없는 기관 ID 가 하나라도 있으면 404. 요청 순서를 지킴. */
     private List<Institution> findInstitutions(List<Long> ids) {
         List<Long> distinct = List.copyOf(new LinkedHashSet<>(ids));
         Map<Long, Institution> found = institutionRepository.findAllById(distinct).stream()
@@ -113,7 +113,7 @@ public class MydataConnectionService {
         return distinct.stream().map(found::get).toList();
     }
 
-    /** MYDATA·MYDATA_TERMS 의 최신 행이 모두 GRANTED 여야 한다. data_connections.consent_id 에는 MYDATA 동의를 넣는다. */
+    /** MYDATA·MYDATA_TERMS 의 최신 행이 모두 GRANTED 여야 함. data_connections.consent_id 에는 MYDATA 동의를 넣음. */
     private Long requireMydataConsent(Long userId) {
         Map<ConsentType, UserConsent> latest = new EnumMap<>(ConsentType.class);
         for (UserConsent consent : consentRepository.findAllByUserIdOrderByIdDesc(userId)) {

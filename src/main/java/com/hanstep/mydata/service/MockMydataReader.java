@@ -23,9 +23,9 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Mock 마이데이터 원천 파일(resources/mock/mydata/demo-e9-nguyen)을 읽는다.
- * MVP 테스트 사용자는 한 명이라 로그인 사용자와 상관없이 이 페르소나 파일을 쓴다.
- * 원천 값을 칼럼에 옮기기만 하고, 칼럼이 없는 값(거래별 잔액, 카드 status·pay_type·billing_day 등)은 버린다.
+ * Mock 마이데이터 원천 파일(resources/mock/mydata/demo-e9-nguyen)을 읽음.
+ * MVP 테스트 사용자는 한 명이라 로그인 사용자와 상관없이 이 페르소나 파일을 씀.
+ * 원천 값을 칼럼에 옮기기만 하고, 칼럼이 없는 값(거래별 잔액, 카드 status·pay_type·billing_day 등)은 버림.
  */
 @Component
 public class MockMydataReader {
@@ -38,7 +38,7 @@ public class MockMydataReader {
     private static final DateTimeFormatter DTIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final ObjectMapper MAPPER = JsonMapper.builder().build();
 
-    /** 기관 코드에 맞는 원천 파일. 파일이 없는 기관(MOCK_TELECOM 등)은 비어 있다. */
+    /** 기관 코드에 맞는 원천 파일. 파일이 없는 기관(MOCK_TELECOM 등)은 비어 있음. */
     public Optional<Source> read(String institutionCode) {
         String file = FILES.get(institutionCode);
         if (file == null) {
@@ -78,7 +78,7 @@ public class MockMydataReader {
         return accounts;
     }
 
-    /** 카드 승인은 trans_type 이 없다. 모두 APPROVED 라 지출(EXPENSE)로 넣고, 그 밖의 상태는 적재 실패. */
+    /** 카드 승인은 trans_type 이 없음. 모두 APPROVED 라 지출(EXPENSE)로 넣고, 그 밖의 상태는 적재 실패. */
     private static List<Account> cardAccounts(JsonNode list) {
         List<Account> accounts = new ArrayList<>();
         for (JsonNode c : list) {
@@ -94,7 +94,7 @@ public class MockMydataReader {
                         text(t, "merchant_name"), null, text(t, "trans_memo"), t.path("category_code").asString(),
                         TransactionKind.valueOf(t.path("transaction_kind").asString())));
             }
-            // 카드 원천에는 통화·잔액·급여계좌 여부가 없어 DB 기본값(KRW, 0, false)과 같은 값을 넣는다
+            // 카드 원천에는 통화·잔액·급여계좌 여부가 없어 DB 기본값(KRW, 0, false)과 같은 값을 넣음
             accounts.add(new Account(c.path("card_key").asString(), c.path("card_num_masked").asString(),
                     AccountType.valueOf(c.path("account_type").asString()), text(c, "card_name"), "KRW",
                     BigDecimal.ZERO, null, false, date(c, "issue_date"), txns));
@@ -110,7 +110,7 @@ public class MockMydataReader {
         };
     }
 
-    /** *_dtime 은 KST. transacted_at 은 UTC 로 저장한다. */
+    /** *_dtime 은 KST. transacted_at 은 UTC 로 저장함. */
     private static Instant toUtc(LocalDateTime kst) {
         return kst.atZone(KST).toInstant();
     }

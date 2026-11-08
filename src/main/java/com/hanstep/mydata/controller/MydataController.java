@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 마이데이터(Mock). 실연동은 금융위 허가가 필요해 Mock 기관·데이터만 쓴다. 응답의 isMock=true.
+ * 마이데이터(Mock). 실연동은 금융위 허가가 필요해 Mock 기관·데이터만 씀. 응답의 isMock=true.
  */
 @Tag(name = "MyData", description = "마이데이터 기관 연결 (ON-003A·B, Mock)")
 @RestController

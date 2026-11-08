@@ -14,10 +14,10 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * users 테이블. 앱인앱이라 비밀번호가 없고, SOL 에서 넘어온 진입 키(external_user_key)로 사용자를 찾는다.
- * 사용자 생성은 아직 API 로 하지 않는다(데모 사용자는 db/init/03_hanstep_demo_seed.sql).
+ * users 테이블. 앱인앱이라 비밀번호가 없고, SOL 에서 넘어온 진입 키(external_user_key)로 사용자를 찾음.
+ * 사용자 생성은 아직 API 로 하지 않음(데모 사용자는 db/init/03_hanstep_demo_seed.sql).
  *
- * <p>ENUM 칸은 columnDefinition 을 DB 와 똑같이 적어 둔다. ddl-auto: validate 가 MySQL ENUM 칸을 비교할 때
+ * <p>ENUM 칸은 columnDefinition 을 DB 와 똑같이 적어 둠. ddl-auto: validate 가 MySQL ENUM 칸을 비교할 때
  * 타입 이름이 어긋나 실행이 막히는 경우를 피하기 위함.
  */
 @Entity
@@ -48,7 +48,7 @@ public class User {
     @Column(name = "status", nullable = false, columnDefinition = "enum('ACTIVE','SUSPENDED','WITHDRAWN')")
     private UserStatus status;
 
-    // 생성·수정 시각은 DB 기본값이 채운다
+    // 생성·수정 시각은 DB 기본값이 채움
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     private LocalDateTime createdAt;
 
