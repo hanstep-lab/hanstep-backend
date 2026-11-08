@@ -29,7 +29,7 @@ public class OnboardingProfile {
     private Long userId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "residence_purpose", columnDefinition = "enum('WORK','STUDY','FAMILY','OTHER')")
+    @Column(name = "residence_purpose", columnDefinition = "enum('WORK','STUDY','FAMILY')")
     private ResidencePurpose residencePurpose;
 
     // 자기신고 월소득(KRW 고정, 통화 칸 없음)

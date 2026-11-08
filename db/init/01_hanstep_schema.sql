@@ -40,7 +40,7 @@ CREATE TABLE user_consents (
 CREATE TABLE onboarding_profiles (
   id                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '온보딩 프로필 ID',
   user_id                  BIGINT UNSIGNED NOT NULL COMMENT '사용자',
-  residence_purpose        ENUM('WORK','STUDY','FAMILY','OTHER') NULL COMMENT '거주 목적',
+  residence_purpose        ENUM('WORK','STUDY','FAMILY') NULL COMMENT '거주 목적(ON-001). WORK=취업 및 비즈니스, STUDY=유학 및 어학연수, FAMILY=가족 동반 및 영주·거주(F-2, F-5, F-6)',
   declared_monthly_income  DECIMAL(18,2)   NULL COMMENT '자기신고 월소득(KRW)',
   created_at               DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '생성',
   updated_at               DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
