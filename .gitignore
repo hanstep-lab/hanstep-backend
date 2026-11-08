@@ -66,3 +66,5 @@ desktop.ini
 .claude/settings.local.json
 CLAUDE.local.md
 CLAUDE.md
+# IDE(IntelliJ) MCP 연결 설정. 포트가 PC마다 다름
+.mcp.json
