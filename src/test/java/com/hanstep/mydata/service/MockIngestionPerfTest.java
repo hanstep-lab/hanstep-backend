@@ -21,12 +21,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * MYD-02 적재 기준선(A안: JPA saveAll). 기본 test 에서는 빠진다: ./gradlew perfTest
+ * MYD-02 적재 측정(B안: 거래만 JdbcTemplate.batchUpdate 1,000건 묶음). 기본 test 에서는 빠진다: ./gradlew perfTest
  *
  * <p>사용자 N명을 만들고 같은 원천 파일을 사용자별로 적재한다(외부 키에 -u{i} 를 붙여 겹치지 않게).
  * 워밍업 1회 + 측정 N=100 은 5회, N=1,000 은 3회(B안도 같은 조건으로 잰다). 회차마다 배치·연결을 지우고(계좌·거래는 CASCADE) 시작한다.
- * 시간은 N명 적재 전체(ingest 호출 N번), INSERT 문 수는 Hibernate Statistics 의 entityInsertCount
- * (IDENTITY 라 JDBC 배치가 없어 엔티티 1개 = INSERT 1번).
+ * 시간은 N명 적재 전체(ingest 호출 N번). INSERT 수는 MySQL Com_insert 의 측정 전후 차이(DB 가 실제로 받은 INSERT 문 수).
+ * rewriteBatchedStatements 를 켜면 Hibernate Statistics 는 묶음 INSERT 를 세지 못해 참고값(JPA 엔티티 INSERT)으로만 찍는다.
  */
 @Tag("perf")
 @SpringBootTest(properties = {
@@ -38,7 +38,8 @@ class MockIngestionPerfTest {
     private static final List<MydataScope> SCOPES =
             List.of(MydataScope.ACCOUNT_BALANCE, MydataScope.TRANSACTIONS, MydataScope.CARD_USAGE);
     private static final int WARMUP = 1;
-    private static final Path REPORT = Path.of("build", "perf", "mydata-ingestion-baseline.md");
+    private static final String LABEL = "B (JdbcTemplate batchUpdate 1,000)";
+    private static final Path REPORT = Path.of("build", "perf", "mydata-ingestion-b.md");
 
     @Autowired
     private MockIngestionService ingestionService;
@@ -85,19 +86,20 @@ class MockIngestionPerfTest {
             for (int round = 0; round < WARMUP + runs; round++) {
                 cleanIngestedData();
                 stats.clear();
+                long comInsertBefore = comInsert();
                 long started = System.nanoTime();
                 for (int i = 0; i < n; i++) {
                     long[] user = users.get(i);
                     ingestionService.ingest(user[0], "perf-key", user[1], SCOPES, 12, targets.get(i));
                 }
                 long elapsed = (System.nanoTime() - started) / 1_000_000;
-                long insertCount = stats.getEntityInsertCount();
+                long insertCount = comInsert() - comInsertBefore;
 
                 assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM financial_transactions t "
                         + "JOIN users u ON u.id = t.user_id WHERE u.external_user_key LIKE 'perf-%'", Long.class))
                         .isEqualTo((long) n * perUser);
-                System.out.printf("[perf] N=%d round=%d%s %d ms, INSERT %d%n", n, round,
-                        round < WARMUP ? "(warmup)" : "", elapsed, insertCount);
+                System.out.printf("[perf] N=%d round=%d%s %d ms, Com_insert %d (Hibernate entityInsert %d)%n", n,
+                        round, round < WARMUP ? "(warmup)" : "", elapsed, insertCount, stats.getEntityInsertCount());
                 if (round >= WARMUP) {
                     millis.add(elapsed);
                     inserts.add(insertCount);
@@ -119,16 +121,21 @@ class MockIngestionPerfTest {
         String env = "MySQL " + jdbcTemplate.queryForObject("SELECT VERSION()", String.class)
                 + " (local Docker), " + Runtime.getRuntime().availableProcessors() + " logical CPUs, "
                 + System.getProperty("os.name") + ", Java " + System.getProperty("java.version");
-        String row = String.format("| A (JPA saveAll) | %d | %d | %d | %d | %s | %s | runs(ms)=%s |",
-                n, txns, median, max, insertText, env, millis);
+        String row = String.format("| %s | %d | %d | %d | %d | %s | %s | runs(ms)=%s |",
+                LABEL, n, txns, median, max, insertText, env, millis);
         System.out.println("[perf] " + row);
 
         Files.createDirectories(REPORT.getParent());
         if (!Files.exists(REPORT)) {
-            Files.writeString(REPORT, "| 방식 | N | 거래 건수 | 중앙값 ms | 최댓값 ms | INSERT 문 수 | 측정 환경 | 회차 |\n"
+            Files.writeString(REPORT, "| 방식 | N | 거래 건수 | 중앙값 ms | 최댓값 ms | INSERT 수(Com_insert 차이) | 측정 환경 | 회차 |\n"
                     + "|---|---|---|---|---|---|---|---|\n", StandardCharsets.UTF_8);
         }
         Files.writeString(REPORT, row + "\n", StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+    }
+
+    /** 서버 전체 INSERT 문 누적 수. 측정 중에는 이 테스트만 DB 를 쓴다. */
+    private long comInsert() {
+        return jdbcTemplate.queryForObject("SHOW GLOBAL STATUS LIKE 'Com_insert'", (rs, i) -> rs.getLong(2));
     }
 
     /** N명과 MYDATA 동의를 만든다(측정 밖). */
