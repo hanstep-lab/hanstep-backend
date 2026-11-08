@@ -465,7 +465,7 @@ CREATE TABLE financial_accounts (
   batch_id              BIGINT UNSIGNED NOT NULL COMMENT '최초 적재 배치(목인지 아닌지 구분용)',
   external_account_key  VARCHAR(100)    NOT NULL COMMENT '원천 계좌 식별자(조회·재수집 매칭용, Mock은 고정 ID). 실연동 시 계좌번호 원문이면 암호화 저장',
   account_no_masked     VARCHAR(40)     NOT NULL COMMENT '화면 표시 전용 마스킹 번호(조회에 사용 안 함, 전체 번호 저장 금지)',
-  account_type          ENUM('DEMAND','SAVINGS','INSTALLMENT','FOREIGN_CURRENCY','OTHER') NOT NULL COMMENT '입출금/예금/적금/외화',
+  account_type          ENUM('DEMAND','SAVINGS','INSTALLMENT','FOREIGN_CURRENCY','CARD','OTHER') NOT NULL COMMENT '입출금/예금/적금/외화/카드(신용·체크카드)',
   product_name          VARCHAR(200)    NULL COMMENT '상품명',
   currency              CHAR(3)         NOT NULL DEFAULT 'KRW' COMMENT '통화',
   balance               DECIMAL(18,2)   NOT NULL DEFAULT 0 COMMENT '잔액',
@@ -844,7 +844,7 @@ CREATE TABLE credit_feature_values (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 평가 입력 특성 스냅샷(국적·성별·나이 사용 금지)';
 
 -- ---------------------------------------------------------------------
--- J. (P1) 환율 · 목표 환율 알림 · 해외송금 수취인 — 11/4 범위 확정(수출입은행 일별 고시 + 상용 API 시장 환율 참고값)
+-- J. (P0) 환율 · 목표 환율 알림 · 해외송금 수취인 — 11/4 범위 확정(수출입은행 일별 고시 + 상용 API 시장 환율 참고값)
 -- ---------------------------------------------------------------------
 
 -- 환율 저장용 테이블 (수출입은행 일별 고시 + 상용 API 시장 환율 참고값, 스케줄러 1시간 주기 수집) --
@@ -868,7 +868,7 @@ CREATE TABLE exchange_rates (
   CONSTRAINT ck_exchange_rates_base CHECK (base_rate > 0),
   CONSTRAINT ck_exchange_rates_mock CHECK (source <> 'MOCK' OR is_mock = TRUE),
   CONSTRAINT ck_exchange_rates_tt CHECK (source <> 'MARKET_REF' OR (send_rate IS NULL AND receive_rate IS NULL))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 환율(평균·추이는 이 테이블에서 계산, LLM 생성 금지, "실시간" 표기 금지)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 환율(평균·추이는 이 테이블에서 계산, LLM 생성 금지, "실시간" 표기 금지)';
 
 -- 목표 환율 알림 설정 저장용 테이블 (P1, 앱 내 알림만. 카카오 알림톡·자동 예약 송금 없음) --
 CREATE TABLE fx_alerts (
@@ -916,4 +916,4 @@ CREATE TABLE remittance_recipients (
   CONSTRAINT fk_remittance_recipients_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT ck_remittance_recipients_swift CHECK (swift_code IS NULL OR CHAR_LENGTH(swift_code) IN (8, 11)),
   CONSTRAINT ck_remittance_recipients_mock CHECK (source <> 'MOCK' OR is_mock = TRUE)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] 해외송금 받는 분(Mock 시드 1건, 송금 실행 없음)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 해외송금 받는 분(Mock 시드 1건, 송금 실행 없음)';
