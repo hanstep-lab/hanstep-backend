@@ -4,36 +4,25 @@ import com.hanstep.common.dto.Money;
 import com.hanstep.onboarding.domain.OnboardingProfile;
 import com.hanstep.onboarding.domain.ResidencePurpose;
 import io.swagger.v3.oas.annotations.media.Schema;
-import java.time.LocalDate;
 
 @Schema(description = "온보딩 설문 응답(onboarding_profiles). 아직 저장 안 한 칸은 null")
 public record OnboardingProfileResponse(
-        @Schema(description = "거주 목적", example = "WORK", nullable = true)
+        @Schema(description = "ON-001 체류 목적", example = "WORK", nullable = true)
         ResidencePurpose residencePurpose,
 
-        @Schema(description = "자기신고 월소득. 입력 안 했으면 null",
+        @Schema(description = "MVP에서는 받지 않음(null). 마이데이터 미연결 시 직접 입력은 2차 이후 검토",
                 example = "{\"amount\": 2350000, \"currency\": \"KRW\"}")
-        Money declaredMonthlyIncome,
-
-        @Schema(description = "최초 입국일(YYYY-MM-DD). 국내 거주기간 계산용", example = "2022-12-05", nullable = true)
-        LocalDate koreaEntryDate,
-
-        @Schema(description = "거주 시도 코드(행정표준코드 시도 2자리. 41=경기도)", example = "41", nullable = true)
-        String residenceRegionCode,
-
-        @Schema(description = "사업주 숙소 제공 여부", example = "false", nullable = true)
-        Boolean housingProvided
+        Money declaredMonthlyIncome
 ) {
 
     /** 아직 저장한 적 없는 사용자. */
     public static OnboardingProfileResponse empty() {
-        return new OnboardingProfileResponse(null, null, null, null, null);
+        return new OnboardingProfileResponse(null, null);
     }
 
     public static OnboardingProfileResponse from(OnboardingProfile profile) {
         Money income = profile.getDeclaredMonthlyIncome() == null ? null
                 : Money.krw(profile.getDeclaredMonthlyIncome().longValue());
-        return new OnboardingProfileResponse(profile.getResidencePurpose(), income, profile.getKoreaEntryDate(),
-                profile.getResidenceRegionCode(), profile.getHousingProvided());
+        return new OnboardingProfileResponse(profile.getResidencePurpose(), income);
     }
 }

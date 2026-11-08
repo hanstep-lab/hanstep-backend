@@ -9,7 +9,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -37,15 +36,6 @@ public class OnboardingProfile {
     @Column(name = "declared_monthly_income", precision = 18, scale = 2)
     private BigDecimal declaredMonthlyIncome;
 
-    @Column(name = "korea_entry_date")
-    private LocalDate koreaEntryDate;
-
-    @Column(name = "residence_region_code", length = 20)
-    private String residenceRegionCode;
-
-    @Column(name = "housing_provided")
-    private Boolean housingProvided;
-
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -57,12 +47,8 @@ public class OnboardingProfile {
     }
 
     /** ONB-02: 보낸 값으로 전체를 덮어쓴다(null 은 비움). */
-    public void update(ResidencePurpose residencePurpose, BigDecimal declaredMonthlyIncome,
-                       LocalDate koreaEntryDate, String residenceRegionCode, Boolean housingProvided) {
+    public void update(ResidencePurpose residencePurpose, BigDecimal declaredMonthlyIncome) {
         this.residencePurpose = residencePurpose;
         this.declaredMonthlyIncome = declaredMonthlyIncome;
-        this.koreaEntryDate = koreaEntryDate;
-        this.residenceRegionCode = residenceRegionCode;
-        this.housingProvided = housingProvided;
     }
 }

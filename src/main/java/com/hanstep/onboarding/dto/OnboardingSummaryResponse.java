@@ -49,10 +49,7 @@ public record OnboardingSummaryResponse(
             LocalDate stayExpiresOn,
 
             @Schema(description = "만료까지 남은 일수(오늘 KST 기준 계산값, 지났으면 음수)", example = "331")
-            long daysRemaining,
-
-            @Schema(description = "최초 입국일(onboarding_profiles)", example = "2022-12-05", nullable = true)
-            LocalDate koreaEntryDate
+            long daysRemaining
     ) {
     }
 

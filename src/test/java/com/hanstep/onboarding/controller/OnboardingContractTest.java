@@ -53,7 +53,7 @@ class OnboardingContractTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"residencePurpose\":\"WORK\",\"declaredMonthlyIncome\":{\"amount\":2350000,"
-                                + "\"currency\":\"KRW\"},\"koreaEntryDate\":\"2022-12-05\"}"))
+                                + "\"currency\":\"KRW\"}}"))
                 .andExpect(status().isOk());
         finish("LANGUAGE", "COMPLETED");
 
@@ -63,8 +63,8 @@ class OnboardingContractTest {
                 .andExpect(jsonPath("$.steps[0].stepCode").value("LANGUAGE"))
                 .andExpect(jsonPath("$.steps[0].completedAt").value(
                         matchesPattern("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+]09:00")))
-                .andExpect(jsonPath("$.profile.declaredMonthlyIncome.amount").value(2350000))
-                .andExpect(jsonPath("$.profile.koreaEntryDate").value("2022-12-05"));
+                .andExpect(jsonPath("$.profile.residencePurpose").value("WORK"))
+                .andExpect(jsonPath("$.profile.declaredMonthlyIncome.amount").value(2350000));
     }
 
     @Test

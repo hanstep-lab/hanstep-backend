@@ -53,8 +53,7 @@ public class OnboardingService {
         }
         OnboardingProfile profile = profileRepository.findByUserId(userId)
                 .orElseGet(() -> new OnboardingProfile(userId));
-        profile.update(request.residencePurpose(), income == null ? null : BigDecimal.valueOf(income.amount()),
-                request.koreaEntryDate(), request.residenceRegionCode(), request.housingProvided());
+        profile.update(request.residencePurpose(), income == null ? null : BigDecimal.valueOf(income.amount()));
         return OnboardingProfileResponse.from(profileRepository.save(profile));
     }
 

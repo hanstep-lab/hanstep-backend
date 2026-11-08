@@ -79,10 +79,23 @@ class OnboardingApiTest {
     }
 
     @Test
+    void 체류_목적만_보내면_저장되고_월소득은_null() throws Exception {
+        mockMvc.perform(put("/api/v1/onboarding/profile").header(HttpHeaders.AUTHORIZATION, bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"residencePurpose\":\"WORK\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.residencePurpose").value("WORK"))
+                .andExpect(jsonPath("$.declaredMonthlyIncome").isEmpty());
+
+        mockMvc.perform(get("/api/v1/onboarding").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(jsonPath("$.profile.residencePurpose").value("WORK"))
+                .andExpect(jsonPath("$.profile.declaredMonthlyIncome").isEmpty());
+    }
+
+    @Test
     void 프로필은_1인_1행으로_덮어쓴다() throws Exception {
         putProfile("{\"residencePurpose\":\"WORK\",\"declaredMonthlyIncome\":{\"amount\":2350000,"
-                + "\"currency\":\"KRW\"},\"koreaEntryDate\":\"2022-12-05\",\"residenceRegionCode\":\"41\","
-                + "\"housingProvided\":false}");
+                + "\"currency\":\"KRW\"}}");
         putProfile("{\"residencePurpose\":\"FAMILY\"}");
 
         mockMvc.perform(get("/api/v1/onboarding").header(HttpHeaders.AUTHORIZATION, bearer))

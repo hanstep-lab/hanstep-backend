@@ -55,7 +55,6 @@ public final class DemoExamples {
     public static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final ZoneOffset KST_OFFSET = ZoneOffset.ofHours(9);
 
-    public static final LocalDate KOREA_ENTRY_DATE = LocalDate.of(2022, 12, 5);
     public static final LocalDate STAY_EXPIRES_ON = LocalDate.of(2027, 10, 4);
 
     // 월 수지(KRW). 여유자금 = 소득 − 고정생활비 − 송금 − 변동지출
@@ -84,9 +83,9 @@ public final class DemoExamples {
 
     // ---- 온보딩 ----
 
+    /** ON-001 체류 목적만 받는다. 월소득은 MVP 에서 받지 않음(null). */
     public static OnboardingProfileResponse profile() {
-        return new OnboardingProfileResponse(ResidencePurpose.WORK, Money.krw(MONTHLY_INCOME),
-                KOREA_ENTRY_DATE, "41", false);
+        return new OnboardingProfileResponse(ResidencePurpose.WORK, null);
     }
 
     /** 언어·등록증까지 끝내고 마이데이터 동의 화면에 있는 상태. */
@@ -108,7 +107,7 @@ public final class DemoExamples {
         return new OnboardingSummaryResponse(
                 new OnboardingSummaryResponse.User(1L, "NGUYEN VAN MINH", Language.en, "VNM"),
                 new OnboardingSummaryResponse.Visa("E-9", "Non-professional Employment", STAY_EXPIRES_ON,
-                        daysRemaining, KOREA_ENTRY_DATE),
+                        daysRemaining),
                 goals().goals(),
                 commitments(),
                 new OnboardingSummaryResponse.Balance(
@@ -208,8 +207,7 @@ public final class DemoExamples {
     // ---- 요청 예시(Swagger Example Value 용) ----
 
     public static OnboardingProfileRequest profileRequest() {
-        return new OnboardingProfileRequest(ResidencePurpose.WORK, Money.krw(MONTHLY_INCOME),
-                KOREA_ENTRY_DATE, "41", false);
+        return new OnboardingProfileRequest(ResidencePurpose.WORK, null);
     }
 
     public static StepUpdateRequest stepRequest() {

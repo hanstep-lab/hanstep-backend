@@ -52,8 +52,9 @@ public class OnboardingController {
     }
 
     @Operation(summary = "온보딩 프로필 저장 (ONB-02)",
-            description = "거주 목적·월소득·입국일·거주지역·숙소 제공 여부. 1인 1행 UPSERT(보낸 값으로 덮어씀). "
-                    + "declaredMonthlyIncome.currency 는 KRW 만. 저장된 프로필을 돌려준다.")
+            description = "ON-001 체류 목적(residencePurpose). 월소득(declaredMonthlyIncome)은 MVP 에서 받지 않음(null). "
+                    + "1인 1행 UPSERT(보낸 값으로 전체를 덮어씀, 빠진 칸은 null). "
+                    + "declaredMonthlyIncome 을 보낼 경우 currency 는 KRW 만. 저장된 프로필을 돌려준다.")
     @ApiResponse(responseCode = "200", description = "저장 성공")
     @ApiResponse(responseCode = "400", description = "형식 오류(details.fields)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
