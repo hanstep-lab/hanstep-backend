@@ -52,8 +52,16 @@ public class CommitmentService {
     public CommitmentListResponse saveCommitments(Long userId, CommitmentSaveRequest request) {
         List<CommitmentSaveRequest.Item> items = request.items();
         for (int i = 0; i < items.size(); i++) {
-            if (!Money.KRW.equals(items.get(i).amount().currency())) {
+            CommitmentSaveRequest.Item item = items.get(i);
+            if (!Money.KRW.equals(item.amount().currency())) {
                 throw invalid("items[" + i + "].amount.currency", "must be KRW");
+            }
+            // source 가 null 이면 USER 로 본다
+            boolean detected = item.source() == CommitmentSource.DETECTED_CONFIRMED;
+            if (detected != (item.detectedFromTxnId() != null)) {
+                throw invalid("items[" + i + "].detectedFromTxnId",
+                        detected ? "required when source is DETECTED_CONFIRMED"
+                                : "allowed only when source is DETECTED_CONFIRMED");
             }
         }
         for (CommitmentSaveRequest.Item item : items) {

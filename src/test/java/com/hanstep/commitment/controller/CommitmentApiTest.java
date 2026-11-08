@@ -187,6 +187,28 @@ class CommitmentApiTest {
     }
 
     @Test
+    void DETECTED_CONFIRMED인데_근거_거래가_없으면_400() throws Exception {
+        save(RENT + ",{\"commitmentType\":\"REMITTANCE\",\"amount\":{\"amount\":500000,\"currency\":\"KRW\"},"
+                + "\"source\":\"DETECTED_CONFIRMED\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.details.fields[0].field").value("items[1].detectedFromTxnId"));
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM monthly_commitments WHERE user_id = ?", Integer.class, userId)).isZero();
+    }
+
+    @Test
+    void 근거_거래가_있는데_source가_없으면_USER로_보고_400() throws Exception {
+        // 없는 거래 ID 라 짝 검사가 거래 확인보다 먼저면 404 가 아니라 400 이 나온다
+        save("{\"commitmentType\":\"REMITTANCE\",\"amount\":{\"amount\":500000,\"currency\":\"KRW\"},"
+                + "\"detectedFromTxnId\":999999999}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.details.fields[0].field").value("items[0].detectedFromTxnId"));
+    }
+
+    @Test
     void 토큰_없이_호출하면_401() throws Exception {
         mockMvc.perform(get("/api/v1/commitments"))
                 .andExpect(status().isUnauthorized())
