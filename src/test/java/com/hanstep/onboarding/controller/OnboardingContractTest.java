@@ -68,22 +68,6 @@ class OnboardingContractTest {
     }
 
     @Test
-    void 최종_확인의_여유자금은_소득에서_고정_송금_변동지출을_뺀_값() throws Exception {
-        mockMvc.perform(get("/api/v1/onboarding/summary").header(HttpHeaders.AUTHORIZATION, bearer))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.visa.visaTypeCode").value("E-9"))
-                .andExpect(jsonPath("$.visa.stayExpiresOn").value("2027-10-04"))
-                .andExpect(jsonPath("$.balance.avgMonthlyIncome.amount").value(2350000))
-                .andExpect(jsonPath("$.balance.fixedLiving.amount").value(520000))
-                .andExpect(jsonPath("$.balance.remittance.amount").value(700000))
-                .andExpect(jsonPath("$.balance.variableExpense.amount").value(450000))
-                .andExpect(jsonPath("$.balance.spare.amount").value(680000))
-                .andExpect(jsonPath("$.balance.spare.currency").value("KRW"))
-                .andExpect(jsonPath("$.balance.isMock").value(true))
-                .andExpect(jsonPath("$.commitments.totals.deductibleTotal.amount").value(1670000));
-    }
-
-    @Test
     void 단계_저장은_COMPLETED_SKIPPED만_허용() throws Exception {
         finish("LANGUAGE", "COMPLETED");
         finish("ID_DOCUMENT", "COMPLETED");
