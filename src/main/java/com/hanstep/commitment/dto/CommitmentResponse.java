@@ -19,9 +19,6 @@ public record CommitmentResponse(
         @Schema(description = "월 금액", example = "{\"amount\": 400000, \"currency\": \"KRW\"}")
         Money amount,
 
-        @Schema(description = "매월 납부일(1~31)", example = "25", nullable = true)
-        Integer dueDay,
-
         @Schema(description = "USER=직접 입력, DETECTED_CONFIRMED=송금 이력(CMT-03)에서 골라 확인", example = "USER")
         CommitmentSource source,
 

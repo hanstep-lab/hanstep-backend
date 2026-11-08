@@ -89,7 +89,6 @@ CREATE TABLE monthly_commitments (
   label                  VARCHAR(100)    NULL COMMENT '사용자 표시명(예: 월세)',
   amount                 DECIMAL(18,2)   NOT NULL COMMENT '월 금액',
   currency               CHAR(3)         NOT NULL DEFAULT 'KRW' COMMENT '통화',
-  due_day                TINYINT UNSIGNED NULL COMMENT '매월 납부일(1~31)',
   source                 ENUM('USER','DETECTED_CONFIRMED') NOT NULL DEFAULT 'USER' COMMENT '직접 입력 / 거래에서 찾아 사용자가 확인',
   detected_from_txn_id   BIGINT UNSIGNED NULL COMMENT '근거 거래(본국 송금 top3 확인 등)',
   is_active              BOOLEAN         NOT NULL DEFAULT TRUE COMMENT '활성 여부',
@@ -98,8 +97,7 @@ CREATE TABLE monthly_commitments (
   PRIMARY KEY (id),
   KEY ix_monthly_commitments_user (user_id, is_active, commitment_type),
   CONSTRAINT fk_monthly_commitments_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-  CONSTRAINT ck_monthly_commitments_amount CHECK (amount >= 0),
-  CONSTRAINT ck_monthly_commitments_due CHECK (due_day IS NULL OR due_day BETWEEN 1 AND 31)
+  CONSTRAINT ck_monthly_commitments_amount CHECK (amount >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 매달 반드시 확보할 금액. MANDATORY_SAVING은 가용자금에서 차감하지 않음';
 
 -- ---------------------------------------------------------------------
