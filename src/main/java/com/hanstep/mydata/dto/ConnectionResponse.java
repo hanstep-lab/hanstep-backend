@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.OffsetDateTime;
 import java.util.List;
 
-@Schema(description = "기관별 연동 상태(data_connections + 최근 ingestion_batches)")
+@Schema(description = "기관별 연동 상태(data_connections + 계좌·거래 수 집계, 최근 수집 시각은 last_synced_at)")
 public record ConnectionResponse(
         @Schema(description = "연동 ID", example = "1")
         Long id,

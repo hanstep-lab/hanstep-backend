@@ -9,10 +9,13 @@ import com.hanstep.consent.repository.UserConsentRepository;
 import com.hanstep.mydata.domain.ConnectionStatus;
 import com.hanstep.mydata.domain.DataConnection;
 import com.hanstep.mydata.domain.Institution;
+import com.hanstep.mydata.domain.InstitutionType;
 import com.hanstep.mydata.domain.MydataScope;
 import com.hanstep.mydata.dto.ConnectionCreateRequest;
 import com.hanstep.mydata.dto.ConnectionListResponse;
 import com.hanstep.mydata.dto.ConnectionResponse;
+import com.hanstep.mydata.dto.InstitutionListResponse;
+import com.hanstep.mydata.dto.InstitutionResponse;
 import com.hanstep.mydata.repository.DataConnectionRepository;
 import com.hanstep.mydata.repository.FinancialAccountRepository;
 import com.hanstep.mydata.repository.FinancialTransactionRepository;
@@ -31,13 +34,18 @@ import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
-/** MYD-02. 검사(404·403·키 형식) 후 적재를 맡기고, 연결 상태 전체(MYD-03 형식)를 돌려줌. */
+/**
+ * MYD-01 기관 목록, MYD-02 연결·적재, MYD-03 연결 상태.
+ * MYD-02 는 검사(404·403·키 형식) 후 적재를 맡기고, MYD-03 과 같은 연결 상태 전체를 돌려줌.
+ */
 @Service
 public class MydataConnectionService {
 
     private static final int DEFAULT_LOOKBACK_MONTHS = 12;
     private static final int MAX_KEY_LENGTH = 100; // ingestion_batches.request_key
     private static final ObjectMapper MAPPER = JsonMapper.builder().build();
+    // ON-003A·003B 화면의 기관(신한은행·신한카드). MOCK_TELECOM 등은 목록에서 뺌
+    private static final List<InstitutionType> LISTED_TYPES = List.of(InstitutionType.BANK, InstitutionType.CARD);
 
     private final InstitutionRepository institutionRepository;
     private final UserConsentRepository consentRepository;
@@ -63,6 +71,15 @@ public class MydataConnectionService {
         this.ingestionService = ingestionService;
     }
 
+    /** MYD-01. institutions 중 BANK·CARD 업권만(ID 순). MVP 기관은 모두 Mock. */
+    public InstitutionListResponse institutions() {
+        return new InstitutionListResponse(institutionRepository.findAllByInstitutionTypeInOrderById(LISTED_TYPES)
+                .stream()
+                .map(i -> new InstitutionResponse(i.getId(), i.getInstitutionCode(), i.getName(), i.getNameKo(),
+                        i.getInstitutionType(), true))
+                .toList());
+    }
+
     /** created=false 면 같은 Idempotency-Key 가 이미 처리된 재요청(200). */
     public ConnectResult connect(Long userId, String idempotencyKey, ConnectionCreateRequest request) {
         if (idempotencyKey.isBlank() || idempotencyKey.length() > MAX_KEY_LENGTH) {
@@ -81,8 +98,8 @@ public class MydataConnectionService {
         return new ConnectResult(connections(userId), created);
     }
 
-    /** 사용자의 연결 상태 전체. 계좌·거래 수는 DB 에서 집계. */
-    private ConnectionListResponse connections(Long userId) {
+    /** MYD-03. 사용자의 연결 상태 전체(MYD-02 응답과 같음). 계좌·거래 수는 DB 에서 집계. 연결한 적 없으면 빈 목록. */
+    public ConnectionListResponse connections(Long userId) {
         List<DataConnection> rows = connectionRepository.findAllByUserIdOrderById(userId);
         Map<Long, Institution> institutions = institutionRepository
                 .findAllById(rows.stream().map(DataConnection::getInstitutionId).toList()).stream()

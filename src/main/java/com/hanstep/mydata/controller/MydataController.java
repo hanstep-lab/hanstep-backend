@@ -1,7 +1,6 @@
 package com.hanstep.mydata.controller;
 
 import com.hanstep.common.error.ErrorResponse;
-import com.hanstep.common.example.DemoExamples;
 import com.hanstep.mydata.dto.ConnectionCreateRequest;
 import com.hanstep.mydata.dto.ConnectionListResponse;
 import com.hanstep.mydata.dto.InstitutionListResponse;
@@ -38,13 +37,13 @@ public class MydataController {
     }
 
     @Operation(summary = "연결 가능 기관 목록 (MYD-01)",
-            description = "MVP: 신한은행·신한카드(Mock). [계약 단계: 고정 예시 응답]")
+            description = "MVP: 신한은행·신한카드(Mock).")
     @ApiResponse(responseCode = "200", description = "성공")
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @GetMapping("/institutions")
     public InstitutionListResponse getInstitutions(@Parameter(hidden = true) @AuthenticationPrincipal Long userId) {
-        return DemoExamples.institutions();
+        return connectionService.institutions();
     }
 
     @Operation(summary = "기관 연결 + Mock 데이터 적재 (MYD-02)",
@@ -76,13 +75,12 @@ public class MydataController {
     }
 
     @Operation(summary = "마이데이터 연결 상태 (MYD-03)",
-            description = "기관별 연동 상태와 가져온 계좌·거래 수. 연결한 적 없으면 connected=false, connections=[]. "
-                    + "[계약 단계: 고정 예시 응답]")
+            description = "기관별 연동 상태와 가져온 계좌·거래 수. 연결한 적 없으면 connected=false, connections=[].")
     @ApiResponse(responseCode = "200", description = "성공")
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @GetMapping("/connections")
     public ConnectionListResponse getConnections(@Parameter(hidden = true) @AuthenticationPrincipal Long userId) {
-        return DemoExamples.connections();
+        return connectionService.connections(userId);
     }
 }

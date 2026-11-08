@@ -1,11 +1,13 @@
 package com.hanstep.mydata.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.hanstep.common.security.JwtTokenProvider;
+import com.jayway.jsonpath.JsonPath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -222,6 +224,51 @@ class MydataApiTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
         assertThat(batchCount()).isZero();
+    }
+
+    @Test
+    void 기관_목록은_신한은행_신한카드_2개() throws Exception {
+        mockMvc.perform(get("/api/v1/mydata/institutions").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.institutions.length()").value(2))
+                .andExpect(jsonPath("$.institutions[0].id").value(institutionId("SHINHAN_BANK")))
+                .andExpect(jsonPath("$.institutions[0].institutionCode").value("SHINHAN_BANK"))
+                .andExpect(jsonPath("$.institutions[0].nameKo").value("신한은행"))
+                .andExpect(jsonPath("$.institutions[0].institutionType").value("BANK"))
+                .andExpect(jsonPath("$.institutions[0].isMock").value(true))
+                .andExpect(jsonPath("$.institutions[1].institutionCode").value("SHINHAN_CARD"))
+                .andExpect(jsonPath("$.institutions[1].institutionType").value("CARD"));
+    }
+
+    @Test
+    void 연결한_적_없으면_connected_false_빈_목록() throws Exception {
+        connections()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.connected").value(false))
+                .andExpect(jsonPath("$.connections.length()").value(0));
+    }
+
+    @Test
+    void 연결_후_연결_상태의_계좌_수_거래_수는_MYD_02_응답과_같다() throws Exception {
+        String connected = connect("key-1").andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        String listed = connections()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.connected").value(true))
+                .andReturn().getResponse().getContentAsString();
+
+        for (String field : List.of("id", "institutionCode", "status", "accountCount", "transactionCount")) {
+            List<Object> expected = JsonPath.read(connected, "$.connections[*]." + field);
+            List<Object> actual = JsonPath.read(listed, "$.connections[*]." + field);
+            assertThat(actual).as(field).isEqualTo(expected);
+        }
+        assertThat(JsonPath.<List<Integer>>read(listed, "$.connections[*].transactionCount"))
+                .containsExactly(BANK_TXNS, CARD_TXNS);
+    }
+
+    private ResultActions connections() throws Exception {
+        return mockMvc.perform(get("/api/v1/mydata/connections").header(HttpHeaders.AUTHORIZATION, bearer));
     }
 
     private ResultActions connect(String key) throws Exception {
