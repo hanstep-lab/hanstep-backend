@@ -2,6 +2,7 @@ package com.hanstep.commitment.dto;
 
 import com.hanstep.commitment.domain.CommitmentSource;
 import com.hanstep.commitment.domain.CommitmentType;
+import com.hanstep.commitment.domain.MonthlyCommitment;
 import com.hanstep.common.dto.Money;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -25,4 +26,10 @@ public record CommitmentResponse(
         @Schema(description = "근거 거래 ID(DETECTED_CONFIRMED 일 때)", example = "1187", nullable = true)
         Long detectedFromTxnId
 ) {
+
+    public static CommitmentResponse from(MonthlyCommitment commitment) {
+        return new CommitmentResponse(commitment.getId(), commitment.getCommitmentType(), commitment.getLabel(),
+                new Money(commitment.getAmount().longValue(), commitment.getCurrency()), commitment.getSource(),
+                commitment.getDetectedFromTxnId());
+    }
 }
