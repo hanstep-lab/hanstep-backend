@@ -18,6 +18,8 @@ public record OnboardingSummaryResponse(
         List<GoalResponse> goals,
 
         CommitmentListResponse commitments,
+
+        @Schema(description = "월 수지 요약. FIN-05(금융 분석) 연동 전까지 null", nullable = true)
         Balance balance
 ) {
 
@@ -49,7 +51,11 @@ public record OnboardingSummaryResponse(
             LocalDate stayExpiresOn,
 
             @Schema(description = "만료까지 남은 일수(오늘 KST 기준 계산값, 지났으면 음수)", example = "331")
-            long daysRemaining
+            long daysRemaining,
+
+            @Schema(description = "만료까지 남은 개월 수(꽉 찬 달, 계산값). monthlyRequired 와 같은 규칙. 지났으면 null",
+                    example = "10", nullable = true)
+            Integer monthsRemaining
     ) {
     }
 

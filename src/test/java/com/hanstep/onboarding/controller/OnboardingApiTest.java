@@ -8,9 +8,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.hanstep.common.security.JwtTokenProvider;
+import com.hanstep.common.time.KstDates;
 import com.hanstep.onboarding.repository.OnboardingProfileRepository;
 import com.hanstep.onboarding.repository.OnboardingProgressRepository;
 import com.hanstep.user.repository.UserRepository;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -26,7 +28,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
-/** ONB-01 ~ 03. 실제 DB(데모 사용자 demo-e9-nguyen), 테스트마다 롤백. */
+/** ONB-01 ~ 04. 실제 DB(데모 사용자 demo-e9-nguyen), 테스트마다 롤백. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -123,6 +125,58 @@ class OnboardingApiTest {
                 LocalDateTime.class, userId);
         assertThat(responded.getOffset()).isEqualTo(ZoneOffset.ofHours(9));
         assertThat(stored).isEqualTo(responded.withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime());
+    }
+
+    @Test
+    void 최종_확인은_등록증_확정_전이면_visa와_국적이_null() throws Exception {
+        jdbcTemplate.update("DELETE FROM visa_profiles WHERE user_id = ?", userId);
+
+        mockMvc.perform(get("/api/v1/onboarding/summary").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.id").value(userId))
+                .andExpect(jsonPath("$.user.nationalityCode").isEmpty())
+                .andExpect(jsonPath("$.visa").isEmpty())
+                .andExpect(jsonPath("$.balance").isEmpty());
+    }
+
+    @Test
+    void 최종_확인은_체류_정보_목표_필수_확보액을_DB에서_읽는다() throws Exception {
+        LocalDate date = LocalDate.now(KstDates.KST).plusMonths(10).plusDays(1);
+        Long e9 = jdbcTemplate.queryForObject("SELECT id FROM visa_types WHERE code = 'E-9'", Long.class);
+        jdbcTemplate.update("DELETE FROM visa_profiles WHERE user_id = ?", userId);
+        jdbcTemplate.update("DELETE FROM financial_goals WHERE user_id = ?", userId);
+        jdbcTemplate.update("DELETE FROM monthly_commitments WHERE user_id = ?", userId);
+        jdbcTemplate.update("INSERT INTO visa_profiles (user_id, visa_type_id, stay_expires_on, nationality_code) "
+                + "VALUES (?, ?, ?, 'VNM')", userId, e9, date);
+        jdbcTemplate.update("INSERT INTO financial_goals (user_id, goal_type, target_amount, target_date) "
+                + "VALUES (?, 'LUMP_SUM', 6000000, ?)", userId, date);
+        jdbcTemplate.update("INSERT INTO financial_goals (user_id, goal_type) VALUES (?, 'REMITTANCE')", userId);
+        jdbcTemplate.update("INSERT INTO monthly_commitments (user_id, commitment_type, label, amount) "
+                + "VALUES (?, 'RENT', '월세', 400000), (?, 'REMITTANCE', '가족 송금', 700000)", userId, userId);
+
+        mockMvc.perform(get("/api/v1/onboarding/summary").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.nationalityCode").value("VNM"))
+                .andExpect(jsonPath("$.visa.visaTypeCode").value("E-9"))
+                .andExpect(jsonPath("$.visa.stayExpiresOn").value(date.toString()))
+                .andExpect(jsonPath("$.visa.monthsRemaining").value(10))
+                .andExpect(jsonPath("$.goals.length()").value(2))
+                .andExpect(jsonPath("$.goals[0].goalType").value("LUMP_SUM"))
+                .andExpect(jsonPath("$.goals[0].targetAmount.amount").value(6000000))
+                .andExpect(jsonPath("$.goals[0].monthlyRequired.amount").value(600000))
+                .andExpect(jsonPath("$.goals[1].goalType").value("REMITTANCE"))
+                .andExpect(jsonPath("$.goals[1].monthlyRequired").isEmpty())
+                .andExpect(jsonPath("$.commitments.items.length()").value(2))
+                .andExpect(jsonPath("$.commitments.totals.fixedLiving.amount").value(400000))
+                .andExpect(jsonPath("$.commitments.totals.remittance.amount").value(700000))
+                .andExpect(jsonPath("$.balance").isEmpty());
+    }
+
+    @Test
+    void 최종_확인은_토큰_없으면_401() throws Exception {
+        mockMvc.perform(get("/api/v1/onboarding/summary"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
 
     private void putProfile(String json) throws Exception {

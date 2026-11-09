@@ -3,6 +3,7 @@ package com.hanstep.goal.service;
 import com.hanstep.common.dto.Money;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
+import com.hanstep.common.time.KstDates;
 import com.hanstep.goal.domain.FinancialGoal;
 import com.hanstep.goal.domain.GoalStatus;
 import com.hanstep.goal.domain.GoalType;
@@ -11,6 +12,7 @@ import com.hanstep.goal.dto.GoalResponse;
 import com.hanstep.goal.dto.GoalSaveRequest;
 import com.hanstep.goal.repository.FinancialGoalRepository;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;
@@ -32,7 +34,8 @@ public class GoalService {
 
     /** GOL-01. ACTIVE 목표만. */
     public GoalListResponse getGoals(Long userId) {
-        return new GoalListResponse(findActive(userId).stream().map(GoalResponse::from).toList());
+        LocalDate today = LocalDate.now(KstDates.KST);
+        return new GoalListResponse(findActive(userId).stream().map(goal -> GoalResponse.from(goal, today)).toList());
     }
 
     /** GOL-02. 전체 교체: 요청에 있는 종류는 갱신·생성, 없는 기존 ACTIVE 목표는 CANCELLED(삭제 안 함). */
