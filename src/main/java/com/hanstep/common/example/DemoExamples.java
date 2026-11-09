@@ -177,18 +177,18 @@ public final class DemoExamples {
 
     public static CommitmentListResponse commitments() {
         List<CommitmentResponse> items = List.of(
-                new CommitmentResponse(1L, CommitmentType.RENT, "월세", Money.krw(RENT), 25,
+                new CommitmentResponse(1L, CommitmentType.RENT, "월세", Money.krw(RENT),
                         CommitmentSource.USER, null),
-                new CommitmentResponse(2L, CommitmentType.UTILITY, "공과금", Money.krw(UTILITY), 25,
+                new CommitmentResponse(2L, CommitmentType.UTILITY, "공과금", Money.krw(UTILITY),
                         CommitmentSource.USER, null),
-                new CommitmentResponse(3L, CommitmentType.UTILITY, "전기·수도", Money.krw(ELECTRICITY_WATER), null,
+                new CommitmentResponse(3L, CommitmentType.UTILITY, "전기·수도", Money.krw(ELECTRICITY_WATER),
                         CommitmentSource.USER, null),
                 new CommitmentResponse(4L, CommitmentType.REMITTANCE, "가족 송금(Vietcombank)",
-                        Money.krw(REMITTANCE_MOTHER), 10, CommitmentSource.DETECTED_CONFIRMED, 1187L),
+                        Money.krw(REMITTANCE_MOTHER), CommitmentSource.DETECTED_CONFIRMED, 1187L),
                 new CommitmentResponse(5L, CommitmentType.REMITTANCE, "본인 계좌 송금(Techcombank)",
-                        Money.krw(REMITTANCE_SELF), 10, CommitmentSource.DETECTED_CONFIRMED, 1188L),
+                        Money.krw(REMITTANCE_SELF), CommitmentSource.DETECTED_CONFIRMED, 1188L),
                 new CommitmentResponse(6L, CommitmentType.VARIABLE_EXPENSE, "식비·교통·여가",
-                        Money.krw(VARIABLE_EXPENSE), null, CommitmentSource.USER, null));
+                        Money.krw(VARIABLE_EXPENSE), CommitmentSource.USER, null));
         CommitmentTotals totals = new CommitmentTotals(
                 Money.krw(FIXED_LIVING), Money.krw(REMITTANCE), Money.krw(VARIABLE_EXPENSE), Money.krw(0),
                 Money.krw(FIXED_LIVING + REMITTANCE + VARIABLE_EXPENSE));
@@ -239,8 +239,8 @@ public final class DemoExamples {
 
     public static CommitmentSaveRequest commitmentRequest() {
         return new CommitmentSaveRequest(commitments().items().stream()
-                .map(c -> new CommitmentSaveRequest.Item(c.commitmentType(), c.label(), c.amount(), c.dueDay(),
-                        c.source(), c.detectedFromTxnId()))
+                .map(c -> new CommitmentSaveRequest.Item(c.commitmentType(), c.label(), c.amount(), c.source(),
+                        c.detectedFromTxnId()))
                 .toList());
     }
 }

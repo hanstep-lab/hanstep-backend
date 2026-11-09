@@ -2,6 +2,7 @@ package com.hanstep.commitment.dto;
 
 import com.hanstep.commitment.domain.CommitmentSource;
 import com.hanstep.commitment.domain.CommitmentType;
+import com.hanstep.commitment.domain.MonthlyCommitment;
 import com.hanstep.common.dto.Money;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -19,13 +20,16 @@ public record CommitmentResponse(
         @Schema(description = "월 금액", example = "{\"amount\": 400000, \"currency\": \"KRW\"}")
         Money amount,
 
-        @Schema(description = "매월 납부일(1~31)", example = "25", nullable = true)
-        Integer dueDay,
-
         @Schema(description = "USER=직접 입력, DETECTED_CONFIRMED=송금 이력(CMT-03)에서 골라 확인", example = "USER")
         CommitmentSource source,
 
         @Schema(description = "근거 거래 ID(DETECTED_CONFIRMED 일 때)", example = "1187", nullable = true)
         Long detectedFromTxnId
 ) {
+
+    public static CommitmentResponse from(MonthlyCommitment commitment) {
+        return new CommitmentResponse(commitment.getId(), commitment.getCommitmentType(), commitment.getLabel(),
+                new Money(commitment.getAmount().longValue(), commitment.getCurrency()), commitment.getSource(),
+                commitment.getDetectedFromTxnId());
+    }
 }

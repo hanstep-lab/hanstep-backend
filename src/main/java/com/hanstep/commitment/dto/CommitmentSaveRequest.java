@@ -6,8 +6,6 @@ import com.hanstep.common.dto.Money;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
@@ -35,11 +33,6 @@ public record CommitmentSaveRequest(
             @NotNull
             @Valid
             Money amount,
-
-            @Schema(description = "매월 납부일(1~31)", example = "25", nullable = true)
-            @Min(1)
-            @Max(31)
-            Integer dueDay,
 
             @Schema(description = "기본 USER. 송금 이력(CMT-03)에서 고른 항목은 DETECTED_CONFIRMED + detectedFromTxnId",
                     example = "USER", nullable = true)
