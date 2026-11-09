@@ -15,7 +15,11 @@
       ],
       "note": "실연동 원천에는 없는 칸. 실연동 시 category_code·transaction_kind 는 규칙 분류가 채운다"
     },
-    "loader": "MYD-02 가 읽어 ingestion_batches(source_type=MOCK) · financial_accounts · financial_transactions 로 적재(미구현)",
+    "loader": "MYD-02 가 읽어 ingestion_batches(source_type=MOCK) · financial_accounts · financial_transactions 로 적재",
+    "data_assumptions": [
+      "counterparty_name·counterparty_bank: 마이데이터 표준 응답에는 보장되지 않음. 신한 SOL 앱인앱이므로 신한에서 보낸 해외송금은 자행 송금 내역의 수취인 영문 이름·은행을 쓴다고 가정(데모 가정)",
+      "다른 은행에서 보낸 송금은 금액·날짜·적요만 있다고 보고, 받는 분 확인은 사용자 입력으로 확장(MVP 범위 밖)"
+    ],
     "description": "신한은행 계좌 목록 + 거래내역 Mock 원천 응답(마이데이터 은행 API 형태를 본뜸)",
     "opening_balance_amt": 1850000,
     "temp_values": [
