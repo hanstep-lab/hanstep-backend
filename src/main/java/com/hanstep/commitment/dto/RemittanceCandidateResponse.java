@@ -29,6 +29,10 @@ public record RemittanceCandidateResponse(
         LocalDate lastSentOn,
 
         @Schema(description = "마지막 송금 거래 ID. CMT-02 저장 시 detectedFromTxnId 로 보냄", example = "1187")
-        Long lastTransactionId
+        Long lastTransactionId,
+
+        @Schema(description = "받는 분 이름이 사용자 이름과 같으면 true. 화면의 '본인 명의 계좌' 표시용. "
+                + "관계를 추정한 값이 아님(관계는 사용자 확인값만 RCP-01에 저장)", example = "false")
+        boolean sameNameAsUser
 ) {
 }
