@@ -3,7 +3,7 @@ SET NAMES utf8mb4;
 -- 신한걸음 시드 데이터 v1.1 (01_hanstep_schema.sql 실행 후 실행) — 기준표 데이터만: 거래 카테고리·체류자격·금융기관·E-7-4 점수표(DRAFT)
 -- 사람 데이터·Mock 거래는 포함하지 않는다(Mock 생성 스크립트 담당).
 
--- 거래 카테고리: flow=NEUTRAL 은 소득·지출 집계에서 제외된다.
+-- 거래 카테고리: flow=NEUTRAL 은 소득·지출 집계에서 제외됨.
 INSERT INTO transaction_categories (code, parent_code, name_en, name_ko, flow, sort_order) VALUES
  ('INCOME',       NULL,      'Income',              '수입',          'INCOME',  10),
  ('SALARY',       'INCOME',  'Salary',              '급여',          'INCOME',  11),
@@ -35,7 +35,7 @@ INSERT INTO institutions (institution_code, name, name_ko, institution_type) VAL
  ('MOCK_TELECOM', 'Mock Telecom',        NULL,       'TELECOM');
 
 -- E-7-4 규칙: 10/22 회의록·지수 기능정의서에 옮겨진 농식품부 2026 점수표 값.
--- 법무부 공식 공고로 재확인하기 전까지 DRAFT. DRAFT 규칙은 계산 API가 사용하지 않는다.
+-- 법무부 공식 공고로 재확인하기 전까지 DRAFT. DRAFT 규칙은 계산 API가 사용하지 않음.
 INSERT INTO e74_rule_sets (rule_version, effective_from, required_total_score, approval_status, note) VALUES
  ('E74-2026-v1', '2026-01-01', NULL, 'DRAFT', '기준 총점·가점 세부는 법무부 2026 선발계획 확인 후 입력');
 

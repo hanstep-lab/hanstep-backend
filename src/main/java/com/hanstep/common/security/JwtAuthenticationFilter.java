@@ -14,12 +14,12 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Authorization: Bearer {JWT} 헤더를 읽어 요청 주인(사용자 ID)을 SecurityContext 에 넣는다.
- * 토큰이 없거나 틀리면 아무것도 넣지 않고 넘긴다 → 보호된 주소면 SecurityErrorHandler 가 401 응답.
- * 컨트롤러에서는 {@code @AuthenticationPrincipal Long userId} 로 꺼낸다.
+ * Authorization: Bearer {JWT} 헤더를 읽어 요청 주인(사용자 ID)을 SecurityContext 에 넣음.
+ * 토큰이 없거나 틀리면 아무것도 넣지 않고 넘김 → 보호된 주소면 SecurityErrorHandler 가 401 응답.
+ * 컨트롤러에서는 {@code @AuthenticationPrincipal Long userId} 로 꺼냄.
  *
- * <p>@Component 를 붙이지 않는다. 붙이면 Spring Boot 가 서블릿 필터로 한 번 더 등록해 두 번 실행된다.
- * SecurityConfig 에서 직접 생성해 Security 필터 체인에만 넣는다.
+ * <p>@Component 를 붙이지 않음. 붙이면 Spring Boot 가 서블릿 필터로 한 번 더 등록해 두 번 실행됨.
+ * SecurityConfig 에서 직접 생성해 Security 필터 체인에만 넣음.
  */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 

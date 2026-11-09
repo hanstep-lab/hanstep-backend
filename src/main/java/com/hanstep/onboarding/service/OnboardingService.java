@@ -57,7 +57,7 @@ public class OnboardingService {
         return OnboardingProfileResponse.from(profileRepository.save(profile));
     }
 
-    /** ONB-03. COMPLETED·SKIPPED 만 저장하고 다음 단계를 돌려준다. */
+    /** ONB-03. COMPLETED·SKIPPED 만 저장하고 다음 단계를 돌려줌. */
     @Transactional
     public StepUpdateResponse finishStep(Long userId, OnboardingStep step, OnboardingStepStatus status) {
         if (!status.isDone()) {

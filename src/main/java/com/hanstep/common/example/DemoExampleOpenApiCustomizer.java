@@ -11,11 +11,11 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Swagger 의 Example Value 를 데모 페르소나 전체 값으로 채운다.
+ * Swagger 의 Example Value 를 데모 페르소나 전체 값으로 채움.
  *
  * <p>필드별 @Schema(example) 만으로는 배열이 항목 1개짜리로 보이므로, FE 가 화면에 그대로 쓸 수 있게
- * 요청·응답 예시를 통째로 넣는다. 실제 응답과 같은 ObjectMapper 로 직렬화해 날짜·필드 이름이 응답과 똑같다.
- * DemoExamples 를 지울 때 함께 지운다.
+ * 요청·응답 예시를 통째로 넣음. 실제 응답과 같은 ObjectMapper 로 직렬화해 날짜·필드 이름이 응답과 똑같음.
+ * DemoExamples 를 지울 때 함께 지움.
  */
 @Component
 public class DemoExampleOpenApiCustomizer implements OpenApiCustomizer {
@@ -74,7 +74,7 @@ public class DemoExampleOpenApiCustomizer implements OpenApiCustomizer {
         }
         for (String code : new String[] {"200", "201"}) {
             ApiResponse response = operation.getResponses().get(code);
-            // 201 이 있으면 200 은 Idempotency-Key 재요청 설명용이라 content 가 없다
+            // 201 이 있으면 200 은 Idempotency-Key 재요청 설명용이라 content 가 없음
             if (response != null && response.getContent() != null) {
                 setExample(response.getContent(), value);
             }
@@ -85,7 +85,7 @@ public class DemoExampleOpenApiCustomizer implements OpenApiCustomizer {
         if (content == null) {
             return;
         }
-        // 실제 응답과 같은 직렬화 결과(Map/List)로 바꿔 넣는다
+        // 실제 응답과 같은 직렬화 결과(Map/List)로 바꿔 넣음
         Object json = objectMapper.readValue(objectMapper.writeValueAsString(value), Object.class);
         content.values().forEach(mediaType -> mediaType.setExample(json));
     }

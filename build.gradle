@@ -41,5 +41,22 @@ dependencies {
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'perf'
+    }
+}
+
+// 적재 기준선 측정(@Tag("perf")). Docker MySQL(3307)이 떠 있어야 함: ./gradlew perfTest
+tasks.register('perfTest', Test) {
+    description = 'Runs @Tag("perf") baseline measurements against the local Docker MySQL.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'perf'
+    }
+    outputs.upToDateWhen { false }
+    testLogging {
+        showStandardStreams = true
+    }
 }

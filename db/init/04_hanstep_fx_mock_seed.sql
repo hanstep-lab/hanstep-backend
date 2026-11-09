@@ -4,7 +4,7 @@ SET NAMES utf8mb4;
 -- 01_hanstep_schema.sql 실행 후 실행. 기간: 2025-11-07 ~ 2026-11-06 영업일(주말·주요 공휴일 제외, 공휴일은 대략값)
 -- - USD: 수출입은행 고시 형식(KOREAEXIM). 매매기준율 + 송금 보낼 때(TTS, +1%) + 받을 때(TTB, -1%). rate_at = 기준일 00:00 KST
 -- - VND: 시장 환율 참고값(MARKET_REF, 100 VND 단위). 송금 환율 없음(ck_exchange_rates_tt). 매 영업일 16:00 KST 1건
--- - 모든 행 is_mock = TRUE. 실제 수집기가 붙으면 이 파일은 지우거나 개발 전용으로 둔다
+-- - 모든 행 is_mock = TRUE. 실제 수집기가 붙으면 이 파일은 지우거나 개발 전용으로 둠
 -- - 시각 칸(rate_at, fetched_at)은 UTC
 -- 행 수: USD 246 + VND 246 = 492
 

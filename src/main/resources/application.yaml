@@ -4,7 +4,7 @@ spring:
   config:
     import: optional:file:.env[.properties]
   datasource:
-    url: jdbc:mysql://localhost:${MYSQL_PORT:3307}/${MYSQL_DATABASE:hanstep}?serverTimezone=UTC&characterEncoding=UTF-8
+    url: jdbc:mysql://localhost:${MYSQL_PORT:3307}/${MYSQL_DATABASE:hanstep}?serverTimezone=UTC&characterEncoding=UTF-8&rewriteBatchedStatements=true
     username: root
     password: ${MYSQL_ROOT_PASSWORD}
   jpa:

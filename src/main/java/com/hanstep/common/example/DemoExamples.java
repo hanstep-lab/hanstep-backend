@@ -47,8 +47,8 @@ import java.util.List;
 /**
  * 온보딩 API 계약(Swagger) 단계의 고정 예시 응답. 데모 페르소나 Nguyen Van Minh(E-9, 베트남) 기준.
  *
- * <p>FE 가 실제 로직 전에 화면을 만들 수 있게 컨트롤러가 이 값을 그대로 돌려준다.
- * 각 API 의 서비스 로직을 구현하면 해당 메서드를 지우고, 모두 구현되면 이 클래스를 삭제한다.
+ * <p>FE 가 실제 로직 전에 화면을 만들 수 있게 컨트롤러가 이 값을 그대로 돌려줌.
+ * 각 API 의 서비스 로직을 구현하면 해당 메서드를 지우고, 모두 구현되면 이 클래스를 삭제함.
  */
 public final class DemoExamples {
 
@@ -83,7 +83,7 @@ public final class DemoExamples {
 
     // ---- 온보딩 ----
 
-    /** ON-001 체류 목적만 받는다. 월소득은 MVP 에서 받지 않음(null). */
+    /** ON-001 체류 목적만 받음. 월소득은 MVP 에서 받지 않음(null). */
     public static OnboardingProfileResponse profile() {
         return new OnboardingProfileResponse(ResidencePurpose.WORK, null);
     }

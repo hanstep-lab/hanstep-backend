@@ -54,7 +54,7 @@ public record OnboardingSummaryResponse(
     }
 
     /**
-     * 여유자금 = 월소득 − 고정생활비 − 송금 − 변동지출. MANDATORY_SAVING 은 빼지 않는다.
+     * 여유자금 = 월소득 − 고정생활비 − 송금 − 변동지출. MANDATORY_SAVING 은 빼지 않음.
      */
     @Schema(name = "SummaryBalance", description = "월 수지 요약(계산값). spare = avgMonthlyIncome − fixedLiving − remittance − variableExpense")
     public record Balance(

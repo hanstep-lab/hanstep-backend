@@ -46,7 +46,7 @@ public class OnboardingProfile {
         this.userId = userId;
     }
 
-    /** ONB-02: 보낸 값으로 전체를 덮어쓴다(null 은 비움). */
+    /** ONB-02: 보낸 값으로 전체를 덮어씀(null 은 비움). */
     public void update(ResidencePurpose residencePurpose, BigDecimal declaredMonthlyIncome) {
         this.residencePurpose = residencePurpose;
         this.declaredMonthlyIncome = declaredMonthlyIncome;

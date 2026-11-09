@@ -5,7 +5,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * 유형별 합계(계산값, 저장하지 않음).
- * 고정생활비 = RENT·UTILITY·TELECOM·LIVING_MINIMUM·OTHER. MANDATORY_SAVING 은 차감 합계에 넣지 않는다.
+ * 고정생활비 = RENT·UTILITY·TELECOM·LIVING_MINIMUM·OTHER. MANDATORY_SAVING 은 차감 합계에 넣지 않음.
  */
 @Schema(description = "유형별 합계(계산값). MANDATORY_SAVING 은 deductibleTotal 에 포함하지 않음")
 public record CommitmentTotals(

@@ -29,7 +29,7 @@ public record OnboardingResponse(
         OnboardingProfileResponse profile
 ) {
 
-    /** 저장된 단계 행으로 6단계 전체를 만든다(행이 없는 단계는 NOT_STARTED). */
+    /** 저장된 단계 행으로 6단계 전체를 구성(행이 없는 단계는 NOT_STARTED). */
     public static OnboardingResponse of(List<OnboardingProgress> rows, OnboardingProfileResponse profile) {
         Map<OnboardingStep, OnboardingProgress> byStep = rows.stream()
                 .collect(Collectors.toMap(OnboardingProgress::getStepCode, Function.identity()));

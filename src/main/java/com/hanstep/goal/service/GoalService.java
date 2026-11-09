@@ -43,7 +43,7 @@ public class GoalService {
         Map<GoalType, FinancialGoal> active = new EnumMap<>(GoalType.class);
         for (FinancialGoal goal : findActive(userId)) {
             if (active.putIfAbsent(goal.getGoalType(), goal) != null) {
-                goal.cancel(); // 같은 종류 ACTIVE 가 여러 개면 하나만 남긴다
+                goal.cancel(); // 같은 종류 ACTIVE 가 여러 개면 하나만 남김
             }
         }
         for (GoalSaveRequest.Item item : request.goals()) {

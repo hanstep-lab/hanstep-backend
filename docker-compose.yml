@@ -41,7 +41,7 @@ services:
       - mongo-config:/data/configdb
       - mongo-search:/data/mongot
 
-# AI 레포 compose는 이 네트워크에 external로 참여해 mongodb:27017, rabbitmq:5672로 접속한다.
+# AI 레포 compose는 이 네트워크에 external로 참여해 mongodb:27017, rabbitmq:5672로 접속함.
 networks:
   default:
     name: hanstep-net

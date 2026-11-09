@@ -15,7 +15,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 /**
- * user_consents 테이블. 동의할 때마다 새 행, 철회는 그 행을 REVOKED 로 바꾼다(삭제하지 않음).
+ * user_consents 테이블. 동의할 때마다 새 행, 철회는 그 행을 REVOKED 로 바꿈(삭제하지 않음).
  * 시각 칸은 UTC(hibernate.jdbc.time_zone).
  */
 @Entity

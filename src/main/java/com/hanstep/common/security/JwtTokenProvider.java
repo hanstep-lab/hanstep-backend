@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * JWT 발급·검증.
- * 토큰에는 사용자 ID(sub)만 담는다. 이름·국적 같은 개인정보는 넣지 않는다(토큰은 Base64라 누구나 읽을 수 있음).
+ * 토큰에는 사용자 ID(sub)만 담음. 이름·국적 같은 개인정보는 넣지 않음(토큰은 Base64라 누구나 읽을 수 있음).
  */
 @Component
 public class JwtTokenProvider {
@@ -44,7 +44,7 @@ public class JwtTokenProvider {
     }
 
     /**
-     * 서명·만료·발급자를 검사하고 사용자 ID를 꺼낸다. 하나라도 틀리면 빈 값.
+     * 서명·만료·발급자를 검사하고 사용자 ID를 꺼냄. 하나라도 틀리면 빈 값.
      */
     public Optional<Long> parseUserId(String token) {
         try {
