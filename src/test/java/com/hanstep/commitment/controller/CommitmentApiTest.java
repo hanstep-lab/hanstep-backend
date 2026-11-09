@@ -7,7 +7,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.hanstep.common.security.JwtTokenProvider;
+import com.hanstep.mydata.domain.MydataScope;
+import com.hanstep.mydata.service.MockIngestionService;
+import com.hanstep.mydata.service.MockMydataReader;
 import com.hanstep.user.repository.UserRepository;
+import jakarta.persistence.EntityManager;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,7 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
-/** CMT-01 ~ 02. 실제 DB(데모 사용자 demo-e9-nguyen), 테스트마다 롤백. */
+/** CMT-01 ~ 03. 실제 DB(데모 사용자 demo-e9-nguyen), 테스트마다 롤백. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -45,6 +49,15 @@ class CommitmentApiTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MockIngestionService ingestionService;
+
+    @Autowired
+    private MockMydataReader reader;
+
+    @Autowired
+    private EntityManager entityManager;
 
     private Long userId;
     private String bearer;
@@ -215,6 +228,99 @@ class CommitmentApiTest {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
 
+    @Test
+    void 송금_이력은_Mock_적재_후_월평균_큰_순으로_돌려준다() throws Exception {
+        ingestDemo();
+        Long maiId = jdbcTemplate.queryForObject("SELECT id FROM remittance_recipients WHERE user_id = ? "
+                + "AND external_recipient_key = 'mock-recipient-mother-vcb'", Long.class, userId);
+
+        candidates()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.analyzedMonths").value(12))
+                .andExpect(jsonPath("$.isMock").value(true))
+                .andExpect(jsonPath("$.candidates.length()").value(2))
+                .andExpect(jsonPath("$.candidates[0].rank").value(1))
+                .andExpect(jsonPath("$.candidates[0].counterpartyName").value("NGUYEN THI MAI"))
+                .andExpect(jsonPath("$.candidates[0].counterpartyBank").value("Vietcombank"))
+                .andExpect(jsonPath("$.candidates[0].avgMonthlyAmount.amount").value(500000))
+                .andExpect(jsonPath("$.candidates[0].monthsSent").value(12))
+                .andExpect(jsonPath("$.candidates[0].lastSentOn").value("2026-10-10"))
+                .andExpect(jsonPath("$.candidates[0].lastTransactionId").value(txnId("SHB-20261010-RMT-MOTHER")))
+                .andExpect(jsonPath("$.candidates[0].recipientId").value(maiId))
+                .andExpect(jsonPath("$.candidates[0].sameNameAsUser").value(false))
+                .andExpect(jsonPath("$.candidates[1].rank").value(2))
+                .andExpect(jsonPath("$.candidates[1].counterpartyName").value("NGUYEN VAN MINH"))
+                .andExpect(jsonPath("$.candidates[1].counterpartyBank").value("Techcombank"))
+                .andExpect(jsonPath("$.candidates[1].avgMonthlyAmount.amount").value(200000))
+                .andExpect(jsonPath("$.candidates[1].recipientId").isEmpty())
+                .andExpect(jsonPath("$.candidates[1].sameNameAsUser").value(true));
+    }
+
+    @Test
+    void 송금_이력은_적재_배치가_없으면_빈_목록() throws Exception {
+        candidates()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.candidates.length()").value(0))
+                .andExpect(jsonPath("$.analyzedMonths").value(0))
+                .andExpect(jsonPath("$.isMock").value(false));
+    }
+
+    @Test
+    void 송금_이력은_한_달만_보낸_송금처를_뺀다() throws Exception {
+        ingestDemo();
+        long[] ids = succeededBatch(userId, "test-one-month");
+        remit(userId, ids, "test-one-month-1", "TRAN VAN BINH", "BIDV", "2026-09-03", 900000);
+        remit(userId, ids, "test-one-month-2", "TRAN VAN BINH", "BIDV", "2026-09-20", 900000);
+
+        candidates()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.candidates.length()").value(2))
+                .andExpect(jsonPath("$.candidates[0].counterpartyName").value("NGUYEN THI MAI"))
+                .andExpect(jsonPath("$.candidates[1].counterpartyName").value("NGUYEN VAN MINH"));
+    }
+
+    @Test
+    void 송금_이력의_마지막_거래는_같은_날짜면_id가_큰_쪽() throws Exception {
+        long[] ids = succeededBatch(userId, "test-same-day");
+        remit(userId, ids, "test-same-day-1", "TRAN VAN BINH", "BIDV", "2026-09-10", 300000);
+        remit(userId, ids, "test-same-day-2", "TRAN VAN BINH", "BIDV", "2026-10-10", 300000);
+        long last = remit(userId, ids, "test-same-day-3", "TRAN VAN BINH", "BIDV", "2026-10-10", 300000);
+
+        candidates()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.candidates.length()").value(1))
+                .andExpect(jsonPath("$.candidates[0].monthsSent").value(2))
+                .andExpect(jsonPath("$.candidates[0].avgMonthlyAmount.amount").value(75000)) // 900,000 ÷ 12
+                .andExpect(jsonPath("$.candidates[0].lastSentOn").value("2026-10-10"))
+                .andExpect(jsonPath("$.candidates[0].lastTransactionId").value(last));
+    }
+
+    @Test
+    void 송금_이력에_다른_사용자의_거래는_섞이지_않는다() throws Exception {
+        jdbcTemplate.update("INSERT INTO users (external_user_key, display_name) VALUES ('test-other', 'OTHER USER')");
+        Long otherUserId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        long[] ids = succeededBatch(otherUserId, "test-other");
+        remit(otherUserId, ids, "test-other-1", "NGUYEN THI MAI", "Vietcombank", "2026-08-10", 9000000);
+        remit(otherUserId, ids, "test-other-2", "NGUYEN THI MAI", "Vietcombank", "2026-09-10", 9000000);
+        remit(otherUserId, ids, "test-other-3", "LE THI HOA", "BIDV", "2026-09-10", 9000000);
+        remit(otherUserId, ids, "test-other-4", "LE THI HOA", "BIDV", "2026-10-10", 9000000);
+        ingestDemo();
+
+        candidates()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.candidates.length()").value(2))
+                .andExpect(jsonPath("$.candidates[0].counterpartyName").value("NGUYEN THI MAI"))
+                .andExpect(jsonPath("$.candidates[0].avgMonthlyAmount.amount").value(500000))
+                .andExpect(jsonPath("$.candidates[1].counterpartyName").value("NGUYEN VAN MINH"));
+    }
+
+    @Test
+    void 송금_이력은_토큰_없으면_401() throws Exception {
+        mockMvc.perform(get("/api/v1/commitments/remittance-candidates"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
     private ResultActions save(String itemsJson) throws Exception {
         return mockMvc.perform(put("/api/v1/commitments").header(HttpHeaders.AUTHORIZATION, bearer)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -237,7 +343,53 @@ class CommitmentApiTest {
                 + "\"currency\":\"KRW\"},\"source\":\"DETECTED_CONFIRMED\",\"detectedFromTxnId\":" + txnId + "}";
     }
 
-    /** MYD-02 전이라 거래 테이블이 비어 있어 배치·계좌·거래 한 건을 직접 넣는다. */
+    private ResultActions candidates() throws Exception {
+        return mockMvc.perform(get("/api/v1/commitments/remittance-candidates")
+                .header(HttpHeaders.AUTHORIZATION, bearer));
+    }
+
+    /** 데모 사용자 신한은행 Mock 원천 12개월 적재(MYD-02 적재 부분). 테스트 트랜잭션에 묶여 롤백된다. */
+    private void ingestDemo() {
+        jdbcTemplate.update("INSERT INTO user_consents (user_id, consent_type, policy_version, status, granted_at) "
+                + "VALUES (?, 'MYDATA', 'test', 'GRANTED', NOW(3))", userId);
+        Long consentId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        Long bankId = jdbcTemplate.queryForObject(
+                "SELECT id FROM institutions WHERE institution_code = 'SHINHAN_BANK'", Long.class);
+        ingestionService.ingest(userId, "test-cmt03", consentId,
+                List.of(MydataScope.ACCOUNT_BALANCE, MydataScope.TRANSACTIONS), 12,
+                List.of(new MockIngestionService.Target(bankId, reader.read("SHINHAN_BANK").orElseThrow())));
+        // 테스트에서는 적재가 바깥 트랜잭션에 합류해 커밋되지 않으므로, 배치 SUCCEEDED 갱신을 JdbcTemplate 조회 전에 반영
+        entityManager.flush();
+    }
+
+    private Long txnId(String externalTxnKey) {
+        return jdbcTemplate.queryForObject("SELECT id FROM financial_transactions WHERE user_id = ? "
+                + "AND external_txn_key = ?", Long.class, userId, externalTxnKey);
+    }
+
+    /** 수집 기간 2025-11-01 ~ 2026-10-31 인 SUCCEEDED 배치와 계좌. [batchId, accountId] */
+    private long[] succeededBatch(Long ownerId, String key) {
+        jdbcTemplate.update("INSERT INTO ingestion_batches (user_id, source_type, request_key, status, coverage_from, "
+                + "coverage_to, started_at, finished_at) VALUES (?, 'MOCK', ?, 'SUCCEEDED', '2025-11-01', "
+                + "'2026-10-31', NOW(3), NOW(3))", ownerId, key);
+        Long batchId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbcTemplate.update("INSERT INTO financial_accounts (user_id, institution_id, batch_id, external_account_key, "
+                + "account_no_masked, account_type) VALUES (?, (SELECT id FROM institutions "
+                + "WHERE institution_code = 'SHINHAN_BANK'), ?, ?, '110-***-**0000', 'DEMAND')", ownerId, batchId, key);
+        Long accountId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        return new long[] {batchId, accountId};
+    }
+
+    private long remit(Long ownerId, long[] batchAndAccount, String key, String name, String bank, String date,
+                       long amount) {
+        jdbcTemplate.update("INSERT INTO financial_transactions (user_id, account_id, batch_id, external_txn_key, "
+                + "transacted_at, booked_date, direction, amount, counterparty_name, counterparty_bank, "
+                + "category_code) VALUES (?, ?, ?, ?, ?, ?, 'EXPENSE', ?, ?, ?, 'REMITTANCE')",
+                ownerId, batchAndAccount[1], batchAndAccount[0], key, date + " 01:00:00", date, amount, name, bank);
+        return jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    /** 배치·계좌·거래 한 건을 직접 넣는다(PENDING 배치라 CMT-03 집계 대상 아님). */
     private long insertTransaction(Long ownerId, String key) {
         jdbcTemplate.update("INSERT INTO ingestion_batches (user_id, source_type, request_key, started_at) "
                 + "VALUES (?, 'MOCK', ?, NOW(3))", ownerId, key);
