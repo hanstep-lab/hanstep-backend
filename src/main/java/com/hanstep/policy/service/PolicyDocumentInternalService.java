@@ -47,7 +47,7 @@ public class PolicyDocumentInternalService {
 
     @Transactional
     public void recordIngested(Long policyDocumentId, PolicyIngestedRequest request) {
-        PolicyDocument doc = policyDocumentRepository.findById(policyDocumentId)
+        PolicyDocument doc = policyDocumentRepository.findByIdForUpdate(policyDocumentId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
                         Map.of("policyDocumentId", policyDocumentId)));
         if (!doc.getPolicyVersion().equals(request.documentVersion())) {
