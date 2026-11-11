@@ -2,8 +2,11 @@ package com.hanstep.policy.controller;
 
 import com.hanstep.common.config.OpenApiConfig;
 import com.hanstep.common.error.ErrorResponse;
+import com.hanstep.policy.dto.LawDocumentRegisterRequest;
+import com.hanstep.policy.dto.PolicyDocumentRef;
 import com.hanstep.policy.dto.PolicyIngestedRequest;
 import com.hanstep.policy.dto.SearchEligibilityResponse;
+import com.hanstep.policy.service.LawDocumentRegisterService;
 import com.hanstep.policy.service.PolicyDocumentInternalService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -13,11 +16,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -27,9 +32,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class PolicyDocumentInternalController {
 
     private final PolicyDocumentInternalService policyDocumentInternalService;
+    private final LawDocumentRegisterService lawDocumentRegisterService;
 
-    public PolicyDocumentInternalController(PolicyDocumentInternalService policyDocumentInternalService) {
+    public PolicyDocumentInternalController(PolicyDocumentInternalService policyDocumentInternalService,
+                                            LawDocumentRegisterService lawDocumentRegisterService) {
         this.policyDocumentInternalService = policyDocumentInternalService;
+        this.lawDocumentRegisterService = lawDocumentRegisterService;
     }
 
     @Operation(summary = "정책 문서 검색 가능 여부 (AI-R1)",
@@ -67,5 +75,25 @@ public class PolicyDocumentInternalController {
                                                @Valid @RequestBody PolicyIngestedRequest request) {
         policyDocumentInternalService.recordIngested(policyDocumentId, request);
         return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "법제처 법령 문서 등록 (AI-R6)",
+            description = "AI 가 법제처에서 새 법령 버전을 발견하면 적재 전에 부른다. 새 행은 항상 DRAFT. "
+                    + "policyVersion = LAW-{externalId}-{yyyyMMdd}(시행일, 없으면 공포일, 둘 다 없으면 등록일 KST). "
+                    + "같은 법령·날짜에 해시가 다른 행이 있으면 -{contentHash 앞 6자}를 붙인다. "
+                    + "같은 contentHash 행이 이미 있으면 그 행을 200 으로 돌려준다.")
+    @ApiResponse(responseCode = "201", description = "새로 등록")
+    @ApiResponse(responseCode = "200", description = "같은 contentHash 행이 이미 있음")
+    @ApiResponse(responseCode = "400",
+            description = "본문 형식 오류, sourceType 이 LAW 가 아님, Idempotency-Key 누락 또는 contentHash 와 다름(details.fields)",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "401", description = "X-Internal-Token 없음·틀림",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @PostMapping("/internal/v1/ai-context/policy-documents")
+    public ResponseEntity<PolicyDocumentRef> registerLaw(
+            @Parameter(description = "contentHash 와 같은 값") @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody LawDocumentRegisterRequest request) {
+        LawDocumentRegisterService.Result result = lawDocumentRegisterService.register(idempotencyKey, request);
+        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK).body(result.document());
     }
 }

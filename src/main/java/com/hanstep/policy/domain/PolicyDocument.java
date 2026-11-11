@@ -92,6 +92,26 @@ public class PolicyDocument {
     @Column(name = "updated_at", insertable = false, updatable = false)
     private Instant updatedAt;
 
+    /** AI-R6 법제처 법령 등록. 새 행은 항상 DRAFT(승인은 관리자). */
+    public static PolicyDocument registerLaw(String title, String issuingAgency, String sourceUrl, String externalId,
+                                             String visaTypeCode, LocalDate publishedOn, LocalDate effectiveFrom,
+                                             String policyVersion, String contentHash, String objectKey) {
+        PolicyDocument doc = new PolicyDocument();
+        doc.sourceType = PolicySourceType.LAW;
+        doc.title = title;
+        doc.issuingAgency = issuingAgency;
+        doc.sourceUrl = sourceUrl;
+        doc.externalId = externalId;
+        doc.visaTypeCode = visaTypeCode;
+        doc.publishedOn = publishedOn;
+        doc.effectiveFrom = effectiveFrom;
+        doc.policyVersion = policyVersion;
+        doc.contentHash = contentHash;
+        doc.objectKey = objectKey;
+        doc.reviewStatus = ReviewStatus.DRAFT;
+        return doc;
+    }
+
     /**
      * 검색 가능 여부. APPROVED 이고 today(KST)가 시행 기간 안(effective_to 미포함).
      * effective_from 이 NULL 이면 시행 시작 조건은 건너뛴다(비자 원문 대부분이 시행일 표기 없음, MVP 결정).
