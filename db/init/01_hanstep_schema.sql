@@ -170,6 +170,8 @@ CREATE TABLE visa_profiles (
   stay_expires_on         DATE            NULL COMMENT '체류 만료일',
   nationality_code        CHAR(3)         NULL COMMENT 'ISO 3166-1 alpha-3',
   birth_date              DATE            NULL COMMENT 'E-7-4 나이 점수용(나이는 저장하지 않고 계산)',
+  current_stay_started_on DATE            NULL COMMENT '현재 체류 시작일(입국일). E-7-4 체류요건',
+  prior_stay_months       SMALLINT UNSIGNED NULL COMMENT '현재 체류 이전 최근 10년 내 E-9·E-10·H-2 체류 합계(개월). 현재 체류 4년 미만일 때만',
   source_document_id      BIGINT UNSIGNED NULL COMMENT '근거 OCR 문서',
   evidence_status         ENUM('DECLARED','NEEDS_VERIFICATION','PARTIALLY_VERIFIED','VERIFIED') NOT NULL DEFAULT 'DECLARED' COMMENT '증빙 상태',
   created_at              DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '생성',
@@ -178,7 +180,8 @@ CREATE TABLE visa_profiles (
   CONSTRAINT uq_visa_profiles_user UNIQUE (user_id),
   CONSTRAINT fk_visa_profiles_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT fk_visa_profiles_type FOREIGN KEY (visa_type_id) REFERENCES visa_types (id),
-  CONSTRAINT fk_visa_profiles_document FOREIGN KEY (source_document_id) REFERENCES documents (id) ON DELETE SET NULL
+  CONSTRAINT fk_visa_profiles_document FOREIGN KEY (source_document_id) REFERENCES documents (id) ON DELETE SET NULL,
+  CONSTRAINT ck_visa_profiles_prior_stay CHECK (prior_stay_months IS NULL OR prior_stay_months <= 120)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 현재 체류 프로필(OCR 확정값의 유일한 보관처, 등록번호는 저장하지 않음)';
 
 -- 근무 이력(사업장·근속 기간) 저장용 테이블 --
@@ -186,11 +189,12 @@ CREATE TABLE employment_histories (
   id                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'ID',
   user_id                  BIGINT UNSIGNED NOT NULL COMMENT '사용자',
   employer_name            VARCHAR(200)    NOT NULL COMMENT '사업장명',
-  industry_code            VARCHAR(30)     NOT NULL COMMENT '업종(MANUFACTURING, AGRICULTURE, FISHERY 등 — E-7-4 업종 특례)',
+  industry_code            VARCHAR(30)     NOT NULL COMMENT '업종(MANUFACTURING 등). E-7-4 업종 특례: AGRICULTURE, LIVESTOCK, FISHERY, COASTAL_SHIPPING',
   workplace_region_code    VARCHAR(20)     NULL COMMENT '사업장 소재 시군구 코드',
   is_depopulation_area     BOOLEAN         NULL COMMENT '인구감소지역·읍면 여부(가점)',
   started_on               DATE            NOT NULL COMMENT '근무 시작일',
   ended_on                 DATE            NULL COMMENT '근무 종료일(현직=NULL)',
+  left_without_fault       BOOLEAN         NULL COMMENT '근로자 귀책 없는 이직(휴·폐업, 임금체불 등). 근속·추천 기간 합산',
   contract_end_on          DATE            NULL COMMENT '현 고용계약 만료일',
   contract_annual_salary   DECIMAL(18,2)   NULL COMMENT '고용계약 연봉',
   verification_status      ENUM('DECLARED','NEEDS_EVIDENCE','VERIFIED','REJECTED') NOT NULL DEFAULT 'DECLARED' COMMENT '증빙 상태',
@@ -210,6 +214,9 @@ CREATE TABLE visa_evidence (
   user_id         BIGINT UNSIGNED NOT NULL COMMENT '사용자',
   evidence_type   ENUM('TOPIK','KIIP','KIIP_PRE_TEST','DRIVER_LICENSE','NATIONAL_CERTIFICATE','KOREAN_DEGREE','RECOMMENDATION_EMPLOYER','RECOMMENDATION_MINISTRY','RECOMMENDATION_PROVINCE') NOT NULL COMMENT '증빙 종류(감점 사유는 저장하지 않음)',
   level_value     VARCHAR(30)     NULL COMMENT 'TOPIK 급수, KIIP 단계, 자격명 등',
+  pre_test_score  TINYINT UNSIGNED NULL COMMENT 'KIIP 사전평가 점수(0~100)',
+  pre_test_assigned_stage TINYINT UNSIGNED NULL COMMENT 'KIIP 사전평가 배정 단계(0~5, 0단계 배정은 불인정)',
+  related_to_current_job BOOLEAN         NULL COMMENT '자격증의 현재 근무 분야 관련 여부',
   issued_on       DATE            NULL COMMENT '취득·발급일',
   expires_on      DATE            NULL COMMENT '유효기간(TOPIK 2년 등)',
   document_id     BIGINT UNSIGNED NULL COMMENT '증빙 문서',
@@ -219,7 +226,8 @@ CREATE TABLE visa_evidence (
   PRIMARY KEY (id),
   KEY ix_visa_evidence_user (user_id, evidence_type),
   CONSTRAINT fk_visa_evidence_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-  CONSTRAINT fk_visa_evidence_doc FOREIGN KEY (document_id) REFERENCES documents (id) ON DELETE SET NULL
+  CONSTRAINT fk_visa_evidence_doc FOREIGN KEY (document_id) REFERENCES documents (id) ON DELETE SET NULL,
+  CONSTRAINT ck_visa_evidence_pre_test CHECK ((pre_test_score IS NULL OR pre_test_score <= 100) AND (pre_test_assigned_stage IS NULL OR pre_test_assigned_stage <= 5))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 한국어·자격·추천 증빙(FR-025)';
 
 -- 연도별 공식 인정소득(소득금액증명원) 저장용 테이블 (후순위 가능: 1차 개발은 마이데이터 추정 소득 사용) --
