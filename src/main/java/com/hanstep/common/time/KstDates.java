@@ -5,6 +5,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.Period;
 import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
 
 /** KST 기준 날짜 계산. 오늘 날짜는 호출하는 쪽에서 LocalDate.now(KST) 로 구해 넘긴다. */
 public final class KstDates {
@@ -12,6 +13,16 @@ public final class KstDates {
     public static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private KstDates() {
+    }
+
+    /** 온전한 달력 월의 시작. 1일이 아니면 다음 달 1일(CMT-03·FIN-05 수집 기간 자르기). */
+    public static LocalDate firstFullMonthStart(LocalDate date) {
+        return date.getDayOfMonth() == 1 ? date : date.plusMonths(1).withDayOfMonth(1);
+    }
+
+    /** 온전한 달력 월의 끝. 말일이 아니면 전달 말일(CMT-03·FIN-05 수집 기간 자르기). */
+    public static LocalDate lastFullMonthEnd(LocalDate date) {
+        return date.equals(date.with(TemporalAdjusters.lastDayOfMonth())) ? date : date.withDayOfMonth(1).minusDays(1);
     }
 
     /** today 부터 date 까지 꽉 찬 달 수(내림, 0 가능). date 가 없거나 today 이하이면 null. */

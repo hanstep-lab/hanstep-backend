@@ -558,6 +558,7 @@ CREATE TABLE financial_analyses (
   id                        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '분석 ID',
   user_id                   BIGINT UNSIGNED NOT NULL COMMENT '사용자',
   request_key               VARCHAR(100)    NOT NULL COMMENT '멱등키(기간+원천 지문+엔진 버전 해시 가능)',
+  source_batch_id           BIGINT UNSIGNED NULL COMMENT '분석에 쓴 적재 배치',
   period_from               DATE            NOT NULL COMMENT '조회 시작',
   period_to                 DATE            NOT NULL COMMENT '조회 종료',
   status                    ENUM('COMPLETED','FAILED') NOT NULL COMMENT '결과 상태',
@@ -568,6 +569,10 @@ CREATE TABLE financial_analyses (
   avg_monthly_income        DECIMAL(18,2)   NULL COMMENT '완전 관측 월 평균 수입(없으면 NULL)',
   avg_monthly_expense       DECIMAL(18,2)   NULL COMMENT '평균 지출(송금 포함)',
   avg_monthly_remittance    DECIMAL(18,2)   NULL COMMENT '평균 송금(지출의 하위 항목)',
+  avg_monthly_fixed         DECIMAL(18,2)   NULL COMMENT '평균 고정지출(주거·공과금·통신·대출 상환)',
+  avg_monthly_variable      DECIMAL(18,2)   NULL COMMENT '평균 변동지출',
+  variable_monthly_min      DECIMAL(18,2)   NULL COMMENT '변동지출 월 최소',
+  variable_monthly_max      DECIMAL(18,2)   NULL COMMENT '변동지출 월 최대',
   avg_monthly_surplus       DECIMAL(18,2)   NULL COMMENT '평균 잉여(음수 허용 — 경고 저장용)',
   remittance_ratio          DECIMAL(7,4)    NULL COMMENT '송금/수입(수입 0이면 NULL)',
   observed_month_count      SMALLINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '완전 관측 월 수(평균 분모)',
@@ -583,6 +588,7 @@ CREATE TABLE financial_analyses (
   CONSTRAINT uq_financial_analyses_req UNIQUE (user_id, request_key),
   KEY ix_financial_analyses_user (user_id, created_at),
   CONSTRAINT fk_financial_analyses_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_financial_analyses_batch FOREIGN KEY (source_batch_id) REFERENCES ingestion_batches (id) ON DELETE SET NULL,
   CONSTRAINT ck_financial_analyses_period CHECK (period_to >= period_from)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 현금흐름 분석 결과(append-only, 홈·챗봇 공용 수치 원천)';
 

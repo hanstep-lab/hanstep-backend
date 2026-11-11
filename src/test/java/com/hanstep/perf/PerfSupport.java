@@ -81,10 +81,12 @@ public final class PerfSupport {
         return jdbc.queryForObject("SHOW GLOBAL STATUS LIKE ?", (rs, i) -> rs.getLong(2), name);
     }
 
+    /** 짝수 개면 가운데 두 값의 평균. 평균은 정수 나눗셈이라 소수점 아래를 버린다(측정값이 양수라 내림과 같음). */
     public static long median(List<Long> values) {
         List<Long> sorted = new ArrayList<>(values);
         Collections.sort(sorted);
-        return sorted.get(sorted.size() / 2);
+        int mid = sorted.size() / 2;
+        return sorted.size() % 2 == 1 ? sorted.get(mid) : (sorted.get(mid - 1) + sorted.get(mid)) / 2;
     }
 
     public static long max(List<Long> values) {
