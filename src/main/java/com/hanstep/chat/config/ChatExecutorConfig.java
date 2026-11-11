@@ -12,7 +12,8 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * CHT-04 스트림 중계 실행기(chatStreamExecutor). 요청 스레드는 SseEmitter 를 돌려주고 바로 풀려나고,
- * AI 스트림 읽기는 이 실행기에서 한다. 어느 방식이 나은지는 ChatStreamConcurrencyPerfTest 결과로 정한다.
+ * AI 스트림 읽기는 이 실행기에서 한다. 기본은 virtual(가상 스레드)이고 platform(고정 풀)은 설정으로 고를 수 있다.
+ * 근거는 ChatStreamConcurrencyPerfTest(고정 풀은 크기를 넘는 동시 요청을 큐에 세워 첫 delta 가 늦어짐).
  */
 @Configuration
 public class ChatExecutorConfig {

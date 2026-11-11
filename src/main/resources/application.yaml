@@ -33,8 +33,10 @@ hanstep:
     # 챗봇 스트림(INT-05) 답변 1개의 전체 시간 제한. JDK read-timeout 은 응답 전체에 걸린다
     stream-read-timeout: 90s
   chat:
-    # CHT-04 스트림 중계 실행기: platform(고정 풀, 큐 제한 없음) | virtual(가상 스레드). 동시 연결 측정 결과로 결정
-    stream-executor: platform
+    # CHT-04 스트림 중계 실행기: virtual(가상 스레드, 기본) | platform(고정 풀, 큐 제한 없음)
+    # 고정 풀은 크기만큼만 동시에 AI 를 읽고 나머지는 큐에서 기다린다(ChatStreamConcurrencyPerfTest)
+    stream-executor: virtual
+    # platform 일 때만 쓰는 고정 풀 크기
     stream-pool-size: 16
 
 logging:
