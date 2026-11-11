@@ -5,7 +5,6 @@ import com.hanstep.commitment.dto.CommitmentSaveRequest;
 import com.hanstep.commitment.dto.RemittanceCandidateListResponse;
 import com.hanstep.commitment.service.CommitmentService;
 import com.hanstep.common.error.ErrorResponse;
-import com.hanstep.common.example.DemoExamples;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -62,13 +61,15 @@ public class CommitmentController {
     @Operation(summary = "송금 이력 Top 3 (CMT-03)",
             description = "'이전 송금 이력을 분석했어요' 블록. Mock 거래내역에서 정기 해외송금을 찾아 월평균 금액 큰 순으로 최대 3개. "
                     + "사용자가 고르면 CMT-02 에 REMITTANCE + DETECTED_CONFIRMED + detectedFromTxnId 로 저장한다. "
-                    + "관계(어머니 등)는 거래내역으로 추정하지 않는다. 마이데이터 미연결이면 빈 배열. [계약 단계: 고정 예시 응답]")
+                    + "관계(어머니 등)는 거래내역으로 추정하지 않는다. 마이데이터 미연결이면 빈 배열. "
+                    + "2개월 이상 보낸 송금처만, 월평균 = 총액 ÷ 분석 개월 수. "
+                    + "받는 분 이름·은행은 신한 자행 해외송금 내역에서 온다고 가정(데모는 Mock)")
     @ApiResponse(responseCode = "200", description = "성공")
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @GetMapping("/remittance-candidates")
     public RemittanceCandidateListResponse getRemittanceCandidates(
             @Parameter(hidden = true) @AuthenticationPrincipal Long userId) {
-        return DemoExamples.remittanceCandidates();
+        return commitmentService.getRemittanceCandidates(userId);
     }
 }

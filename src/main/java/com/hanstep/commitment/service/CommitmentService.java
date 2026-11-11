@@ -7,21 +7,29 @@ import com.hanstep.commitment.dto.CommitmentListResponse;
 import com.hanstep.commitment.dto.CommitmentResponse;
 import com.hanstep.commitment.dto.CommitmentSaveRequest;
 import com.hanstep.commitment.dto.CommitmentTotals;
+import com.hanstep.commitment.dto.RemittanceCandidateListResponse;
+import com.hanstep.commitment.dto.RemittanceCandidateResponse;
 import com.hanstep.commitment.repository.MonthlyCommitmentRepository;
 import com.hanstep.common.dto.Money;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.Period;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** CMT-01 ~ 02. */
+/** CMT-01 ~ 03. */
 @Service
 @Transactional(readOnly = true)
 public class CommitmentService {
@@ -91,6 +99,103 @@ public class CommitmentService {
         remaining.forEach(MonthlyCommitment::deactivate);
 
         return getCommitments(userId);
+    }
+
+    /**
+     * CMT-03. 가장 최근 SUCCEEDED 배치의 수집 기간 안에서 2개월 이상 보낸 해외송금처를 월평균 큰 순으로 최대 3개.
+     * 수집 기간은 온전한 달력 월로 자른다(앞뒤의 일부만 걸친 달은 뺀다).
+     * 월평균 = 묶음 총액 ÷ 분석 개월 수(원 단위 반올림).
+     */
+    public RemittanceCandidateListResponse getRemittanceCandidates(Long userId) {
+        List<BatchRow> batches = jdbcTemplate.query("""
+                        SELECT source_type, coverage_from, coverage_to FROM ingestion_batches
+                        WHERE user_id = ? AND status = 'SUCCEEDED' ORDER BY id DESC LIMIT 1""",
+                (rs, i) -> new BatchRow("MOCK".equals(rs.getString("source_type")),
+                        rs.getObject("coverage_from", LocalDate.class), rs.getObject("coverage_to", LocalDate.class)),
+                userId);
+        if (batches.isEmpty()) {
+            return new RemittanceCandidateListResponse(List.of(), 0, false);
+        }
+        BatchRow batch = batches.get(0);
+        // months_sent 가 달력 월로 세므로, 조회 기간과 나누는 개월 수도 온전한 달력 월로 자른다
+        LocalDate from = batch.coverageFrom() == null ? null : firstFullMonthStart(batch.coverageFrom());
+        LocalDate to = batch.coverageTo() == null ? null : lastFullMonthEnd(batch.coverageTo());
+        // 수집 기간이 없거나(원천 없는 기관만 연결) 온전한 달이 하나도 없으면 나눌 수 없으므로 빈 목록
+        int analyzedMonths = from == null || to == null || from.isAfter(to) ? 0
+                : Math.toIntExact(Period.between(from, to.plusDays(1)).toTotalMonths());
+        if (analyzedMonths == 0) {
+            return new RemittanceCandidateListResponse(List.of(), 0, batch.mock());
+        }
+
+        // 받는 분(이름·은행)별로 묶고, 묶음 안 마지막 거래는 날짜 → id 큰 순
+        BigDecimal months = BigDecimal.valueOf(analyzedMonths);
+        List<RemittanceCandidateResponse> groups = jdbcTemplate.query("""
+                        WITH txns AS (
+                            SELECT id, counterparty_name, counterparty_bank, amount, booked_date,
+                                   ROW_NUMBER() OVER (PARTITION BY counterparty_name, counterparty_bank
+                                                      ORDER BY booked_date DESC, id DESC) AS rn
+                            FROM financial_transactions
+                            WHERE user_id = ? AND category_code = 'REMITTANCE' AND direction = 'EXPENSE'
+                              AND currency = 'KRW' AND counterparty_name IS NOT NULL
+                              AND booked_date BETWEEN ? AND ?
+                        ), grouped AS (
+                            SELECT counterparty_name, counterparty_bank, SUM(amount) AS total,
+                                   COUNT(DISTINCT DATE_FORMAT(booked_date, '%Y-%m')) AS months_sent,
+                                   MAX(CASE WHEN rn = 1 THEN id END) AS last_id,
+                                   MAX(CASE WHEN rn = 1 THEN booked_date END) AS last_date
+                            FROM txns
+                            GROUP BY counterparty_name, counterparty_bank
+                            HAVING months_sent >= 2
+                        )
+                        SELECT g.*,
+                               (SELECT MIN(r.id) FROM remittance_recipients r
+                                WHERE r.user_id = ? AND r.is_active
+                                  AND UPPER(r.name_en) = UPPER(g.counterparty_name)
+                                  AND r.bank_name = g.counterparty_bank) AS recipient_id,
+                               (SELECT u.display_name FROM users u WHERE u.id = ?) AS user_name
+                        FROM grouped g""",
+                (rs, i) -> {
+                    String name = rs.getString("counterparty_name");
+                    long avg = rs.getBigDecimal("total").divide(months, 0, RoundingMode.HALF_UP).longValueExact();
+                    return new RemittanceCandidateResponse(0, name, rs.getString("counterparty_bank"),
+                            rs.getObject("recipient_id", Long.class), Money.krw(avg), rs.getInt("months_sent"),
+                            rs.getObject("last_date", LocalDate.class), rs.getLong("last_id"),
+                            normalizeName(name).equals(normalizeName(rs.getString("user_name"))));
+                },
+                userId, from, to, userId, userId);
+
+        List<RemittanceCandidateResponse> top = groups.stream()
+                .sorted(Comparator.comparing((RemittanceCandidateResponse c) -> c.avgMonthlyAmount().amount())
+                        .reversed()
+                        .thenComparing(RemittanceCandidateResponse::counterpartyName))
+                .limit(3)
+                .toList();
+        List<RemittanceCandidateResponse> ranked = new ArrayList<>();
+        for (int i = 0; i < top.size(); i++) {
+            RemittanceCandidateResponse c = top.get(i);
+            ranked.add(new RemittanceCandidateResponse(i + 1, c.counterpartyName(), c.counterpartyBank(),
+                    c.recipientId(), c.avgMonthlyAmount(), c.monthsSent(), c.lastSentOn(), c.lastTransactionId(),
+                    c.sameNameAsUser()));
+        }
+        return new RemittanceCandidateListResponse(ranked, analyzedMonths, batch.mock());
+    }
+
+    // 1일이 아니면 다음 달 1일
+    private static LocalDate firstFullMonthStart(LocalDate date) {
+        return date.getDayOfMonth() == 1 ? date : date.plusMonths(1).withDayOfMonth(1);
+    }
+
+    // 말일이 아니면 전달 말일
+    private static LocalDate lastFullMonthEnd(LocalDate date) {
+        return date.equals(date.with(TemporalAdjusters.lastDayOfMonth())) ? date : date.withDayOfMonth(1).minusDays(1);
+    }
+
+    private record BatchRow(boolean mock, LocalDate coverageFrom, LocalDate coverageTo) {
+    }
+
+    /** 대소문자·앞뒤 공백·연속 공백을 무시하고 비교하기 위한 이름. */
+    private static String normalizeName(String name) {
+        return name == null ? "" : name.trim().replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
     }
 
     private List<MonthlyCommitment> findActive(Long userId) {

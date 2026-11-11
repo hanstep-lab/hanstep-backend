@@ -199,9 +199,9 @@ public final class DemoExamples {
     public static RemittanceCandidateListResponse remittanceCandidates() {
         return new RemittanceCandidateListResponse(List.of(
                 new RemittanceCandidateResponse(1, "NGUYEN THI MAI", "Vietcombank", 1L,
-                        Money.krw(REMITTANCE_MOTHER), 12, LocalDate.of(2026, 10, 10), 1187L),
+                        Money.krw(REMITTANCE_MOTHER), 12, LocalDate.of(2026, 10, 10), 1187L, false),
                 new RemittanceCandidateResponse(2, "NGUYEN VAN MINH", "Techcombank", null,
-                        Money.krw(REMITTANCE_SELF), 12, LocalDate.of(2026, 10, 10), 1188L)),
+                        Money.krw(REMITTANCE_SELF), 12, LocalDate.of(2026, 10, 10), 1188L, true)),
                 12, true);
     }
 
