@@ -11,6 +11,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -60,6 +61,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(NoResourceFoundException e) {
         return build(ErrorCode.RESOURCE_NOT_FOUND, null, null);
+    }
+
+    // AI 호출 실패(연결 실패·타임아웃·AI 오류 응답). 외부 HTTP 호출은 지금 aiRestClient 뿐이다.
+    // 다른 외부 호출이 생기면 출처를 구분해야 한다
+    @ExceptionHandler(RestClientException.class)
+    public ResponseEntity<ErrorResponse> handleAiUpstream(RestClientException e) {
+        log.warn("AI upstream call failed", e);
+        return build(ErrorCode.AI_UPSTREAM_ERROR, null, null);
     }
 
     // 그 밖의 예상 못 한 오류
