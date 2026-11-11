@@ -11,6 +11,13 @@ services:
     volumes:
       - ./db/init:/docker-entrypoint-initdb.d:ro
       - mysql-data:/var/lib/mysql
+    # 최초 기동 땐 db/init 실행이 끝나야 TCP 접속이 열린다. $$ 는 컨테이너 안 환경 변수(compose 설정에 비밀번호를 펼치지 않음)
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
   rabbitmq:
     image: rabbitmq:4-management
@@ -18,13 +25,19 @@ services:
     hostname: rabbitmq
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5672:5672"
-      - "127.0.0.1:15672:15672"
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER in .env}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in .env}
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   mongodb:
     image: mongodb/mongodb-atlas-local:8.0
@@ -40,6 +53,7 @@ services:
       - mongo-data:/data/db
       - mongo-config:/data/configdb
       - mongo-search:/data/mongot
+    # healthcheck 는 이미지 기본값 사용
 
 # AI 레포 compose는 이 네트워크에 external로 참여해 mongodb:27017, rabbitmq:5672로 접속함.
 networks:
