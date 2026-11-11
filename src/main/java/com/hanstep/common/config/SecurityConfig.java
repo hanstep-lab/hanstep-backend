@@ -4,6 +4,7 @@ import com.hanstep.common.security.InternalApiProperties;
 import com.hanstep.common.security.InternalTokenFilter;
 import com.hanstep.common.security.JwtAuthenticationFilter;
 import com.hanstep.common.security.JwtTokenProvider;
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -69,6 +70,9 @@ public class SecurityConfig {
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(securityErrorHandler))
                 .authorizeHttpRequests(auth -> auth
+                        // SseEmitter(CHT-04)가 끝날 때의 비동기 디스패치. 첫 요청에서 이미 인증을 통과했고,
+                        // JWT 필터는 비동기 디스패치에서 다시 돌지 않아 막으면 응답이 깨진다
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers(PUBLIC_URLS).permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider),

@@ -114,6 +114,79 @@ public class ChatRepository {
         return result;
     }
 
+    public record ToolCallRow(long messageId, String runId, int order, String toolName, String argumentsJson,
+                              String status, String resultRefType, Long resultRefId, Integer latencyMs,
+                              String errorCode) {
+    }
+
+    public Optional<Long> findMessageIdByClientId(long sessionId, String clientMessageId) {
+        return jdbc.queryForList("SELECT id FROM chat_messages WHERE session_id = ? AND client_message_id = ?",
+                Long.class, sessionId, clientMessageId).stream().findFirst();
+    }
+
+    /** 같은 대화방 COMPLETED 메시지 최근 limit 개(오래된 순, role·content). */
+    public List<String[]> recentCompleted(long sessionId, int limit) {
+        List<String[]> rows = new ArrayList<>(jdbc.query("SELECT role, content FROM chat_messages "
+                        + "WHERE session_id = ? AND status = 'COMPLETED' ORDER BY created_at DESC, id DESC LIMIT ?",
+                (rs, i) -> new String[] {rs.getString("role"), rs.getString("content")}, sessionId, limit));
+        Collections.reverse(rows);
+        return rows;
+    }
+
+    public String userLanguage(long userId) {
+        return jdbc.queryForObject("SELECT preferred_language FROM users WHERE id = ?", String.class, userId);
+    }
+
+    /** USER·ASSISTANT 메시지 1행. 같은 대화방 같은 client_message_id 면 DuplicateKeyException. */
+    public long insertMessage(long sessionId, ChatRole role, String content, ChatMessageStatus status,
+                              String clientMessageId, String runId, Long replyToId, Instant now) {
+        KeyHolder key = new GeneratedKeyHolder();
+        jdbc.update(con -> {
+            PreparedStatement ps = con.prepareStatement("INSERT INTO chat_messages (session_id, role, content, status, "
+                    + "client_message_id, run_id, reply_to_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    Statement.RETURN_GENERATED_KEYS);
+            ps.setLong(1, sessionId);
+            ps.setString(2, role.name());
+            ps.setString(3, content);
+            ps.setString(4, status.name());
+            ps.setString(5, clientMessageId);
+            ps.setString(6, runId);
+            ps.setObject(7, replyToId);
+            ps.setObject(8, utc(now));
+            return ps;
+        }, key);
+        return key.getKey().longValue();
+    }
+
+    public void touchSession(long sessionId, Instant at) {
+        jdbc.update("UPDATE chat_sessions SET last_message_at = ? WHERE id = ?", utc(at), sessionId);
+    }
+
+    public void insertToolCall(ToolCallRow row) {
+        jdbc.update("INSERT INTO chat_tool_calls (message_id, run_id, call_order, tool_name, arguments_json, status, "
+                        + "result_ref_type, result_ref_id, latency_ms, error_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                row.messageId(), row.runId(), row.order(), row.toolName(), row.argumentsJson(), row.status(),
+                row.resultRefType(), row.resultRefId(), row.latencyMs(), row.errorCode());
+    }
+
+    public void insertSources(long messageId, List<SourceRow> sources) {
+        if (sources.isEmpty()) {
+            return;
+        }
+        jdbc.batchUpdate("INSERT INTO chat_message_sources (message_id, source_type, source_id, chunk_ref, page_label) "
+                        + "VALUES (?, ?, ?, ?, ?)",
+                sources.stream().map(s -> new Object[] {messageId, s.type(), s.id(), s.chunkRef(), s.pageLabel()})
+                        .toList());
+    }
+
+    /** STREAMING 인 ASSISTANT 메시지를 끝 상태로. 이미 끝났으면 0(끝 상태는 한 번만 기록). */
+    public int finishMessage(long messageId, ChatMessageStatus status, String content, String blocksJson,
+                             String modelId, String promptVersion, Integer latencyMs, String errorCode) {
+        return jdbc.update("UPDATE chat_messages SET status = ?, content = ?, blocks_json = ?, model_id = ?, "
+                        + "prompt_version = ?, latency_ms = ?, error_code = ? WHERE id = ? AND status = 'STREAMING'",
+                status.name(), content, blocksJson, modelId, promptVersion, latencyMs, errorCode, messageId);
+    }
+
     private static SessionRow session(ResultSet rs, int i) throws SQLException {
         return new SessionRow(rs.getLong("id"), rs.getLong("user_id"), rs.getString("title"),
                 ChatSessionStatus.valueOf(rs.getString("status")), instant(rs, "last_message_at"),
