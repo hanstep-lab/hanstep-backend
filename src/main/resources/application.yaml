@@ -30,6 +30,8 @@ hanstep:
     internal-token: ${AI_INTERNAL_API_TOKEN:}
     connect-timeout: 3s
     read-timeout: 30s
+    # 챗봇 스트림(INT-05) 답변 1개의 전체 시간 제한. JDK read-timeout 은 응답 전체에 걸린다
+    stream-read-timeout: 90s
 
 logging:
     pattern:

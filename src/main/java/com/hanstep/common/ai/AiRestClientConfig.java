@@ -4,6 +4,7 @@ import com.hanstep.common.security.InternalApiProperties;
 import com.hanstep.common.security.InternalTokenFilter;
 import com.hanstep.common.web.RequestIdFilter;
 import java.net.http.HttpClient;
+import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
@@ -29,12 +30,28 @@ public class AiRestClientConfig {
     @Bean
     public RestClient aiRestClient(RestClient.Builder builder, AiApiProperties ai, InternalApiProperties internal) {
         warnIfTokenUnusable(ai.internalToken(), internal.apiKey());
-        ClientHttpRequestFactory requestFactory = ClientHttpRequestFactoryBuilder.jdk()
+        return build(builder, ai, ai.readTimeout());
+    }
+
+    /**
+     * 챗봇 스트리밍(INT-05) 전용. JDK 클라이언트의 read-timeout 은 첫 응답까지가 아니라 응답 전체에 걸린다
+     * (이벤트가 계속 와도 시간이 지나면 끊김, AiStreamReadTimeoutTest). 그래서 stream-read-timeout 이 답변 1개의 전체 상한이다.
+     */
+    @Bean
+    public RestClient aiStreamRestClient(RestClient.Builder builder, AiApiProperties ai) {
+        return build(builder, ai, ai.streamReadTimeout());
+    }
+
+    /** JDK 클라이언트 요청 팩토리. read-timeout 은 응답 본문을 다 읽을 때까지의 전체 시간 제한이다. */
+    public static ClientHttpRequestFactory requestFactory(Duration connectTimeout, Duration readTimeout) {
+        return ClientHttpRequestFactoryBuilder.jdk()
                 // AI(uvicorn)는 HTTP/2 를 받지 않는다. JDK 기본값인 h2c 업그레이드 시도를 끈다
                 .withHttpClientCustomizer(client -> client.version(HttpClient.Version.HTTP_1_1))
-                .build(HttpClientSettings.defaults().withTimeouts(ai.connectTimeout(), ai.readTimeout()));
+                .build(HttpClientSettings.defaults().withTimeouts(connectTimeout, readTimeout));
+    }
 
-        builder.requestFactory(requestFactory).baseUrl(ai.baseUrl());
+    private static RestClient build(RestClient.Builder builder, AiApiProperties ai, Duration readTimeout) {
+        builder.requestFactory(requestFactory(ai.connectTimeout(), readTimeout)).baseUrl(ai.baseUrl());
         if (StringUtils.hasText(ai.internalToken())) {
             builder.defaultHeader(InternalTokenFilter.HEADER, ai.internalToken());
         }
