@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -34,7 +35,6 @@ import tools.jackson.databind.json.JsonMapper;
 public class MockIngestionService {
 
     private static final ObjectMapper MAPPER = JsonMapper.builder().build();
-    private static final int TXN_BATCH_SIZE = 1_000;
     // (account_id, external_txn_key) 중복만 건너뜀(재수집). 외래키·CHECK 위반은 오류로 적재 실패.
     // classification_source 는 DB 기본값
     private static final String INSERT_TXN = "INSERT INTO financial_transactions (user_id, account_id, "
@@ -48,18 +48,21 @@ public class MockIngestionService {
     private final FinancialTransactionRepository transactionRepository;
     private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate tx;
+    private final int txnBatchSize;
 
     public MockIngestionService(IngestionBatchRepository batchRepository,
                                 DataConnectionRepository connectionRepository,
                                 FinancialAccountRepository accountRepository,
                                 FinancialTransactionRepository transactionRepository,
-                                JdbcTemplate jdbcTemplate, TransactionTemplate tx) {
+                                JdbcTemplate jdbcTemplate, TransactionTemplate tx,
+                                @Value("${hanstep.mydata.txn-batch-size:1000}") int txnBatchSize) {
         this.batchRepository = batchRepository;
         this.connectionRepository = connectionRepository;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.jdbcTemplate = jdbcTemplate;
         this.tx = tx;
+        this.txnBatchSize = txnBatchSize;
     }
 
     /**
@@ -133,8 +136,8 @@ public class MockIngestionService {
                 List<MockMydataReader.Transaction> inPeriod = a.transactions().stream()
                         .filter(t -> !t.bookedDate().isBefore(from))
                         .toList();
-                // B안: 1,000건씩 묶어 INSERT(rewriteBatchedStatements 로 묶음마다 다중 행 INSERT 1번)
-                jdbcTemplate.batchUpdate(INSERT_TXN, inPeriod, TXN_BATCH_SIZE, (ps, t) -> {
+                // B안: txnBatchSize(기본 1,000)건씩 묶어 INSERT(rewriteBatchedStatements 로 묶음마다 다중 행 INSERT 1번)
+                jdbcTemplate.batchUpdate(INSERT_TXN, inPeriod, txnBatchSize, (ps, t) -> {
                     ps.setLong(1, userId);
                     ps.setLong(2, accountId);
                     ps.setLong(3, batchId);
