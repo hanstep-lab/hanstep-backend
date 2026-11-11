@@ -16,6 +16,8 @@ import org.springframework.context.annotation.Configuration;
 public class OpenApiConfig {
 
     public static final String BEARER_AUTH = "bearerAuth";
+    /** AI → Spring 내부 API(/internal/v1/**). 컨트롤러에 @SecurityRequirement(name = INTERNAL_TOKEN) 로 붙인다. */
+    public static final String INTERNAL_TOKEN = "internalToken";
 
     @Bean
     public OpenAPI hanstepOpenApi() {
@@ -27,11 +29,17 @@ public class OpenApiConfig {
                                 1. POST /api/v1/auth/entry 에 entryToken(데모: demo-e9-nguyen)을 보내 accessToken 을 받는다.
                                 2. Authorize 버튼에 accessToken 을 넣는다(Bearer 는 자동으로 붙음).
                                 오류 응답은 모두 { code, message, details, requestId } 형식.
+                                내부 API(/internal/v1/**)는 JWT 대신 X-Internal-Token(SPRING_INTERNAL_API_KEY)을 쓴다.
                                 """))
-                .components(new Components().addSecuritySchemes(BEARER_AUTH, new SecurityScheme()
-                        .type(SecurityScheme.Type.HTTP)
-                        .scheme("bearer")
-                        .bearerFormat("JWT")))
+                .components(new Components()
+                        .addSecuritySchemes(BEARER_AUTH, new SecurityScheme()
+                                .type(SecurityScheme.Type.HTTP)
+                                .scheme("bearer")
+                                .bearerFormat("JWT"))
+                        .addSecuritySchemes(INTERNAL_TOKEN, new SecurityScheme()
+                                .type(SecurityScheme.Type.APIKEY)
+                                .in(SecurityScheme.In.HEADER)
+                                .name("X-Internal-Token")))
                 .addSecurityItem(new SecurityRequirement().addList(BEARER_AUTH));
     }
 }
