@@ -9,6 +9,10 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface PolicyDocumentRepository extends JpaRepository<PolicyDocument, Long> {
 
+    Optional<PolicyDocument> findByContentHash(String contentHash);
+
+    boolean existsByPolicyVersion(String policyVersion);
+
     // 같은 문서의 적재 완료 보고가 동시에 와도 object_key 를 "비어 있을 때만" 채우도록 행을 잠근다
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from PolicyDocument d where d.id = :id")
