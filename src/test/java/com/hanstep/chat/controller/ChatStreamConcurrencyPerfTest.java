@@ -11,6 +11,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
 import java.lang.management.ThreadMXBean;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -30,6 +31,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.ClassOrderer;
@@ -50,10 +52,12 @@ import org.springframework.test.context.DynamicPropertySource;
  * CHT-04 동시 연결 측정(측정만, 기본값은 바꾸지 않음). 기본 test 에서는 빠짐: ./gradlew perfTest
  *
  * <p>실제 포트로 띄운 Spring 에 CHT-04 를 동시에 N 개 보낸다. AI 자리에는 가짜 SSE 서버(답변 1개 5초, 100ms 마다 delta,
- * 요청마다 가상 스레드라 가짜 서버가 병목이 되지 않음)를 둔다. 실행기만 다른 두 컨텍스트(platform 16 / virtual)를 차례로 띄우고
- * 각각 워밍업 1회(N=50) 뒤 N=50·200 을 3회씩 잰다. 사용자는 perf- 사용자 200명(대화방 1개씩).
+ * 요청마다 가상 스레드라 가짜 서버가 병목이 되지 않음)를 둔다. 실행기만 다른 세 컨텍스트(platform 16 / platform 200 / virtual)를
+ * 차례로 띄우고 각각 워밍업 1회(N=50) 뒤 N=50·200 을 3회씩 잰다. 사용자는 perf- 사용자 200명(대화방 1개씩).
+ * platform 200 은 "고정 풀을 키우면 되지 않나"에 답하기 위한 비교 조건이다.
  * 기록: 첫 delta 시간(요청 시작 → 첫 chat.delta 도착) 중앙값·p95, 전체 완료 시간, 실패 수, 최대 스레드 수(ThreadMXBean, 플랫폼
- * 스레드만 셈 · 테스트 클라이언트·가짜 서버 포함), Hikari 커넥션 대기 최대 수·사용 중 최대 수, 가짜 AI 동시 연결 최대 수.
+ * 스레드만 셈 · 테스트 클라이언트·가짜 서버 포함), Hikari 커넥션 대기 최대 수·사용 중 최대 수, 가짜 AI 동시 연결 최대 수,
+ * JVM 힙 사용 최대치(MemoryMXBean, 5ms 샘플링, 회차 시작 전 System.gc() · 테스트 클라이언트·가짜 서버 포함).
  */
 @Tag("perf")
 @TestClassOrder(ClassOrderer.OrderAnnotation.class)
@@ -65,6 +69,7 @@ class ChatStreamConcurrencyPerfTest {
     static final int USERS = 200;
     static final int DELTAS = 50;
     static final int DELTA_INTERVAL_MS = 100;
+    static final long MB = 1024 * 1024;
     static final Path REPORT = Path.of("build", "perf", "chat-concurrency.md");
     static final Path RAW = Path.of("build", "perf", "chat-concurrency-raw.csv");
 
@@ -75,7 +80,7 @@ class ChatStreamConcurrencyPerfTest {
 
     record RunResult(String executor, int n, int rep, boolean warmup, List<Long> firstDeltaMs, long wallMs,
                      int failures, int peakThreads, int baseThreads, int maxHikariWaiting, int maxHikariActive,
-                     int maxAiInFlight) {
+                     int maxAiInFlight, long baseHeapMb, long peakHeapMb) {
     }
 
     @Nested
@@ -98,6 +103,24 @@ class ChatStreamConcurrencyPerfTest {
 
     @Nested
     @Order(2)
+    @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+            properties = {"hanstep.chat.stream-executor=platform", "hanstep.chat.stream-pool-size=200"})
+    @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+    class Platform200 extends Scenario {
+
+        @DynamicPropertySource
+        static void ai(DynamicPropertyRegistry registry) {
+            registry.add("hanstep.ai.base-url", AI::baseUrl);
+        }
+
+        @Test
+        void 동시_연결_platform200() throws Exception {
+            measure("platform(200)");
+        }
+    }
+
+    @Nested
+    @Order(3)
     @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
             properties = {"hanstep.chat.stream-executor=virtual"})
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -140,12 +163,13 @@ class ChatStreamConcurrencyPerfTest {
                     targets.add(new String[] {"Bearer " + jwtTokenProvider.issue(user[0]), String.valueOf(sessionId)});
                 }
                 if (header == null) {
-                    header = PerfSupport.header(jdbc, "CHT-04 동시 연결 측정(실행기 platform vs virtual)",
+                    header = PerfSupport.header(jdbc, "CHT-04 동시 연결 측정(실행기 platform 16·200 vs virtual)",
                             "perf- 사용자 " + USERS + "명(대화방 1개씩), 가짜 AI(답변 1개 " + DELTAS * DELTA_INTERVAL_MS / 1000
                                     + "초, " + DELTA_INTERVAL_MS + "ms 마다 delta " + DELTAS + "개, 요청마다 가상 스레드)",
                             "실행기마다 워밍업 1회(N=" + WARMUP_N + ") + N=50·200 각 " + REPEATS + "회",
                             new String[] {"Spring", "실제 포트(Tomcat 기본 설정), Hikari 기본(최대 10)"},
-                            new String[] {"외부 호출", "없음(가짜 AI 서버, 실제 AI·Anthropic 호출 없음)"});
+                            new String[] {"외부 호출", "없음(가짜 AI 서버, 실제 AI·Anthropic 호출 없음)"},
+                            new String[] {"JVM 최대 힙", Runtime.getRuntime().maxMemory() / MB + " MB(Gradle 테스트 JVM)"});
                 }
                 HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
                 run(executor, WARMUP_N, 0, true, targets, pool);
@@ -162,16 +186,21 @@ class ChatStreamConcurrencyPerfTest {
         private void run(String executor, int n, int rep, boolean warmup, List<String[]> targets,
                          HikariPoolMXBean pool) throws Exception {
             AI.reset();
+            MemoryMXBean memory = ManagementFactory.getMemoryMXBean();
+            System.gc(); // 앞 회차 쓰레기를 치우고 시작해 회차끼리 비교할 수 있게
+            long baseHeap = memory.getHeapMemoryUsage().getUsed();
             ThreadMXBean threads = ManagementFactory.getThreadMXBean();
             int baseThreads = threads.getThreadCount();
             threads.resetPeakThreadCount();
             AtomicBoolean sampling = new AtomicBoolean(true);
             AtomicInteger maxWaiting = new AtomicInteger();
             AtomicInteger maxActive = new AtomicInteger();
+            AtomicLong maxHeap = new AtomicLong(baseHeap);
             Thread sampler = Thread.ofPlatform().daemon().start(() -> {
                 while (sampling.get()) {
                     maxWaiting.accumulateAndGet(pool.getThreadsAwaitingConnection(), Math::max);
                     maxActive.accumulateAndGet(pool.getActiveConnections(), Math::max);
+                    maxHeap.accumulateAndGet(memory.getHeapMemoryUsage().getUsed(), Math::max);
                     try {
                         Thread.sleep(5);
                     } catch (InterruptedException e) {
@@ -212,12 +241,14 @@ class ChatStreamConcurrencyPerfTest {
                         r[0], r[1], r[2], r[3] == 1));
             }
             RunResult result = new RunResult(executor, n, rep, warmup, firstDelta, wallMs, failures,
-                    threads.getPeakThreadCount(), baseThreads, maxWaiting.get(), maxActive.get(), AI.maxInFlight());
+                    threads.getPeakThreadCount(), baseThreads, maxWaiting.get(), maxActive.get(), AI.maxInFlight(),
+                    baseHeap / MB, maxHeap.get() / MB);
             RESULTS.add(result);
             System.out.printf("[perf] chat %s N=%d rep=%d%s firstDelta median=%d p95=%d wall=%d ms failures=%d "
-                            + "peakThreads=%d hikariWaitMax=%d aiInFlightMax=%d%n", executor, n, rep,
-                    warmup ? "(warmup)" : "", median(firstDelta), p95(firstDelta), wallMs, failures,
-                    result.peakThreads(), result.maxHikariWaiting(), result.maxAiInFlight());
+                            + "peakThreads=%d hikariWaitMax=%d aiInFlightMax=%d heapPeak=%d MB(base %d)%n", executor,
+                    n, rep, warmup ? "(warmup)" : "", median(firstDelta), p95(firstDelta), wallMs, failures,
+                    result.peakThreads(), result.maxHikariWaiting(), result.maxAiInFlight(), result.peakHeapMb(),
+                    result.baseHeapMb());
         }
 
         /** {HTTP 상태, 첫 delta ms(없으면 -1), 완료 ms, chat.done 받았으면 1}. */
@@ -278,20 +309,22 @@ class ChatStreamConcurrencyPerfTest {
         md.append("## 결과(측정 회차)\n\n")
                 .append("첫 delta = 요청 시작 → 첫 chat.delta 도착(성공 요청만). 완료 = N 개를 동시에 보내고 모두 끝날 때까지. ")
                 .append("최대 스레드는 JVM 플랫폼 스레드 최대치(가상 스레드는 세지 않음, 테스트 클라이언트·가짜 서버의 플랫폼 스레드 포함). ")
-                .append("Hikari 는 5ms 마다 샘플링한 최대치. p95 는 nearest-rank.\n\n")
+                .append("Hikari 는 5ms 마다 샘플링한 최대치. p95 는 nearest-rank. ")
+                .append("힙은 JVM 전체 힙 사용량(테스트 클라이언트·가짜 서버 포함)을 5ms 마다 샘플링한 최대치이고, 회차 시작 전 ")
+                .append("System.gc() 뒤의 값을 괄호에 적음. GC 시점에 따라 흔들리므로 실행기끼리 크기 차이만 본다.\n\n")
                 .append("| 실행기 | N | 회차 | 첫 delta 중앙값 | 첫 delta p95 | 전체 완료 | 실패 | 최대 스레드(시작 시) | "
-                        + "Hikari 대기 최대 | Hikari 사용 최대 | AI 동시 연결 최대 |\n")
-                .append("|---|---|---|---|---|---|---|---|---|---|---|\n");
+                        + "Hikari 대기 최대 | Hikari 사용 최대 | AI 동시 연결 최대 | 힙 사용 최대(시작 시) |\n")
+                .append("|---|---|---|---|---|---|---|---|---|---|---|---|\n");
         for (RunResult r : RESULTS) {
             if (!r.warmup()) {
                 md.append(row(r.executor(), r.n(), String.valueOf(r.rep()), r.firstDeltaMs(), r.wallMs() + " ms",
                         r.failures(), r.peakThreads() + " (" + r.baseThreads() + ")", r.maxHikariWaiting(),
-                        r.maxHikariActive(), r.maxAiInFlight()));
+                        r.maxHikariActive(), r.maxAiInFlight(), r.peakHeapMb() + " MB (" + r.baseHeapMb() + ")"));
             }
         }
         md.append("\n## 3회 합산\n\n")
                 .append("| 실행기 | N | 첫 delta 중앙값 | 첫 delta p95 | 전체 완료 중앙값(최소~최대) | 실패 합 | 최대 스레드 최대 | "
-                        + "Hikari 대기 최대 |\n|---|---|---|---|---|---|---|---|\n");
+                        + "Hikari 대기 최대 | 힙 사용 최대 |\n|---|---|---|---|---|---|---|---|---|\n");
         for (String executor : RESULTS.stream().map(RunResult::executor).distinct().toList()) {
             for (int n : NS) {
                 List<RunResult> runs = RESULTS.stream()
@@ -301,11 +334,12 @@ class ChatStreamConcurrencyPerfTest {
                 }
                 List<Long> pooled = runs.stream().flatMap(r -> r.firstDeltaMs().stream()).toList();
                 List<Long> walls = runs.stream().map(RunResult::wallMs).toList();
-                md.append(String.format(Locale.ROOT, "| %s | %d | %d ms | %d ms | %d ms (%d~%d) | %d | %d | %d |%n",
+                md.append(String.format(Locale.ROOT, "| %s | %d | %d ms | %d ms | %d ms (%d~%d) | %d | %d | %d | %d MB |%n",
                         executor, n, median(pooled), p95(pooled), median(walls), Collections.min(walls),
                         Collections.max(walls), runs.stream().mapToInt(RunResult::failures).sum(),
                         runs.stream().mapToInt(RunResult::peakThreads).max().orElse(0),
-                        runs.stream().mapToInt(RunResult::maxHikariWaiting).max().orElse(0)));
+                        runs.stream().mapToInt(RunResult::maxHikariWaiting).max().orElse(0),
+                        runs.stream().mapToLong(RunResult::peakHeapMb).max().orElse(0)));
             }
         }
         md.append("\n워밍업 회차는 표에서 뺐고 ").append(RAW.getFileName()).append(" 에 warmup=true 로 남김.\n");
@@ -315,10 +349,10 @@ class ChatStreamConcurrencyPerfTest {
     }
 
     private static String row(String executor, int n, String rep, List<Long> firstDelta, String wall, int failures,
-                              String threads, int hikariWaiting, int hikariActive, int aiInFlight) {
-        return String.format(Locale.ROOT, "| %s | %d | %s | %d ms | %d ms | %s | %d | %s | %d | %d | %d |%n",
+                              String threads, int hikariWaiting, int hikariActive, int aiInFlight, String heap) {
+        return String.format(Locale.ROOT, "| %s | %d | %s | %d ms | %d ms | %s | %d | %s | %d | %d | %d | %s |%n",
                 executor, n, rep, median(firstDelta), p95(firstDelta), wall, failures, threads, hikariWaiting,
-                hikariActive, aiInFlight);
+                hikariActive, aiInFlight, heap);
     }
 
     static long median(List<Long> values) {
