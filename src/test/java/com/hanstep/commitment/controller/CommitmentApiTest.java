@@ -12,6 +12,7 @@ import com.hanstep.mydata.service.MockIngestionService;
 import com.hanstep.mydata.service.MockMydataReader;
 import com.hanstep.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
+import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -296,6 +297,45 @@ class CommitmentApiTest {
     }
 
     @Test
+    void 송금_이력은_수집_시작일이_월초가_아니면_그_달을_빼고_센다() throws Exception {
+        long[] ids = succeededBatch(userId, "test-mid-start", "2025-11-15", "2026-10-31");
+        remitMonthly(ids, "test-mid-start", LocalDate.of(2025, 11, 20), 12, 300000);
+
+        candidates()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.analyzedMonths").value(11))
+                .andExpect(jsonPath("$.candidates.length()").value(1))
+                .andExpect(jsonPath("$.candidates[0].monthsSent").value(11)) // 2025-11-20 은 빠진다
+                .andExpect(jsonPath("$.candidates[0].avgMonthlyAmount.amount").value(300000))
+                .andExpect(jsonPath("$.candidates[0].lastSentOn").value("2026-10-20"));
+    }
+
+    @Test
+    void 송금_이력은_수집_종료일이_월말이_아니면_그_달을_빼고_센다() throws Exception {
+        long[] ids = succeededBatch(userId, "test-mid-end", "2025-11-01", "2026-10-15");
+        remitMonthly(ids, "test-mid-end", LocalDate.of(2025, 11, 10), 12, 300000);
+
+        candidates()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.analyzedMonths").value(11))
+                .andExpect(jsonPath("$.candidates.length()").value(1))
+                .andExpect(jsonPath("$.candidates[0].monthsSent").value(11)) // 2026-10-10 은 빠진다
+                .andExpect(jsonPath("$.candidates[0].avgMonthlyAmount.amount").value(300000))
+                .andExpect(jsonPath("$.candidates[0].lastSentOn").value("2026-09-10"));
+    }
+
+    @Test
+    void 송금_이력은_온전한_달이_없으면_빈_목록() throws Exception {
+        long[] ids = succeededBatch(userId, "test-no-full-month", "2026-10-05", "2026-10-31");
+        remit(userId, ids, "test-no-full-month-1", "TRAN VAN BINH", "BIDV", "2026-10-10", 300000);
+
+        candidates()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.analyzedMonths").value(0))
+                .andExpect(jsonPath("$.candidates.length()").value(0));
+    }
+
+    @Test
     void 송금_이력에_다른_사용자의_거래는_섞이지_않는다() throws Exception {
         jdbcTemplate.update("INSERT INTO users (external_user_key, display_name) VALUES ('test-other', 'OTHER USER')");
         Long otherUserId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
@@ -369,9 +409,14 @@ class CommitmentApiTest {
 
     /** 수집 기간 2025-11-01 ~ 2026-10-31 인 SUCCEEDED 배치와 계좌. [batchId, accountId] */
     private long[] succeededBatch(Long ownerId, String key) {
+        return succeededBatch(ownerId, key, "2025-11-01", "2026-10-31");
+    }
+
+    /** 수집 기간을 지정한 SUCCEEDED 배치와 계좌. [batchId, accountId] */
+    private long[] succeededBatch(Long ownerId, String key, String coverageFrom, String coverageTo) {
         jdbcTemplate.update("INSERT INTO ingestion_batches (user_id, source_type, request_key, status, coverage_from, "
-                + "coverage_to, started_at, finished_at) VALUES (?, 'MOCK', ?, 'SUCCEEDED', '2025-11-01', "
-                + "'2026-10-31', NOW(3), NOW(3))", ownerId, key);
+                + "coverage_to, started_at, finished_at) VALUES (?, 'MOCK', ?, 'SUCCEEDED', ?, ?, NOW(3), NOW(3))",
+                ownerId, key, coverageFrom, coverageTo);
         Long batchId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         jdbcTemplate.update("INSERT INTO financial_accounts (user_id, institution_id, batch_id, external_account_key, "
                 + "account_no_masked, account_type) VALUES (?, (SELECT id FROM institutions "
@@ -387,6 +432,14 @@ class CommitmentApiTest {
                 + "category_code) VALUES (?, ?, ?, ?, ?, ?, 'EXPENSE', ?, ?, ?, 'REMITTANCE')",
                 ownerId, batchAndAccount[1], batchAndAccount[0], key, date + " 01:00:00", date, amount, name, bank);
         return jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    /** start 부터 매달 같은 날 count 번, 같은 받는 분(TRAN VAN BINH, BIDV)에게 송금. */
+    private void remitMonthly(long[] batchAndAccount, String key, LocalDate start, int count, long amount) {
+        for (int i = 0; i < count; i++) {
+            remit(userId, batchAndAccount, key + "-" + i, "TRAN VAN BINH", "BIDV", start.plusMonths(i).toString(),
+                    amount);
+        }
     }
 
     /** 배치·계좌·거래 한 건을 직접 넣는다(PENDING 배치라 CMT-03 집계 대상 아님). */
