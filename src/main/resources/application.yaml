@@ -25,6 +25,11 @@ hanstep:
     expires-in-seconds: ${JWT_EXPIRES_IN_SECONDS:3600}
   internal:
     api-key: ${SPRING_INTERNAL_API_KEY:}
+  ai:
+    base-url: ${AI_INTERNAL_API_URL:http://localhost:8000}
+    internal-token: ${AI_INTERNAL_API_TOKEN:}
+    connect-timeout: 3s
+    read-timeout: 30s
 
 logging:
     pattern:
