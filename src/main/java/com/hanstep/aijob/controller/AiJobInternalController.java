@@ -32,7 +32,8 @@ public class AiJobInternalController {
     }
 
     @Operation(summary = "작업 처리 시작 (INT-08)",
-            description = "PENDING·QUEUED → PROCESSING, started_at 기록. 이미 시작·종료된 작업이면 409.")
+            description = "PENDING·QUEUED → PROCESSING, started_at 에 Spring 수신 시각 기록(startedAt 은 로그만). "
+                    + "이미 시작·종료된 작업이면 409.")
     @ApiResponse(responseCode = "204", description = "반영됨")
     @ApiResponse(responseCode = "400", description = "본문 형식 오류(details.fields)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -49,16 +50,15 @@ public class AiJobInternalController {
     }
 
     @Operation(summary = "작업 실패 (INT-10)",
-            description = "status=FAILED, error_code·error_message·completed_at 기록. 같은 내용 재전송은 204. "
-                    + "retryable 은 기록만 한다(재시도 정책은 아직 없음).")
+            description = "status=FAILED, error_code·error_message·completed_at(Spring 수신 시각) 기록. "
+                    + "같은 내용 재전송은 그대로 204, 다른 내용이면 마지막 실패로 덮어쓰고 204, "
+                    + "이미 COMPLETED 면 무시하고 204. retryable 은 기록만 한다(재시도 정책은 아직 없음).")
     @ApiResponse(responseCode = "204", description = "반영됨")
-    @ApiResponse(responseCode = "400", description = "본문 형식 오류(details.fields)",
+    @ApiResponse(responseCode = "400", description = "본문 형식 오류, message 500자 초과(details.fields)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "401", description = "X-Internal-Token 없음·틀림",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "404", description = "작업 없음",
-            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    @ApiResponse(responseCode = "409", description = "이미 COMPLETED 이거나 다른 오류로 FAILED (INVALID_STATE)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @PostMapping("/failed")
     public ResponseEntity<Void> failed(@PathVariable Long jobId, @Valid @RequestBody JobFailedRequest request) {

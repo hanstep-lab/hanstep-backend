@@ -111,9 +111,9 @@ public class AiJob {
                 && Objects.equals(this.errorMessage, errorMessage);
     }
 
-    /** 끝나지 않은 작업(PENDING·QUEUED·PROCESSING)만 실패로 바꿀 수 있다. */
+    /** 완료된 작업은 실패로 되돌리지 않는다. FAILED 에 다시 오면 마지막 실패로 덮어쓴다(재전달 후 다른 오류). */
     public boolean canFail() {
-        return status != AiJobStatus.COMPLETED && status != AiJobStatus.FAILED;
+        return status != AiJobStatus.COMPLETED;
     }
 
     public void fail(String errorCode, String errorMessage, Instant completedAt) {
