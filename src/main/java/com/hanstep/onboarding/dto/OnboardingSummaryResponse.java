@@ -19,7 +19,8 @@ public record OnboardingSummaryResponse(
 
         CommitmentListResponse commitments,
 
-        @Schema(description = "월 수지 요약. FIN-05(금융 분석) 연동 전까지 null", nullable = true)
+        @Schema(description = "월 수지 요약. 최신 금융 분석(FIN-05) 값. 분석 전이거나 꽉 찬 달이 없어 금액이 비면 null",
+                nullable = true)
         Balance balance
 ) {
 
@@ -64,18 +65,18 @@ public record OnboardingSummaryResponse(
      */
     @Schema(name = "SummaryBalance", description = "월 수지 요약(계산값). spare = avgMonthlyIncome − fixedLiving − remittance − variableExpense")
     public record Balance(
-            @Schema(description = "월평균 소득(Mock 거래 기준, 없으면 자기신고 월소득)",
+            @Schema(description = "월평균 소득(Mock 거래 기준, FIN-05)",
                     example = "{\"amount\": 2350000, \"currency\": \"KRW\"}")
             Money avgMonthlyIncome,
 
-            @Schema(description = "고정생활비(RENT·UTILITY·TELECOM·LIVING_MINIMUM·OTHER 합)",
+            @Schema(description = "월평균 고정지출(주거·공과금·통신·대출 상환, Mock 거래 기준 FIN-05)",
                     example = "{\"amount\": 520000, \"currency\": \"KRW\"}")
             Money fixedLiving,
 
-            @Schema(description = "월 송금(REMITTANCE 합)", example = "{\"amount\": 700000, \"currency\": \"KRW\"}")
+            @Schema(description = "월평균 송금(Mock 거래 기준, FIN-05)", example = "{\"amount\": 700000, \"currency\": \"KRW\"}")
             Money remittance,
 
-            @Schema(description = "변동지출 평균(거래 이력 있으면 거래 기준, 없으면 VARIABLE_EXPENSE 입력값)",
+            @Schema(description = "변동지출 월평균(Mock 거래 기준, FIN-05)",
                     example = "{\"amount\": 450000, \"currency\": \"KRW\"}")
             Money variableExpense,
 

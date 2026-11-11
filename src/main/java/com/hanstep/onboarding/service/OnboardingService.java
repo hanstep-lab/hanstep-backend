@@ -5,6 +5,8 @@ import com.hanstep.common.dto.Money;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
 import com.hanstep.common.time.KstDates;
+import com.hanstep.finance.dto.FinanceAnalysisResponse;
+import com.hanstep.finance.service.FinanceAnalysisService;
 import com.hanstep.goal.service.GoalService;
 import com.hanstep.onboarding.domain.OnboardingProfile;
 import com.hanstep.onboarding.domain.OnboardingProgress;
@@ -40,6 +42,7 @@ public class OnboardingService {
     private final UserRepository userRepository;
     private final GoalService goalService;
     private final CommitmentService commitmentService;
+    private final FinanceAnalysisService financeAnalysisService;
     private final JdbcTemplate jdbcTemplate;
 
     public OnboardingService(OnboardingProgressRepository progressRepository,
@@ -47,12 +50,14 @@ public class OnboardingService {
                              UserRepository userRepository,
                              GoalService goalService,
                              CommitmentService commitmentService,
+                             FinanceAnalysisService financeAnalysisService,
                              JdbcTemplate jdbcTemplate) {
         this.progressRepository = progressRepository;
         this.profileRepository = profileRepository;
         this.userRepository = userRepository;
         this.goalService = goalService;
         this.commitmentService = commitmentService;
+        this.financeAnalysisService = financeAnalysisService;
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -90,7 +95,10 @@ public class OnboardingService {
         return StepUpdateResponse.of(row, OnboardingState.from(progressRepository.findAllByUserId(userId)));
     }
 
-    /** ONB-04. balance 는 FIN-05 연동 전까지 null. */
+    /**
+     * ONB-04. balance 는 최신 COMPLETED 금융 분석(FIN-05) 값. 분석이 없거나 금액이 하나라도 비면(꽉 찬 달 없음) null.
+     * 조회 SQL 5번: 사용자, 체류 정보, 목표, 필수 확보액, 최신 분석.
+     */
     public OnboardingSummaryResponse getSummary(Long userId) {
         User user = userRepository.findById(userId)
                 .filter(User::isActive)
@@ -120,7 +128,16 @@ public class OnboardingService {
                 visa,
                 goalService.getGoals(userId).goals(),
                 commitmentService.getCommitments(userId),
-                null);
+                financeAnalysisService.findLatestCompleted(userId).map(OnboardingService::balance).orElse(null));
+    }
+
+    private static OnboardingSummaryResponse.Balance balance(FinanceAnalysisResponse a) {
+        if (a.avgMonthlyIncome() == null || a.fixedLiving() == null || a.remittance() == null
+                || a.variableExpense() == null || a.variableExpense().avg() == null || a.spare() == null) {
+            return null;
+        }
+        return new OnboardingSummaryResponse.Balance(a.avgMonthlyIncome(), a.fixedLiving(), a.remittance(),
+                a.variableExpense().avg(), "TRANSACTIONS", a.spare(), a.isMock());
     }
 
     private record VisaRow(String code, String nameEn, LocalDate stayExpiresOn, String nationalityCode) {

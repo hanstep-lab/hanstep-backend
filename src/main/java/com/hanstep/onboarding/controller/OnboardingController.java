@@ -84,7 +84,8 @@ public class OnboardingController {
     @Operation(summary = "온보딩 최종 확인 데이터 (ONB-04)",
             description = "ON-006 화면 전체를 한 번에. 잔여일(daysRemaining)·합계·여유자금(spare)은 계산값이고 "
                     + "spare = avgMonthlyIncome − fixedLiving − remittance − variableExpense (MANDATORY_SAVING 은 빼지 않음). "
-                    + "등록증을 확정하지 않았으면 visa 는 null. balance 는 FIN-05 연동 전까지 null.")
+                    + "등록증을 확정하지 않았으면 visa 는 null. balance 는 최신 금융 분석(FIN-05) 값이며, "
+                    + "분석 전이거나 꽉 찬 달이 없어 금액이 비면 null.")
     @ApiResponse(responseCode = "200", description = "성공")
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
