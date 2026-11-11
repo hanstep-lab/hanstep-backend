@@ -36,7 +36,8 @@ public record FinanceAnalysisResponse(
         @Schema(description = "변동지출 월평균·최소·최대", nullable = true)
         VariableExpense variableExpense,
 
-        @Schema(description = "여유자금 = 소득 − 고정 − 송금 − 변동 평균. 음수 가능(지출이 소득보다 많음)", nullable = true,
+        @Schema(description = "여유자금 = 소득 − 고정 − 송금 − 변동 평균. 음수 가능(지출이 소득보다 많음). "
+                + "공통 Money 스키마의 amount 최소 0 은 요청 검증용이라 이 필드에는 해당하지 않음", nullable = true,
                 example = "{\"amount\": 675317, \"currency\": \"KRW\"}")
         Money spare,
 

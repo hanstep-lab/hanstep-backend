@@ -84,7 +84,8 @@ public record OnboardingSummaryResponse(
                     example = "TRANSACTIONS", allowableValues = {"TRANSACTIONS", "USER_INPUT"})
             String variableExpenseSource,
 
-            @Schema(description = "여유자금(음수 가능)", example = "{\"amount\": 680000, \"currency\": \"KRW\"}")
+            @Schema(description = "여유자금. 음수 가능(지출이 소득보다 많음). "
+                    + "공통 Money 스키마의 amount 최소 0 은 요청 검증용이라 이 필드에는 해당하지 않음", example = "{\"amount\": 680000, \"currency\": \"KRW\"}")
             Money spare,
 
             @Schema(description = "Mock 데이터 기반이면 true", example = "true")
