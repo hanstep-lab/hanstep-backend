@@ -17,6 +17,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.Period;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -102,6 +103,7 @@ public class CommitmentService {
 
     /**
      * CMT-03. 가장 최근 SUCCEEDED 배치의 수집 기간 안에서 2개월 이상 보낸 해외송금처를 월평균 큰 순으로 최대 3개.
+     * 수집 기간은 온전한 달력 월로 자른다(앞뒤의 일부만 걸친 달은 뺀다).
      * 월평균 = 묶음 총액 ÷ 분석 개월 수(원 단위 반올림).
      */
     public RemittanceCandidateListResponse getRemittanceCandidates(Long userId) {
@@ -115,10 +117,11 @@ public class CommitmentService {
             return new RemittanceCandidateListResponse(List.of(), 0, false);
         }
         BatchRow batch = batches.get(0);
-        LocalDate from = batch.coverageFrom();
-        LocalDate to = batch.coverageTo();
-        // 수집 기간이 없거나(원천 없는 기관만 연결) 한 달 미만이면 나눌 수 없으므로 빈 목록
-        int analyzedMonths = from == null || to == null ? 0
+        // months_sent 가 달력 월로 세므로, 조회 기간과 나누는 개월 수도 온전한 달력 월로 자른다
+        LocalDate from = batch.coverageFrom() == null ? null : firstFullMonthStart(batch.coverageFrom());
+        LocalDate to = batch.coverageTo() == null ? null : lastFullMonthEnd(batch.coverageTo());
+        // 수집 기간이 없거나(원천 없는 기관만 연결) 온전한 달이 하나도 없으면 나눌 수 없으므로 빈 목록
+        int analyzedMonths = from == null || to == null || from.isAfter(to) ? 0
                 : Math.toIntExact(Period.between(from, to.plusDays(1)).toTotalMonths());
         if (analyzedMonths == 0) {
             return new RemittanceCandidateListResponse(List.of(), 0, batch.mock());
@@ -175,6 +178,16 @@ public class CommitmentService {
                     c.sameNameAsUser()));
         }
         return new RemittanceCandidateListResponse(ranked, analyzedMonths, batch.mock());
+    }
+
+    // 1일이 아니면 다음 달 1일
+    private static LocalDate firstFullMonthStart(LocalDate date) {
+        return date.getDayOfMonth() == 1 ? date : date.plusMonths(1).withDayOfMonth(1);
+    }
+
+    // 말일이 아니면 전달 말일
+    private static LocalDate lastFullMonthEnd(LocalDate date) {
+        return date.equals(date.with(TemporalAdjusters.lastDayOfMonth())) ? date : date.withDayOfMonth(1).minusDays(1);
     }
 
     private record BatchRow(boolean mock, LocalDate coverageFrom, LocalDate coverageTo) {
