@@ -280,6 +280,28 @@ CREATE TABLE policy_documents (
   CONSTRAINT ck_policy_documents_period CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to > effective_from)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 비자 정책 원문 메타(청크·벡터는 MongoDB Vector Search)';
 
+-- 정책 문서 검토 상태 변경 이력 저장용 테이블 --
+CREATE TABLE policy_document_reviews (
+  id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  policy_document_id   BIGINT UNSIGNED NOT NULL COMMENT '바뀐 문서',
+  reason               ENUM('REVIEW','SUPERSEDED') NOT NULL COMMENT 'REVIEW=관리자가 직접 변경, SUPERSEDED=새 버전 승인으로 정리(#42)',
+  from_status          ENUM('DRAFT','APPROVED','NEEDS_REVIEW','RETIRED') NOT NULL COMMENT '이전 상태',
+  to_status            ENUM('DRAFT','APPROVED','NEEDS_REVIEW','RETIRED') NOT NULL COMMENT '새 상태',
+  from_effective_from  DATE            NULL COMMENT '이전 시행일',
+  from_effective_to    DATE            NULL COMMENT '이전 종료일',
+  to_effective_from    DATE            NULL COMMENT '새 시행일',
+  to_effective_to      DATE            NULL COMMENT '새 종료일(미포함)',
+  superseded_by        BIGINT UNSIGNED NULL COMMENT 'SUPERSEDED 일 때 새로 승인된 문서',
+  reviewed_by          BIGINT UNSIGNED NULL COMMENT '변경한 관리자(users.id)',
+  note                 VARCHAR(500)    NULL COMMENT '메모',
+  created_at           DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '변경 시각',
+  PRIMARY KEY (id),
+  KEY ix_policy_document_reviews_doc (policy_document_id, created_at),
+  CONSTRAINT fk_policy_document_reviews_doc FOREIGN KEY (policy_document_id) REFERENCES policy_documents (id),
+  CONSTRAINT fk_policy_document_reviews_next FOREIGN KEY (superseded_by) REFERENCES policy_documents (id),
+  CONSTRAINT fk_policy_document_reviews_user FOREIGN KEY (reviewed_by) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='정책 문서 검토 상태 변경 이력(append-only)';
+
 -- E-7-4 점수표 버전 저장용 테이블 --
 CREATE TABLE e74_rule_sets (
   id                         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'ID',

@@ -126,6 +126,23 @@ public class PolicyDocument {
         return effectiveTo == null || today.isBefore(effectiveTo);
     }
 
+    /** 관리자 검토(#53). 바꿀 수 있는 상태인지와 기간 순서는 서비스에서 먼저 확인한다. */
+    public void review(ReviewStatus reviewStatus, LocalDate effectiveFrom, LocalDate effectiveTo) {
+        this.reviewStatus = reviewStatus;
+        this.effectiveFrom = effectiveFrom;
+        this.effectiveTo = effectiveTo;
+    }
+
+    /** #42: 시행일이 더 늦은 새 버전이 승인되면 이 버전은 그 시행일 전날까지만 검색되게 줄인다. */
+    public void endBefore(LocalDate nextEffectiveFrom) {
+        this.effectiveTo = nextEffectiveFrom;
+    }
+
+    /** #42: 시행일이 없거나 같은 새 버전이 승인되면 이 버전은 더 쓰지 않는다. */
+    public void retire() {
+        this.reviewStatus = ReviewStatus.RETIRED;
+    }
+
     /** INT-13 적재 결과 기록. review_status 는 바꾸지 않는다(인덱싱 완료 ≠ 승인). object_key 는 비어 있을 때만 채운다. */
     public void recordIngestion(int chunkCount, String collection, String embeddingModel,
                                 String objectKey, Instant ingestedAt) {

@@ -8,6 +8,7 @@ public enum ErrorCode {
 
     VALIDATION_ERROR(HttpStatus.BAD_REQUEST, "invalid request"),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "authentication required"),
+    FORBIDDEN(HttpStatus.FORBIDDEN, "permission required"),
     CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "consent required"),
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "resource not found"),
     DUPLICATE_REQUEST(HttpStatus.CONFLICT, "duplicate request"),
