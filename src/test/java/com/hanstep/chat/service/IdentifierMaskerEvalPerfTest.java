@@ -12,19 +12,22 @@ import java.util.TreeMap;
 import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 마스킹 방식 비교 평가(기록용, 판정 결과로 실패하지 않음). 기본 test 에서는 빠짐: ./gradlew perfTest --tests "*Masking*"
  *
  * <p>평가 세트 masking/masking_cases_v1.json(합성 값)으로 기존 규칙·후보 ①·후보 ②(MaskingCandidates)와
- * 현재 main 의 IdentifierMasker 를 같은 세트로 잰다. Spring·DB 없이 문자열 함수만 호출한다.
+ * 현재 main 의 IdentifierMasker 를 같은 세트로 잰다. hold-out(masking/masking_holdout_v1.json)은 ①' 규칙을 정한 뒤에 받은
+ * 별도 세트로, 후보 네 방식만 따로 집계한다. Spring·DB 없이 문자열 함수만 호출한다.
  * 누락: MASK 인데 mustMask 부분의 숫자가 하나라도 남음. 오탐: KEEP 인데 글자가 하나라도 바뀜. OUT_OF_SCOPE 는 기록만 한다.
  */
 @Tag("perf")
 class IdentifierMaskerEvalPerfTest {
 
     private static final String CASES = "/masking/masking_cases_v1.json";
+    private static final String HOLDOUT = "/masking/masking_holdout_v1.json";
     private static final Path REPORT = Path.of("build", "perf", "masking-eval.md");
 
     record MaskingCase(String id, String text, String expect, String category, List<String> mustMask) {
@@ -40,19 +43,30 @@ class IdentifierMaskerEvalPerfTest {
     @Test
     void Masking_방식_비교() throws IOException {
         MaskingSet set = load();
-        Map<String, UnaryOperator<String>> methods = new LinkedHashMap<>();
-        methods.put("기존(fe2ab6e 규칙)", MaskingCandidates::legacy);
-        methods.put("① 형식·길이", MaskingCandidates::format);
-        methods.put("② 문맥", MaskingCandidates::context);
-        methods.put("①' 공백 묶음 축소", MaskingCandidates::formatNarrowSpace);
-        methods.put("main IdentifierMasker", IdentifierMasker::mask);
+        List<MaskingCase> holdout = loadHoldout();
+        Map<String, UnaryOperator<String>> candidates = new LinkedHashMap<>();
+        candidates.put("기존(fe2ab6e 규칙)", MaskingCandidates::legacy);
+        candidates.put("① 형식·길이", MaskingCandidates::format);
+        candidates.put("② 문맥", MaskingCandidates::context);
+        candidates.put("①' 공백 묶음 축소", MaskingCandidates::formatNarrowSpace);
+        Map<String, UnaryOperator<String>> withMain = new LinkedHashMap<>(candidates);
+        withMain.put("main IdentifierMasker", IdentifierMasker::mask);
 
+        StringBuilder md = new StringBuilder("# 챗봇 식별번호 마스킹 평가\n");
+        report(md, "평가 세트 " + CASES + " " + set.version(), set.cases(), withMain);
+        report(md, "hold-out " + HOLDOUT, holdout, candidates);
+
+        PerfSupport.write(REPORT, md.toString());
+        System.out.println(md);
+    }
+
+    /** 한 세트를 여러 방식으로 재서 요약표·분류별 표·사례 목록을 붙인다. */
+    private static void report(StringBuilder md, String title, List<MaskingCase> cases,
+                               Map<String, UnaryOperator<String>> methods) {
         List<Result> results = new ArrayList<>();
-        methods.forEach((name, fn) -> results.add(evaluate(name, fn, set.cases())));
+        methods.forEach((name, fn) -> results.add(evaluate(name, fn, cases)));
 
-        StringBuilder md = new StringBuilder("# 챗봇 식별번호 마스킹 평가\n\n")
-                .append("평가 세트: ").append(CASES).append(" ").append(set.version())
-                .append(" (").append(set.cases().size()).append("건)\n\n")
+        md.append("\n# ").append(title).append(" (").append(cases.size()).append("건)\n\n")
                 .append("| 방식 | 누락 / MASK | 오탐 / KEEP | 범위 밖(전화번호) 가려짐 |\n|---|---|---|---|\n");
         for (Result r : results) {
             long oosMasked = r.outOfScope().stream().filter(l -> l.endsWith("(바뀜)")).count();
@@ -81,9 +95,6 @@ class IdentifierMaskerEvalPerfTest {
             section(md, "오탐 사례", r.falsePositives());
             section(md, "범위 밖 결과", r.outOfScope());
         }
-
-        PerfSupport.write(REPORT, md.toString());
-        System.out.println(md);
     }
 
     private static Result evaluate(String name, UnaryOperator<String> mask, List<MaskingCase> cases) {
@@ -157,6 +168,17 @@ class IdentifierMaskerEvalPerfTest {
                 throw new IllegalStateException("missing " + CASES);
             }
             return JsonMapper.builder().build().readValue(in, MaskingSet.class);
+        }
+    }
+
+    /** hold-out 은 받은 파일 그대로(버전 래퍼 없는 배열, 필드명은 같음). */
+    private static List<MaskingCase> loadHoldout() throws IOException {
+        try (InputStream in = IdentifierMaskerEvalPerfTest.class.getResourceAsStream(HOLDOUT)) {
+            if (in == null) {
+                throw new IllegalStateException("missing " + HOLDOUT);
+            }
+            return JsonMapper.builder().build().readValue(in, new TypeReference<List<MaskingCase>>() {
+            });
         }
     }
 }
