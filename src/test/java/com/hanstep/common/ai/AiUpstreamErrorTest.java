@@ -92,7 +92,7 @@ class AiUpstreamErrorTest {
     }
 
     private static MockMvc mockMvc(String aiBaseUrl, Duration readTimeout) {
-        AiApiProperties ai = new AiApiProperties(aiBaseUrl, TOKEN, Duration.ofSeconds(1), readTimeout);
+        AiApiProperties ai = new AiApiProperties(aiBaseUrl, TOKEN, Duration.ofSeconds(1), readTimeout, Duration.ofSeconds(90));
         RestClient aiRestClient = new AiRestClientConfig()
                 .aiRestClient(RestClient.builder(), ai, new InternalApiProperties(null));
         return MockMvcBuilders.standaloneSetup(new CallAiController(aiRestClient))

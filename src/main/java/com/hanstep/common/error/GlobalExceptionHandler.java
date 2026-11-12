@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -79,7 +80,9 @@ public class GlobalExceptionHandler {
     }
 
     private ResponseEntity<ErrorResponse> build(ErrorCode code, String message, Map<String, Object> details) {
+        // Content-Type 을 미리 정해 Accept 협상을 건너뛴다. CHT-04 처럼 Accept: text/event-stream 요청도 오류는 JSON 으로 받는다
         return ResponseEntity.status(code.getStatus())
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(ErrorResponse.of(code, message, details, RequestIdFilter.current()));
     }
 }

@@ -92,7 +92,7 @@ class AiRestClientConfigTest {
 
     private RestClient client(String token, Duration readTimeout) {
         AiApiProperties ai = new AiApiProperties("http://127.0.0.1:" + server.getAddress().getPort(), token,
-                Duration.ofSeconds(1), readTimeout);
+                Duration.ofSeconds(1), readTimeout, Duration.ofSeconds(90));
         return new AiRestClientConfig().aiRestClient(RestClient.builder(), ai, new InternalApiProperties(SPRING_KEY));
     }
 
