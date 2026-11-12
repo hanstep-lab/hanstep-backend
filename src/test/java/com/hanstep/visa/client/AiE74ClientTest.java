@@ -74,8 +74,26 @@ class AiE74ClientTest {
                  "details": {"fields": [{"field": "scenario", "reason": "empty"}]}, "requestId": "req_1"}""");
 
         assertThatThrownBy(() -> client().calculate(emptyRequest()))
-                .isInstanceOfSatisfying(AiValidationException.class, e ->
-                        assertThat(e.getFields()).containsExactly(Map.of("field", "scenario", "reason", "empty")));
+                .isInstanceOfSatisfying(AiValidationException.class, e -> {
+                    assertThat(e.getFields()).containsExactly(Map.of("field", "scenario", "reason", "empty"));
+                    assertThat(e.isScenarioRejected()).isFalse();
+                });
+    }
+
+    @Test
+    void 시나리오를_반영한_프로필이_걸린_400은_scenarioRejected() {
+        // 필드 경로는 profile.* 로 오고 message 로만 구분된다(AI app/api/routes/visa_e74.py)
+        respond(400, """
+                {"code": "VALIDATION_ERROR", "message": "invalid scenario",
+                 "details": {"fields": [{"field": "profile.visaEvidences", "reason": "too_long"}]},
+                 "requestId": "req_2"}""");
+
+        assertThatThrownBy(() -> client().calculate(emptyRequest()))
+                .isInstanceOfSatisfying(AiValidationException.class, e -> {
+                    assertThat(e.getFields())
+                            .containsExactly(Map.of("field", "profile.visaEvidences", "reason", "too_long"));
+                    assertThat(e.isScenarioRejected()).isTrue();
+                });
     }
 
     @Test

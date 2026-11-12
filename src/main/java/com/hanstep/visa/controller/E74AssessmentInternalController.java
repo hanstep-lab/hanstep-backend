@@ -38,7 +38,7 @@ public class E74AssessmentInternalController {
     @ApiResponse(responseCode = "201", description = "새로 계산해 저장")
     @ApiResponse(responseCode = "200", description = "같은 입력으로 이미 저장된 결과(reused=true)")
     @ApiResponse(responseCode = "400", description = "형식 오류(details.fields). asOfDate 누락, 보낸 scenario·legalDeclaration 을 "
-            + "AI 가 거부한 경우 포함",
+            + "AI 가 거부한 경우(시나리오를 반영한 프로필이 걸린 경우 포함)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "401", description = "X-Internal-Token 없음·틀림",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

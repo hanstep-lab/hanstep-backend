@@ -15,6 +15,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.MissingNode;
 
 /**
  * E-7-4 계산 POST /internal/v1/visa/e74/calculate 호출. 형식은 AI 레포 app/visa/e74/schemas.py·service.py 기준.
@@ -24,6 +25,9 @@ import tools.jackson.databind.json.JsonMapper;
 public class AiE74Client {
 
     static final String PATH = "/internal/v1/visa/e74/calculate";
+
+    // 시나리오를 반영한 프로필이 검증에 걸렸을 때의 AI 오류 message(AI app/api/routes/visa_e74.py)
+    static final String SCENARIO_REJECTED = "invalid scenario";
 
     private static final ObjectMapper MAPPER = JsonMapper.builder().build();
 
@@ -46,7 +50,8 @@ public class AiE74Client {
                     .retrieve()
                     .body(String.class);
         } catch (HttpClientErrorException.BadRequest e) {
-            throw new AiValidationException(fields(e.getResponseBodyAsString()), e);
+            JsonNode error = errorBody(e.getResponseBodyAsString());
+            throw new AiValidationException(fields(error), scenarioRejected(error), e);
         } catch (RestClientResponseException e) {
             throw new AiCallException("AI_HTTP_" + e.getStatusCode().value(), e);
         } catch (ResourceAccessException e) {
@@ -74,23 +79,31 @@ public class AiE74Client {
         }
     }
 
-    // AI 오류 본문의 details.fields. AI 는 필드 경로와 사유만 주고 값은 되돌려 보내지 않는다
-    private static List<Map<String, String>> fields(String body) {
-        List<Map<String, String>> fields = new ArrayList<>();
-        JsonNode root;
+    // AI 오류 본문. 비었거나 JSON 이 아니면 MissingNode
+    private static JsonNode errorBody(String body) {
         try {
-            root = parse(body);
+            JsonNode root = parse(body);
+            return root != null ? root : MissingNode.getInstance();
         } catch (AiCallException e) {
-            return fields;
+            return MissingNode.getInstance();
         }
-        if (root == null) {
-            return fields;
-        }
-        for (JsonNode field : root.path("details").path("fields")) {
+    }
+
+    // AI 오류 본문의 details.fields. AI 는 필드 경로와 사유만 주고 값은 되돌려 보내지 않는다
+    private static List<Map<String, String>> fields(JsonNode error) {
+        List<Map<String, String>> fields = new ArrayList<>();
+        for (JsonNode field : error.path("details").path("fields")) {
             fields.add(Map.of("field", field.path("field").asString("unknown"),
                     "reason", field.path("reason").asString("invalid")));
         }
         return fields;
+    }
+
+    // 시나리오를 반영한 프로필이 검증에 걸린 경우. 필드 경로가 profile.* 로 와서 message 로만 구분된다.
+    // 원래 프로필은 요청 검증을 이미 통과했으므로 원인은 보낸 시나리오다(AI app/visa/e74/service.py)
+    private static boolean scenarioRejected(JsonNode error) {
+        JsonNode message = error.path("message");
+        return message.isString() && SCENARIO_REJECTED.equals(message.stringValue());
     }
 
     /** 계산 API 호출 실패. errorCode 는 로그용(AI_HTTP_502, AI_UNREACHABLE, AI_BAD_RESPONSE). */
@@ -108,18 +121,27 @@ public class AiE74Client {
         }
     }
 
-    /** 계산 API 가 입력을 거부함(400). fields 는 AI 가 준 필드 경로·사유. */
+    /**
+     * 계산 API 가 입력을 거부함(400). fields 는 AI 가 준 필드 경로·사유.
+     * scenarioRejected 면 보낸 시나리오를 반영한 프로필이 걸린 것(경로는 profile.*).
+     */
     public static class AiValidationException extends RuntimeException {
 
         private final List<Map<String, String>> fields;
+        private final boolean scenarioRejected;
 
-        public AiValidationException(List<Map<String, String>> fields, Throwable cause) {
+        public AiValidationException(List<Map<String, String>> fields, boolean scenarioRejected, Throwable cause) {
             super("E-7-4 calculate rejected the request", cause);
             this.fields = List.copyOf(fields);
+            this.scenarioRejected = scenarioRejected;
         }
 
         public List<Map<String, String>> getFields() {
             return fields;
+        }
+
+        public boolean isScenarioRejected() {
+            return scenarioRejected;
         }
     }
 }

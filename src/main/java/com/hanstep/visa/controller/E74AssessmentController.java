@@ -41,7 +41,7 @@ public class E74AssessmentController {
     @ApiResponse(responseCode = "201", description = "새로 계산해 저장")
     @ApiResponse(responseCode = "200", description = "같은 입력으로 이미 저장된 결과(reused=true)")
     @ApiResponse(responseCode = "400", description = "형식 오류(details.fields). 보낸 scenario·legalDeclaration 을 AI 가 "
-            + "거부한 경우도 필드 경로를 담아 400",
+            + "거부한 경우(시나리오를 반영한 프로필이 걸린 경우 포함)도 필드 경로를 담아 400",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

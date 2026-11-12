@@ -130,10 +130,10 @@ public class E74AssessmentService {
             response = aiE74Client.calculate(request);
         } catch (AiValidationException e) {
             List<Map<String, String>> fields = e.getFields();
-            // 호출자가 보낸 값(scenario, legalDeclaration)만 걸렸으면 400. 나머지는 MySQL 에서 만든 프로필이
-            // AI 제약(현재 근무처 1개, 코드 형식 등)에 걸린 것이라 요청을 고쳐도 안 되므로 422
-            boolean callerInput = !fields.isEmpty()
-                    && fields.stream().allMatch(field -> isCallerField(field.get("field")));
+            // 호출자가 보낸 값(scenario, legalDeclaration)만 걸렸거나 시나리오를 반영한 프로필이 걸렸으면 400. 나머지는
+            // MySQL 에서 만든 프로필이 AI 제약(현재 근무처 1개, 코드 형식 등)에 걸린 것이라 요청을 고쳐도 안 되므로 422
+            boolean callerInput = e.isScenarioRejected()
+                    || (!fields.isEmpty() && fields.stream().allMatch(field -> isCallerField(field.get("field"))));
             log.warn("e74 calculate rejected the request: userId={} callerInput={} fields={}",
                     userId, callerInput, fields);
             if (callerInput) {
