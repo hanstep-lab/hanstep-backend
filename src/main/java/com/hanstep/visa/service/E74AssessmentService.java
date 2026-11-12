@@ -7,6 +7,7 @@ import com.hanstep.user.repository.UserRepository;
 import com.hanstep.visa.client.AiE74Client;
 import com.hanstep.visa.client.AiE74Client.AiCallException;
 import com.hanstep.visa.client.AiE74Client.AiValidationException;
+import com.hanstep.visa.config.E74Properties;
 import com.hanstep.visa.dto.E74AssessmentDetailResponse;
 import com.hanstep.visa.dto.E74AssessmentResponse;
 import com.hanstep.visa.dto.LegalDeclaration;
@@ -40,6 +41,7 @@ import tools.jackson.databind.node.ObjectNode;
 /**
  * E-7-4 평가. 점수는 AI 규칙 엔진(LLM 아님)이 계산하고, 여기서는 입력 스냅샷을 보내고 결과를 그대로 쌓는다(append-only, FR-031).
  * AI requestKey(프로필·기준일·규칙 버전·시나리오의 해시)가 같으면 새로 저장하지 않고 저장된 결과를 돌려준다.
+ * 승인된 규칙 버전(e74_rule_sets.approval_status = APPROVED)의 결과만 저장·반환한다(시연 설정이면 DRAFT 도).
  * AI 응답을 기다리는 동안 DB 커넥션을 잡지 않도록 AI 호출은 트랜잭션 밖에서 하고 저장만 짧게 묶는다.
  */
 @Service
@@ -65,15 +67,17 @@ public class E74AssessmentService {
     private final AiE74Client aiE74Client;
     private final E74ProfileSnapshotReader snapshotReader;
     private final UserRepository userRepository;
+    private final E74Properties properties;
 
     public E74AssessmentService(JdbcTemplate jdbcTemplate, TransactionTemplate transactionTemplate,
                                 AiE74Client aiE74Client, E74ProfileSnapshotReader snapshotReader,
-                                UserRepository userRepository) {
+                                UserRepository userRepository, E74Properties properties) {
         this.jdbcTemplate = jdbcTemplate;
         this.transactionTemplate = transactionTemplate;
         this.aiE74Client = aiE74Client;
         this.snapshotReader = snapshotReader;
         this.userRepository = userRepository;
+        this.properties = properties;
     }
 
     /** created=false 면 같은 requestKey 의 저장된 결과를 돌려준 것(200, 새 행 없음). */
@@ -137,15 +141,20 @@ public class E74AssessmentService {
             throw new BusinessException(ErrorCode.INVALID_STATE, "no applicable E-7-4 rule set",
                     Map.of("reason", "NO_APPLICABLE_RULE_SET"));
         }
+        RuleSet ruleSet = ruleSet(ruleVersion).orElseThrow(() -> new BusinessException(ErrorCode.INVALID_STATE,
+                "E-7-4 rule set is not registered", Map.of("reason", "RULE_SET_NOT_REGISTERED", "ruleVersion", ruleVersion)));
+        // AI 가 승인 전 규칙으로 계산해 와도(AI 쪽 설정) 여기서 한 번 더 막는다. 저장된 결과를 재사용할 때도 같다
+        if (!usable(ruleSet.approvalStatus())) {
+            throw new BusinessException(ErrorCode.INVALID_STATE, "E-7-4 rule set is not approved",
+                    Map.of("reason", "RULE_SET_NOT_APPROVED", "ruleVersion", ruleVersion));
+        }
         String requestKey = response.path("requestKey").stringValue();
         Optional<E74AssessmentResponse> existing = findByRequestKey(userId, requestKey);
         if (existing.isPresent()) {
             return new Result(existing.get(), false);
         }
-        Long ruleSetId = ruleSetId(ruleVersion).orElseThrow(() -> new BusinessException(ErrorCode.INVALID_STATE,
-                "E-7-4 rule set is not registered", Map.of("reason", "RULE_SET_NOT_REGISTERED", "ruleVersion", ruleVersion)));
         try {
-            Long assessmentId = transactionTemplate.execute(status -> insert(userId, ruleSetId, request, response));
+            Long assessmentId = transactionTemplate.execute(status -> insert(userId, ruleSet.id(), request, response));
             return new Result(new E74AssessmentResponse(assessmentId, false, response), true);
         } catch (DuplicateKeyException e) {
             // 같은 requestKey 가 동시에 들어오면 먼저 저장된 행을 돌려준다
@@ -178,9 +187,19 @@ public class E74AssessmentService {
                 .stream().findFirst();
     }
 
-    private Optional<Long> ruleSetId(String ruleVersion) {
-        return jdbcTemplate.query("SELECT id FROM e74_rule_sets WHERE rule_version = ?",
-                (rs, i) -> rs.getLong("id"), ruleVersion).stream().findFirst();
+    /** e74_rule_sets 한 행. approvalStatus 는 DRAFT·APPROVED·RETIRED. */
+    private record RuleSet(long id, String approvalStatus) {
+    }
+
+    private Optional<RuleSet> ruleSet(String ruleVersion) {
+        return jdbcTemplate.query("SELECT id, approval_status FROM e74_rule_sets WHERE rule_version = ?",
+                (rs, i) -> new RuleSet(rs.getLong("id"), rs.getString("approval_status")), ruleVersion)
+                .stream().findFirst();
+    }
+
+    // APPROVED 만. DRAFT 는 시연 설정일 때만, RETIRED 는 언제나 안 된다(AI 도 고르지 않음)
+    private boolean usable(String approvalStatus) {
+        return "APPROVED".equals(approvalStatus) || (properties.includeDraftRules() && "DRAFT".equals(approvalStatus));
     }
 
     private Long insert(Long userId, Long ruleSetId, JsonNode request, JsonNode response) {

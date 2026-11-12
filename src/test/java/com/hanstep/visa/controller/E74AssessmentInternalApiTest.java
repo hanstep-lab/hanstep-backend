@@ -32,9 +32,9 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 채팅 도구용 E-7-4 평가 내부 API. 응답이 AI 레포 app/visa/tools.py 의 E74AssessmentToolResponse(assessmentId, reused, result)
- * 형식인지 본다. AI 계산은 가짜로 바꿔 끼움. 테스트마다 롤백.
+ * 형식인지 본다. AI 계산은 가짜로 바꿔 끼움. 테스트마다 롤백. 운영 설정(DRAFT 규칙 불허)으로 돈다.
  */
-@SpringBootTest(properties = InternalApiTestSupport.KEY_PROPERTY)
+@SpringBootTest(properties = {InternalApiTestSupport.KEY_PROPERTY, "hanstep.e74.include-draft-rules=false"})
 @AutoConfigureMockMvc
 @Transactional
 class E74AssessmentInternalApiTest {
@@ -55,6 +55,8 @@ class E74AssessmentInternalApiTest {
 
     @BeforeEach
     void setUp() throws IOException {
+        // 시드 규칙 E74-2026-v1 은 아직 DRAFT 라 테스트 안에서만 승인해 둔다(롤백)
+        jdbc.update("UPDATE e74_rule_sets SET approval_status = 'APPROVED' WHERE rule_version = 'E74-2026-v1'");
         jdbc.update("INSERT INTO users (external_user_key, display_name) VALUES ('test-e74-internal', 'TEST')");
         userId = jdbc.queryForObject("SELECT id FROM users WHERE external_user_key = 'test-e74-internal'", Long.class);
         jdbc.update("""

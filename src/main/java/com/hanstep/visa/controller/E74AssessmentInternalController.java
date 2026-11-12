@@ -44,7 +44,8 @@ public class E74AssessmentInternalController {
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "404", description = "없는 사용자",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    @ApiResponse(responseCode = "409", description = "INVALID_STATE: 기준일에 맞는 규칙 버전이 없음. 저장하지 않음",
+    @ApiResponse(responseCode = "409", description = "INVALID_STATE: 기준일에 쓸 수 있는 규칙 버전이 없음(승인 전 규칙 포함). "
+            + "저장하지 않음",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "422", description = "INSUFFICIENT_DATA: 저장된 프로필로 계산할 수 없음. details.reason "
             + "NO_VISA_PROFILE(체류 프로필 없음)·PROFILE_REJECTED(AI 가 프로필을 거부, details.fields 에 필드 경로)",

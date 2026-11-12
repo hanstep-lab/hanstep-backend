@@ -38,6 +38,9 @@ hanstep:
     stream-executor: virtual
     # platform 일 때만 쓰는 고정 풀 크기
     stream-pool-size: 16
+  e74:
+    # 승인 전(DRAFT) 규칙 버전으로 계산한 결과도 저장할지. AI 서버 .env 와 같은 값. 운영은 false, 로컬·시연에서만 true
+    include-draft-rules: ${E74_INCLUDE_DRAFT_RULES:false}
 
 logging:
     pattern:

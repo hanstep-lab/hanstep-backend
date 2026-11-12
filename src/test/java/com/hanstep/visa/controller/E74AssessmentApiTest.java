@@ -43,8 +43,9 @@ import tools.jackson.databind.node.ObjectNode;
 /**
  * E-7-4 평가 API. 테스트 사용자를 새로 넣고, AI 계산은 가짜로 바꿔 끼운다
  * (응답은 AI 레포 docs/e74/samples/calculate_response.json, ELIGIBLE 305점·항목 28개). 테스트마다 롤백.
+ * 운영 설정(DRAFT 규칙 불허)으로 돈다. 시연 설정은 E74DraftRulesApiTest.
  */
-@SpringBootTest(properties = InternalApiTestSupport.KEY_PROPERTY)
+@SpringBootTest(properties = {InternalApiTestSupport.KEY_PROPERTY, "hanstep.e74.include-draft-rules=false"})
 @AutoConfigureMockMvc
 @Transactional
 class E74AssessmentApiTest {
@@ -70,6 +71,8 @@ class E74AssessmentApiTest {
 
     @BeforeEach
     void setUp() throws IOException {
+        // 시드 규칙 E74-2026-v1 은 아직 DRAFT 라 테스트 안에서만 승인해 둔다(롤백)
+        jdbc.update("UPDATE e74_rule_sets SET approval_status = 'APPROVED' WHERE rule_version = 'E74-2026-v1'");
         userId = insertUserWithProfile("test-e74");
         bearer = bearer(userId);
         try (InputStream in = new ClassPathResource("e74/calculate_response.json").getInputStream()) {
@@ -171,6 +174,18 @@ class E74AssessmentApiTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.details.reason").value("RULE_SET_NOT_REGISTERED"))
                 .andExpect(jsonPath("$.details.ruleVersion").value("E74-2099-v1"));
+        assertThat(assessmentCount()).isZero();
+    }
+
+    @Test
+    void 승인_전_규칙으로_계산한_결과는_409이고_저장하지_않는다() throws Exception {
+        jdbc.update("UPDATE e74_rule_sets SET approval_status = 'DRAFT' WHERE rule_version = 'E74-2026-v1'");
+
+        create("{}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE"))
+                .andExpect(jsonPath("$.details.reason").value("RULE_SET_NOT_APPROVED"))
+                .andExpect(jsonPath("$.details.ruleVersion").value("E74-2026-v1"));
         assertThat(assessmentCount()).isZero();
     }
 
