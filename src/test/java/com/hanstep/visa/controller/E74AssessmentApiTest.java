@@ -185,14 +185,32 @@ class E74AssessmentApiTest {
     }
 
     @Test
-    void AI가_입력을_거부하면_400과_필드_경로를_준다() throws Exception {
+    void AI가_보낸_값을_거부하면_400과_필드_경로를_준다() throws Exception {
         when(aiE74Client.calculate(any())).thenThrow(new AiValidationException(
-                List.of(Map.of("field", "scenario.addEvidences.0.evidenceType", "reason", "enum")), null));
+                List.of(Map.of("field", "scenario.addEvidences.0.evidenceType", "reason", "enum"),
+                        Map.of("field", "profile.legalDeclaration.finesUnder1mCount", "reason", "less_than_equal")),
+                null));
 
         create("{\"scenario\": {\"addEvidences\": [{\"evidenceType\": \"UNKNOWN\"}]}}")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.details.fields[0].field").value("scenario.addEvidences.0.evidenceType"));
+                .andExpect(jsonPath("$.details.fields[0].field").value("scenario.addEvidences.0.evidenceType"))
+                .andExpect(jsonPath("$.details.fields[1].field").value("profile.legalDeclaration.finesUnder1mCount"));
+        assertThat(assessmentCount()).isZero();
+    }
+
+    @Test
+    void AI가_저장된_프로필을_거부하면_422와_필드_경로를_준다() throws Exception {
+        // 예: 이직 뒤 예전 근무 이력을 닫지 않아 현재 근무처(ended_on NULL)가 둘. 요청을 고쳐도 해결되지 않는다
+        when(aiE74Client.calculate(any())).thenThrow(new AiValidationException(
+                List.of(Map.of("field", "profile", "reason", "at most one current employment (endedOn null) is allowed")),
+                null));
+
+        create("{\"scenario\": {\"addEvidences\": [{\"evidenceType\": \"TOPIK\", \"levelValue\": \"4\"}]}}")
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("INSUFFICIENT_DATA"))
+                .andExpect(jsonPath("$.details.reason").value("PROFILE_REJECTED"))
+                .andExpect(jsonPath("$.details.fields[0].field").value("profile"));
         assertThat(assessmentCount()).isZero();
     }
 

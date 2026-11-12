@@ -114,8 +114,18 @@ public class E74AssessmentService {
         try {
             response = aiE74Client.calculate(request);
         } catch (AiValidationException e) {
-            log.warn("e74 calculate rejected the request: userId={} fields={}", userId, e.getFields());
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, Map.of("fields", e.getFields()));
+            List<Map<String, String>> fields = e.getFields();
+            // 호출자가 보낸 값(scenario, legalDeclaration)만 걸렸으면 400. 나머지는 MySQL 에서 만든 프로필이
+            // AI 제약(현재 근무처 1개, 코드 형식 등)에 걸린 것이라 요청을 고쳐도 안 되므로 422
+            boolean callerInput = !fields.isEmpty()
+                    && fields.stream().allMatch(field -> isCallerField(field.get("field")));
+            log.warn("e74 calculate rejected the request: userId={} callerInput={} fields={}",
+                    userId, callerInput, fields);
+            if (callerInput) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, Map.of("fields", fields));
+            }
+            throw new BusinessException(ErrorCode.INSUFFICIENT_DATA, "stored profile was rejected by the calculator",
+                    Map.of("reason", "PROFILE_REJECTED", "fields", fields));
         } catch (AiCallException e) {
             log.warn("e74 calculate failed: userId={} errorCode={}", userId, e.getErrorCode(), e);
             throw new BusinessException(ErrorCode.AI_UPSTREAM_ERROR);
@@ -208,7 +218,8 @@ public class E74AssessmentService {
         List<Object[]> items = new ArrayList<>();
         for (JsonNode item : response.path("items")) {
             String category = item.path("category").stringValue();
-            // 입력이 부족하면 기본항목(소득·한국어)이 ruleCode 없이 온다. category 로 채운다(다른 규칙 코드와 겹치지 않음)
+            // 입력이 부족하거나 점수표 밖이면 기본항목(소득·한국어·나이)이 ruleCode 없이 온다.
+            // category 로 채운다(분류마다 하나뿐이고 다른 규칙 코드와 겹치지 않음)
             String ruleCode = text(item.path("ruleCode"));
             items.add(new Object[] {assessmentId, ruleCode != null ? ruleCode : category, category,
                     item.path("status").stringValue(), integer(item.path("earnedPoints")),
@@ -226,6 +237,12 @@ public class E74AssessmentService {
         OffsetDateTime kst = createdAt == null ? null
                 : createdAt.toInstant(ZoneOffset.UTC).atOffset(KST).truncatedTo(ChronoUnit.SECONDS);
         return new E74AssessmentDetailResponse(rs.getLong("id"), kst, json(rs.getString("result_json")));
+    }
+
+    // AI 오류의 필드 경로(예: scenario.addEvidences.0.evidenceType) 중 호출자가 본문으로 보낸 부분
+    private static boolean isCallerField(String path) {
+        return path != null && (path.equals("scenario") || path.startsWith("scenario.")
+                || path.equals("profile.legalDeclaration") || path.startsWith("profile.legalDeclaration."));
     }
 
     private static void setSmallint(PreparedStatement ps, int index, JsonNode value) throws SQLException {

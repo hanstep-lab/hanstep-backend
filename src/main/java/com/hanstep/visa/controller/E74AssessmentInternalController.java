@@ -37,7 +37,8 @@ public class E74AssessmentInternalController {
                     + "응답은 AI 레포 app/visa/tools.py 의 E74AssessmentToolResponse 형식(assessmentId, reused, result).")
     @ApiResponse(responseCode = "201", description = "새로 계산해 저장")
     @ApiResponse(responseCode = "200", description = "같은 입력으로 이미 저장된 결과(reused=true)")
-    @ApiResponse(responseCode = "400", description = "형식 오류(details.fields). asOfDate 누락 포함",
+    @ApiResponse(responseCode = "400", description = "형식 오류(details.fields). asOfDate 누락, 보낸 scenario·legalDeclaration 을 "
+            + "AI 가 거부한 경우 포함",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "401", description = "X-Internal-Token 없음·틀림",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -45,7 +46,8 @@ public class E74AssessmentInternalController {
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "409", description = "INVALID_STATE: 기준일에 맞는 규칙 버전이 없음. 저장하지 않음",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    @ApiResponse(responseCode = "422", description = "INSUFFICIENT_DATA: 체류 프로필이 없음(details.reason NO_VISA_PROFILE)",
+    @ApiResponse(responseCode = "422", description = "INSUFFICIENT_DATA: 저장된 프로필로 계산할 수 없음. details.reason "
+            + "NO_VISA_PROFILE(체류 프로필 없음)·PROFILE_REJECTED(AI 가 프로필을 거부, details.fields 에 필드 경로)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "502", description = "AI_UPSTREAM_ERROR: 계산 서버 호출 실패",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

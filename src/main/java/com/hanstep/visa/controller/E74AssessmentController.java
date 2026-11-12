@@ -40,14 +40,16 @@ public class E74AssessmentController {
                     + "같은 입력(requestKey)이면 새로 저장하지 않고 저장된 결과를 200 으로 준다.")
     @ApiResponse(responseCode = "201", description = "새로 계산해 저장")
     @ApiResponse(responseCode = "200", description = "같은 입력으로 이미 저장된 결과(reused=true)")
-    @ApiResponse(responseCode = "400", description = "형식 오류(details.fields). AI 가 거부한 입력도 필드 경로를 담아 400",
+    @ApiResponse(responseCode = "400", description = "형식 오류(details.fields). 보낸 scenario·legalDeclaration 을 AI 가 "
+            + "거부한 경우도 필드 경로를 담아 400",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "409", description = "INVALID_STATE: 기준일에 맞는 규칙 버전이 없음(details.reason "
             + "NO_APPLICABLE_RULE_SET·RULE_SET_NOT_REGISTERED). 저장하지 않음",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    @ApiResponse(responseCode = "422", description = "INSUFFICIENT_DATA: 체류 프로필이 없음(details.reason NO_VISA_PROFILE)",
+    @ApiResponse(responseCode = "422", description = "INSUFFICIENT_DATA: 저장된 프로필로 계산할 수 없음. details.reason "
+            + "NO_VISA_PROFILE(체류 프로필 없음)·PROFILE_REJECTED(AI 가 프로필을 거부, details.fields 에 필드 경로)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "502", description = "AI_UPSTREAM_ERROR: 계산 서버 호출 실패",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
