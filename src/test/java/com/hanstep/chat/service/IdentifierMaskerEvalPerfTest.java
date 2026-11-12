@@ -5,17 +5,20 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * IdentifierMasker 마스킹 평가(기준선 기록용, 판정 결과로 실패하지 않음). 기본 test 에서는 빠짐: ./gradlew perfTest --tests "*Masking*"
+ * 마스킹 방식 비교 평가(기록용, 판정 결과로 실패하지 않음). 기본 test 에서는 빠짐: ./gradlew perfTest --tests "*Masking*"
  *
- * <p>평가 세트 masking/masking_cases_v1.json(합성 값). Spring·DB 없이 IdentifierMasker.mask 만 호출한다.
+ * <p>평가 세트 masking/masking_cases_v1.json(합성 값)으로 기존 규칙·후보 ①·후보 ②(MaskingCandidates)와
+ * 현재 main 의 IdentifierMasker 를 같은 세트로 잰다. Spring·DB 없이 문자열 함수만 호출한다.
  * 누락: MASK 인데 mustMask 부분의 숫자가 하나라도 남음. 오탐: KEEP 인데 글자가 하나라도 바뀜. OUT_OF_SCOPE 는 기록만 한다.
  */
 @Tag("perf")
@@ -30,20 +33,67 @@ class IdentifierMaskerEvalPerfTest {
     record MaskingSet(String version, List<MaskingCase> cases) {
     }
 
-    @Test
-    void Masking_기준선() throws IOException {
-        MaskingSet set = load();
-        List<MaskingCase> cases = set.cases();
+    private record Result(String name, Map<String, int[]> byCategory, List<String> missed,
+                          List<String> falsePositives, List<String> outOfScope, int maskTotal, int keepTotal) {
+    }
 
+    @Test
+    void Masking_방식_비교() throws IOException {
+        MaskingSet set = load();
+        Map<String, UnaryOperator<String>> methods = new LinkedHashMap<>();
+        methods.put("기존(fe2ab6e 규칙)", MaskingCandidates::legacy);
+        methods.put("① 형식·길이", MaskingCandidates::format);
+        methods.put("② 문맥", MaskingCandidates::context);
+        methods.put("main IdentifierMasker", IdentifierMasker::mask);
+
+        List<Result> results = new ArrayList<>();
+        methods.forEach((name, fn) -> results.add(evaluate(name, fn, set.cases())));
+
+        StringBuilder md = new StringBuilder("# 챗봇 식별번호 마스킹 평가\n\n")
+                .append("평가 세트: ").append(CASES).append(" ").append(set.version())
+                .append(" (").append(set.cases().size()).append("건)\n\n")
+                .append("| 방식 | 누락 / MASK | 오탐 / KEEP | 범위 밖(전화번호) 가려짐 |\n|---|---|---|---|\n");
+        for (Result r : results) {
+            long oosMasked = r.outOfScope().stream().filter(l -> l.endsWith("(바뀜)")).count();
+            md.append("| ").append(r.name()).append(" | ").append(r.missed().size()).append(" / ").append(r.maskTotal())
+                    .append(" | ").append(r.falsePositives().size()).append(" / ").append(r.keepTotal())
+                    .append(" | ").append(oosMasked).append(" / ").append(r.outOfScope().size()).append(" |\n");
+        }
+
+        md.append("\n## 분류별 누락·오탐\n\n| 기대 / 분류 | 건수");
+        results.forEach(r -> md.append(" | ").append(r.name()));
+        md.append(" |\n|---|---");
+        results.forEach(r -> md.append("|---"));
+        md.append("|\n");
+        for (String category : results.getFirst().byCategory().keySet()) {
+            md.append("| ").append(category).append(" | ").append(results.getFirst().byCategory().get(category)[0]);
+            for (Result r : results) {
+                md.append(" | ").append(category.startsWith("OUT_OF_SCOPE") ? "-"
+                        : String.valueOf(r.byCategory().get(category)[1]));
+            }
+            md.append(" |\n");
+        }
+
+        for (Result r : results) {
+            md.append("\n## ").append(r.name()).append('\n');
+            section(md, "누락 사례", r.missed());
+            section(md, "오탐 사례", r.falsePositives());
+            section(md, "범위 밖 결과", r.outOfScope());
+        }
+
+        PerfSupport.write(REPORT, md.toString());
+        System.out.println(md);
+    }
+
+    private static Result evaluate(String name, UnaryOperator<String> mask, List<MaskingCase> cases) {
         Map<String, int[]> byCategory = new TreeMap<>();
         List<String> missed = new ArrayList<>();
         List<String> falsePositives = new ArrayList<>();
         List<String> outOfScope = new ArrayList<>();
         int maskTotal = 0;
         int keepTotal = 0;
-
         for (MaskingCase c : cases) {
-            String result = IdentifierMasker.mask(c.text());
+            String result = mask.apply(c.text());
             int[] counts = byCategory.computeIfAbsent(c.expect() + " / " + c.category(), k -> new int[2]);
             counts[0]++;
             switch (c.expect()) {
@@ -65,22 +115,7 @@ class IdentifierMaskerEvalPerfTest {
                 default -> throw new IllegalStateException("unknown expect: " + c.id());
             }
         }
-
-        StringBuilder md = new StringBuilder("# 챗봇 식별번호 마스킹 평가 (기준선)\n\n")
-                .append("| 항목 | 값 |\n|---|---|\n")
-                .append("| 평가 세트 | ").append(CASES).append(" ").append(set.version()).append(" (").append(cases.size()).append("건) |\n")
-                .append("| 누락 | ").append(missed.size()).append(" / ").append(maskTotal).append(" (MASK) |\n")
-                .append("| 오탐 | ").append(falsePositives.size()).append(" / ").append(keepTotal).append(" (KEEP) |\n")
-                .append("| 범위 밖 | ").append(outOfScope.size()).append("건 (판정 제외) |\n\n")
-                .append("## 분류별\n\n| 기대 / 분류 | 건수 | 누락·오탐 |\n|---|---|---|\n");
-        byCategory.forEach((k, v) -> md.append("| ").append(k).append(" | ").append(v[0]).append(" | ")
-                .append(k.startsWith("OUT_OF_SCOPE") ? "-" : String.valueOf(v[1])).append(" |\n"));
-        section(md, "누락 사례", missed);
-        section(md, "오탐 사례", falsePositives);
-        section(md, "범위 밖 결과", outOfScope);
-
-        PerfSupport.write(REPORT, md.toString());
-        System.out.println(md);
+        return new Result(name, byCategory, missed, falsePositives, outOfScope, maskTotal, keepTotal);
     }
 
     /** mustMask 위치의 숫자가 결과에 남았는지. 마스킹은 길이를 유지하므로 같은 위치를 본다(길이가 다르면 원문 부분이 남았는지로 판단). */
@@ -108,7 +143,7 @@ class IdentifierMaskerEvalPerfTest {
     }
 
     private static void section(StringBuilder md, String title, List<String> lines) {
-        md.append("\n## ").append(title).append(" (").append(lines.size()).append(")\n\n");
+        md.append("\n### ").append(title).append(" (").append(lines.size()).append(")\n\n");
         if (lines.isEmpty()) {
             md.append("없음\n");
         }
