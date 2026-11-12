@@ -110,19 +110,36 @@ public class E74AssessmentService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     Map.of("fields", List.of(Map.of("field", "scenario", "reason", "must be an object"))));
         }
-        ObjectNode profile = snapshotReader.read(userId);
+        ObjectNode profile = withLegalDeclaration(snapshotReader.read(userId), legalDeclaration);
+        return calculate(userId, profile, asOfDate != null ? asOfDate : LocalDate.now(KstDates.KST), scenarioNode);
+    }
+
+    /**
+     * 이미 만든 profile(legalDeclaration 포함)로 시나리오 없는 평가를 만들거나 재사용한다(로드맵용).
+     * 로드맵 API 에 같은 profile 을 보내야 로드맵의 assessmentRequestKey 가 이 평가의 requestKey 와 같다.
+     */
+    public Result assessProfile(Long userId, ObjectNode profile, LocalDate asOfDate) {
+        return calculate(userId, profile, asOfDate, null);
+    }
+
+    /** AI 입력 profile 에 감점·제외 6문항을 넣고(없으면 null) 그 profile 을 돌려준다. */
+    public static ObjectNode withLegalDeclaration(ObjectNode profile, LegalDeclaration legalDeclaration) {
         if (legalDeclaration == null) {
             profile.putNull("legalDeclaration");
         } else {
             profile.set("legalDeclaration", MAPPER.valueToTree(legalDeclaration));
         }
+        return profile;
+    }
+
+    private Result calculate(Long userId, ObjectNode profile, LocalDate asOfDate, JsonNode scenario) {
         ObjectNode request = JsonNodeFactory.instance.objectNode();
-        request.put("asOfDate", (asOfDate != null ? asOfDate : LocalDate.now(KstDates.KST)).toString());
+        request.put("asOfDate", asOfDate.toString());
         request.set("profile", profile);
-        if (scenarioNode == null) {
+        if (scenario == null) {
             request.putNull("scenario");
         } else {
-            request.set("scenario", scenarioNode);
+            request.set("scenario", scenario);
         }
 
         JsonNode response;
