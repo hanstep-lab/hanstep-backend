@@ -10,7 +10,6 @@ import java.util.Map;
 import java.util.TreeMap;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -28,9 +27,13 @@ class IdentifierMaskerEvalPerfTest {
     record MaskingCase(String id, String text, String expect, String category, List<String> mustMask) {
     }
 
+    record MaskingSet(String version, List<MaskingCase> cases) {
+    }
+
     @Test
     void Masking_기준선() throws IOException {
-        List<MaskingCase> cases = load();
+        MaskingSet set = load();
+        List<MaskingCase> cases = set.cases();
 
         Map<String, int[]> byCategory = new TreeMap<>();
         List<String> missed = new ArrayList<>();
@@ -65,7 +68,7 @@ class IdentifierMaskerEvalPerfTest {
 
         StringBuilder md = new StringBuilder("# 챗봇 식별번호 마스킹 평가 (기준선)\n\n")
                 .append("| 항목 | 값 |\n|---|---|\n")
-                .append("| 평가 세트 | ").append(CASES).append(" (").append(cases.size()).append("건) |\n")
+                .append("| 평가 세트 | ").append(CASES).append(" ").append(set.version()).append(" (").append(cases.size()).append("건) |\n")
                 .append("| 누락 | ").append(missed.size()).append(" / ").append(maskTotal).append(" (MASK) |\n")
                 .append("| 오탐 | ").append(falsePositives.size()).append(" / ").append(keepTotal).append(" (KEEP) |\n")
                 .append("| 범위 밖 | ").append(outOfScope.size()).append("건 (판정 제외) |\n\n")
@@ -112,13 +115,12 @@ class IdentifierMaskerEvalPerfTest {
         lines.forEach(l -> md.append("- ").append(l).append('\n'));
     }
 
-    private static List<MaskingCase> load() throws IOException {
+    private static MaskingSet load() throws IOException {
         try (InputStream in = IdentifierMaskerEvalPerfTest.class.getResourceAsStream(CASES)) {
             if (in == null) {
                 throw new IllegalStateException("missing " + CASES);
             }
-            return JsonMapper.builder().build().readValue(in, new TypeReference<List<MaskingCase>>() {
-            });
+            return JsonMapper.builder().build().readValue(in, MaskingSet.class);
         }
     }
 }
