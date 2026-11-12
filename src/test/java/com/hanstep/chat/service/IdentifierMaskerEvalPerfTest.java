@@ -44,6 +44,7 @@ class IdentifierMaskerEvalPerfTest {
         methods.put("기존(fe2ab6e 규칙)", MaskingCandidates::legacy);
         methods.put("① 형식·길이", MaskingCandidates::format);
         methods.put("② 문맥", MaskingCandidates::context);
+        methods.put("①' 공백 묶음 축소", MaskingCandidates::formatNarrowSpace);
         methods.put("main IdentifierMasker", IdentifierMasker::mask);
 
         List<Result> results = new ArrayList<>();

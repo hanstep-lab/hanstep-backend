@@ -14,6 +14,7 @@ import java.util.regex.Pattern;
  *   <li>format(①): a 등록번호(6 + 하이픈/공백 + 7), b 구분된 숫자 묶음(구분자 한 종류, 묶음 2~7자리, 전체 10~16자리,
  *       앞뒤로 숫자·같은 구분자+숫자가 이어지지 않고 뒤에 ':' 없음), c 연속 숫자 10~16자리(앞뒤 0~1칸에 금액·단위 표기면 제외)</li>
  *   <li>context(②): ①과 같되 전체 10~12자리는 앞 20자 안에 계좌·카드 단어가 있을 때만 가림</li>
+ *   <li>formatNarrowSpace(①'): ①과 같되 공백으로 나뉜 묶음은 3개 이상일 때만 b 로 가림(두 묶음 공백은 a 만). KEEP-21 을 보고 만든 사후 수정</li>
  * </ul>
  * 모두 숫자만 * 로 바꾸고 구분자·길이는 유지한다. 17자리 이상 연속 숫자는 그대로.
  */
@@ -27,6 +28,8 @@ final class MaskingCandidates {
             Pattern.compile("(?<!\\d)(?<!\\d-)\\d{2,7}(?:-\\d{2,7})+(?!\\d)(?!-\\d)(?!:)");
     private static final Pattern SPACE_GROUPS =
             Pattern.compile("(?<!\\d)(?<!\\d )\\d{2,7}(?: \\d{2,7})+(?!\\d)(?! \\d)(?!:)");
+    private static final Pattern SPACE_GROUPS_3 =
+            Pattern.compile("(?<!\\d)(?<!\\d )\\d{2,7}(?: \\d{2,7}){2,}(?!\\d)(?! \\d)(?!:)");
     private static final String UNIT = "(?:원|(?i:krw|won|php)|₩|₱|%|점|개월)";
     private static final Pattern DIGITS = Pattern.compile("(?<!\\d)(?<!" + UNIT + " ?)\\d{10,16}(?!\\d)(?! ?" + UNIT + ")");
 
@@ -57,7 +60,16 @@ final class MaskingCandidates {
         });
     }
 
+    /** ①' 공백 묶음 축소: ①과 같되 공백으로 나뉜 묶음은 3개 이상일 때만(두 묶음 공백은 a 등록번호 6+7만). */
+    static String formatNarrowSpace(String text) {
+        return apply(text, (m, t) -> true, SPACE_GROUPS_3);
+    }
+
     private static String apply(String text, BiPredicate<MatchResult, String> accept) {
+        return apply(text, accept, SPACE_GROUPS);
+    }
+
+    private static String apply(String text, BiPredicate<MatchResult, String> accept, Pattern spaceGroups) {
         if (text == null || text.isEmpty()) {
             return text;
         }
@@ -67,7 +79,7 @@ final class MaskingCandidates {
         };
         String out = replace(REGISTRATION, text, accept);
         out = replace(HYPHEN_GROUPS, out, grouped);
-        out = replace(SPACE_GROUPS, out, grouped);
+        out = replace(spaceGroups, out, grouped);
         return replace(DIGITS, out, accept);
     }
 
