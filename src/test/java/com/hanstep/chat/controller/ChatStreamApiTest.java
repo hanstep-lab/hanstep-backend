@@ -1,7 +1,11 @@
 package com.hanstep.chat.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
 
+import com.hanstep.chat.repository.ChatRepository;
 import com.hanstep.chat.support.FakeAgentServer;
 import com.hanstep.chat.support.SseTestClient;
 import com.hanstep.chat.support.SseTestClient.Result;
@@ -23,9 +27,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -50,6 +56,10 @@ class ChatStreamApiTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    // 실제 동작 그대로, 근거 저장 실패 테스트에서만 예외를 낸다
+    @MockitoSpyBean
+    private ChatRepository chatRepository;
 
     private SseTestClient client;
     private long userId;
@@ -172,13 +182,20 @@ class ChatStreamApiTest {
     }
 
     @Test
-    void AI로_보낸_요청은_최근_COMPLETED_6개와_언어_JWT_사용자_마스킹() throws Exception {
+    void AI로_보낸_요청은_최근_완성_3쌍과_언어_JWT_사용자_마스킹() throws Exception {
         LocalDateTime base = LocalDateTime.parse("2026-11-01T00:00:00");
-        for (int i = 1; i <= 8; i++) {
-            message(sessionId, i % 2 == 1 ? "USER" : "ASSISTANT", "m" + i, "COMPLETED", base.plusMinutes(i));
+        // 완성된 쌍 m1/m2 ~ m7/m8 사이와 끝에 답변이 실패·끊긴 질문을 섞는다
+        for (int i = 1; i <= 7; i += 2) {
+            long question = message(sessionId, "USER", "m" + i, "COMPLETED", base.plusMinutes(i * 10), null);
+            message(sessionId, "ASSISTANT", "m" + (i + 1), "COMPLETED", base.plusMinutes(i * 10 + 1), question);
+            if (i == 5) {
+                long failedQuestion = message(sessionId, "USER", "q-failed", "COMPLETED", base.plusMinutes(i * 10 + 2),
+                        null);
+                message(sessionId, "ASSISTANT", "failed", "FAILED", base.plusMinutes(i * 10 + 3), failedQuestion);
+            }
         }
-        message(sessionId, "ASSISTANT", "failed", "FAILED", base.plusMinutes(9));
-        message(sessionId, "ASSISTANT", "partial", "PARTIAL", base.plusMinutes(10));
+        long partialQuestion = message(sessionId, "USER", "q-partial", "COMPLETED", base.plusMinutes(90), null);
+        message(sessionId, "ASSISTANT", "partial", "PARTIAL", base.plusMinutes(91), partialQuestion);
         AI.script((request, out) -> out.event("agent.done", "{\"content\":\"ok\"}"));
 
         Result result = client.stream(bearer, sessionId,
@@ -196,7 +213,9 @@ class ChatStreamApiTest {
         assertThat(sent.path("message").asString()).isEqualTo("my ARC ******-******* card ****************");
         assertThat(sent.path("history").valueStream().map(h -> h.path("content").asString()).toList())
                 .containsExactly("m3", "m4", "m5", "m6", "m7", "m8");
-        assertThat(sent.path("history").get(0).path("role").asString()).isEqualTo("USER");
+        // USER 로 시작하고 USER·ASSISTANT 가 번갈아 온다
+        assertThat(sent.path("history").valueStream().map(h -> h.path("role").asString()).toList())
+                .containsExactly("USER", "ASSISTANT", "USER", "ASSISTANT", "USER", "ASSISTANT");
         assertThat(sent.path("history").get(0).size()).isEqualTo(2); // role·content 만
         assertThat(received.requestId()).isNotBlank();
 
@@ -245,23 +264,41 @@ class ChatStreamApiTest {
     }
 
     @Test
-    void agent_error는_FAILED와_chat_error(CapturedOutput output) throws Exception {
+    void agent_error는_FAILED이고_앱에는_AI_UPSTREAM_ERROR(CapturedOutput output) throws Exception {
         AI.script((request, out) -> {
             out.event("agent.delta", "{\"text\":\"Partial \"}");
-            out.event("agent.error", "{\"code\":\"LLM_RATE_LIMITED\",\"message\":\"internal detail\"}");
+            out.event("agent.error", "{\"code\":\"AGENT_TIMEOUT\",\"message\":\"internal detail\"}");
         });
         Result result = client.stream(bearer, sessionId, SseTestClient.body("c-err", "hi"), null);
 
         assertThat(result.names()).containsExactly("chat.started", "chat.delta", "chat.error");
         JsonNode error = json(result.first("chat.error"));
-        assertThat(error.path("code").asString()).isEqualTo("LLM_RATE_LIMITED");
+        // AI 코드는 앱에 내보내지 않고 error_code·로그에만 남긴다
+        assertThat(error.path("code").asString()).isEqualTo("AI_UPSTREAM_ERROR");
         assertThat(error.path("message").asString()).doesNotContain("internal detail");
         Map<String, Object> assistant = row(json(result.first("chat.started")).path("assistantMessageId").asLong());
         assertThat(assistant.get("status")).isEqualTo("FAILED");
-        assertThat(assistant.get("error_code")).isEqualTo("LLM_RATE_LIMITED");
+        assertThat(assistant.get("error_code")).isEqualTo("AGENT_TIMEOUT");
         assertThat(assistant.get("content")).isEqualTo("Partial ");
         assertThat(waitForLine(output, "chat run finished runId=" + error.path("runId").asString()))
-                .contains("status=FAILED", "errorCode=LLM_RATE_LIMITED");
+                .contains("status=FAILED", "errorCode=AGENT_TIMEOUT");
+    }
+
+    @Test
+    void 근거_저장이_실패해도_답변은_COMPLETED() throws Exception {
+        doThrow(new DataIntegrityViolationException("test")).when(chatRepository).insertSources(anyLong(), anyList());
+        AI.script((request, out) -> {
+            out.event("agent.delta", "{\"text\":\"ok\"}");
+            out.event("agent.sources", "{\"sources\":[{\"type\":\"FINANCIAL_ANALYSIS\",\"id\":7}]}");
+            out.event("agent.done", "{\"content\":\"ok\"}");
+        });
+        Result result = client.stream(bearer, sessionId, SseTestClient.body("c-src", "hi"), null);
+
+        assertThat(result.names()).containsExactly("chat.started", "chat.delta", "chat.sources", "chat.done");
+        long assistantMessageId = json(result.first("chat.started")).path("assistantMessageId").asLong();
+        assertThat(row(assistantMessageId).get("status")).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM chat_message_sources WHERE message_id = ?", Long.class,
+                assistantMessageId)).isZero();
     }
 
     @Test
@@ -399,9 +436,11 @@ class ChatStreamApiTest {
         return jdbc.queryForObject("SELECT MAX(id) FROM chat_sessions WHERE user_id = ?", Long.class, owner);
     }
 
-    private void message(long session, String role, String content, String status, LocalDateTime createdAt) {
-        jdbc.update("INSERT INTO chat_messages (session_id, role, content, status, created_at) VALUES (?, ?, ?, ?, ?)",
-                session, role, content, status, createdAt);
+    private long message(long session, String role, String content, String status, LocalDateTime createdAt,
+                         Long replyToId) {
+        jdbc.update("INSERT INTO chat_messages (session_id, role, content, status, reply_to_id, created_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?)", session, role, content, status, replyToId, createdAt);
+        return jdbc.queryForObject("SELECT MAX(id) FROM chat_messages WHERE session_id = ?", Long.class, session);
     }
 
     private static JsonNode json(SseTestClient.Event event) {

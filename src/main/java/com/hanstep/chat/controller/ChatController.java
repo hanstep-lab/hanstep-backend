@@ -95,7 +95,7 @@ public class ChatController {
                     - chat.delta {runId, text}: 답변 조각. 이어 붙여 화면에 보여준다
                     - chat.sources {runId, sources:[{type,id,chunkRef,pageLabel}]}
                     - chat.done {runId, assistantMessageId, blocks, latencyMs}
-                    - chat.error {runId, code, message}: code 는 AI 가 준 값, AI_UPSTREAM_ERROR(AI 연결·응답 오류) 또는 INTERNAL_ERROR(AI 오류가 아닌 내부 예외)
+                    - chat.error {runId, code, message}: code 는 AI_UPSTREAM_ERROR(AI 연결·응답 오류, AI 가 보낸 오류 포함) 또는 INTERNAL_ERROR(AI 오류가 아닌 내부 예외) 둘 중 하나
                     done 이나 error 가 마지막이고 그 뒤 연결이 닫힌다([DONE] 표시는 없다).
                     스트림 시작 전 오류(400·401·404·409)는 일반 JSON 오류로 온다.
                     앱이 중간에 끊으면 답변은 PARTIAL 로 저장되고 AI 생성도 멈춘다.""")

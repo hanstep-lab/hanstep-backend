@@ -124,11 +124,16 @@ public class ChatRepository {
                 Long.class, sessionId, clientMessageId).stream().findFirst();
     }
 
-    /** 같은 대화방 COMPLETED 메시지 최근 limit 개(오래된 순, role·content). */
-    public List<String[]> recentCompleted(long sessionId, int limit) {
-        List<String[]> rows = new ArrayList<>(jdbc.query("SELECT role, content FROM chat_messages "
-                        + "WHERE session_id = ? AND status = 'COMPLETED' ORDER BY created_at DESC, id DESC LIMIT ?",
-                (rs, i) -> new String[] {rs.getString("role"), rs.getString("content")}, sessionId, limit));
+    /**
+     * 같은 대화방에서 답변이 COMPLETED 인 질문·답변 쌍 최근 limit 개(오래된 순, {질문, 답변}).
+     * ASSISTANT.reply_to_id 로 USER 질문을 붙인다. 답변이 실패·끊긴 질문은 쌍이 아니라 빠진다.
+     */
+    public List<String[]> recentCompletedPairs(long sessionId, int limit) {
+        List<String[]> rows = new ArrayList<>(jdbc.query("SELECT u.content AS question, a.content AS answer "
+                        + "FROM chat_messages a JOIN chat_messages u ON u.id = a.reply_to_id AND u.role = 'USER' "
+                        + "WHERE a.session_id = ? AND a.role = 'ASSISTANT' AND a.status = 'COMPLETED' "
+                        + "ORDER BY a.created_at DESC, a.id DESC LIMIT ?",
+                (rs, i) -> new String[] {rs.getString("question"), rs.getString("answer")}, sessionId, limit));
         Collections.reverse(rows);
         return rows;
     }

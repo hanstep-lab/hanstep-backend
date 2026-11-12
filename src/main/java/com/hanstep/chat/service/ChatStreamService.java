@@ -55,7 +55,8 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 public class ChatStreamService {
 
-    static final int HISTORY_SIZE = 6;
+    /** history 로 보내는 질문·답변 쌍 수(메시지는 최대 2배). */
+    static final int HISTORY_PAIRS = 3;
     static final String UPSTREAM_ERROR = ErrorCode.AI_UPSTREAM_ERROR.name();
     private static final long EMITTER_MARGIN_MS = 10_000;
     private static final Set<String> TOOL_STATUSES = Set.of("SUCCEEDED", "FAILED", "TIMEOUT", "REJECTED");
@@ -119,8 +120,12 @@ public class ChatStreamService {
         });
 
         String language = chatRepository.userLanguage(userId);
-        List<HistoryItem> history = chatRepository.recentCompleted(sessionId, HISTORY_SIZE).stream()
-                .map(r -> new HistoryItem(r[0], r[1])).toList();
+        // 답변이 완료된 쌍만 보내 USER 로 시작하고 USER·ASSISTANT 가 번갈아 오게 한다(실패·끊긴 질문은 빠짐)
+        List<HistoryItem> history = new ArrayList<>();
+        for (String[] pair : chatRepository.recentCompletedPairs(sessionId, HISTORY_PAIRS)) {
+            history.add(new HistoryItem(ChatRole.USER.name(), pair[0]));
+            history.add(new HistoryItem(ChatRole.ASSISTANT.name(), pair[1]));
+        }
         String runId = "run_" + UUID.randomUUID().toString().replace("-", "");
         String message = IdentifierMasker.mask(request.content());
         Instant now = ChatSessionService.now();
@@ -305,7 +310,13 @@ public class ChatStreamService {
                 }
                 rows.add(new SourceRow(type, id, cut(text(s, "chunkRef"), 100), cut(text(s, "pageLabel"), 50)));
             }
-            chatRepository.insertSources(assistantMessageId, rows);
+            try {
+                chatRepository.insertSources(assistantMessageId, rows);
+            } catch (DataAccessException e) {
+                // tool_call 과 같게: 근거 저장이 실패해도 답변은 계속한다
+                log.warn("chat sources not saved runId={} count={} error={}", runId, rows.size(),
+                        e.getClass().getSimpleName());
+            }
             send("chat.sources", new Sources(runId, rows.stream()
                     .map(r -> new ChatSource(r.type(), r.id(), r.chunkRef(), r.pageLabel())).toList()));
         }
@@ -326,15 +337,20 @@ public class ChatStreamService {
             complete();
         }
 
+        /** 앱에는 AI_UPSTREAM_ERROR 로 통일하고, AI 가 준 코드는 error_code·로그에만 남긴다(AI 코드가 바뀌어도 앱 영향 없음). */
         private void agentError(JsonNode data) {
-            String code = cut(text(data, "code"), 50);
-            fail(code == null ? UPSTREAM_ERROR : code);
+            String aiCode = cut(text(data, "code"), 50);
+            fail(UPSTREAM_ERROR, aiCode == null ? UPSTREAM_ERROR : aiCode);
         }
 
-        /** FAILED 저장 + chat.error. content 는 그때까지 받은 조각. */
         private void fail(String code) {
-            if (finish(ChatMessageStatus.FAILED, buffer.toString(), null, null, null, null, code)) {
-                send("chat.error", new ErrorEvent(runId, code, ERROR_MESSAGE));
+            fail(code, code);
+        }
+
+        /** FAILED 저장 + chat.error. content 는 그때까지 받은 조각. appCode 는 앱에, storedCode 는 error_code 에. */
+        private void fail(String appCode, String storedCode) {
+            if (finish(ChatMessageStatus.FAILED, buffer.toString(), null, null, null, null, storedCode)) {
+                send("chat.error", new ErrorEvent(runId, appCode, ERROR_MESSAGE));
                 complete();
             }
         }
