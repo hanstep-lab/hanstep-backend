@@ -1,0 +1,142 @@
+[
+  {
+    "id": "H01",
+    "text": "신한은행 계좌 110-482-937164 로 월급 들어오는 거 맞나요?",
+    "expect": "MASK",
+    "category": "한국계좌",
+    "mustMask": ["110-482-937164"]
+  },
+  {
+    "id": "H02",
+    "text": "My card 5398 2716 4083 9152 was blocked yesterday, please help.",
+    "expect": "MASK",
+    "category": "카드",
+    "mustMask": ["5398 2716 4083 9152"]
+  },
+  {
+    "id": "H03",
+    "text": "Please send 15,000 PHP to my BDO account 004830192756 today.",
+    "expect": "MASK",
+    "category": "필리핀계좌",
+    "mustMask": ["004830192756"]
+  },
+  {
+    "id": "H04",
+    "text": "국민은행 계좌번호 472901 04 351826 맞는지 확인해 주세요.",
+    "expect": "MASK",
+    "category": "한국계좌",
+    "mustMask": ["472901 04 351826"]
+  },
+  {
+    "id": "H05",
+    "text": "카드번호 4920-3381-7465-0217 분실 신고하고 싶어요.",
+    "expect": "MASK",
+    "category": "카드",
+    "mustMask": ["4920-3381-7465-0217"]
+  },
+  {
+    "id": "H06",
+    "text": "제 외국인등록번호는 910824-5372816 입니다. 본인 인증 다시 해 주세요.",
+    "expect": "MASK",
+    "category": "등록번호",
+    "mustMask": ["910824-5372816"]
+  },
+  {
+    "id": "H07",
+    "text": "Pls transfer to BPI 3089 5521 47 under my name, thank you.",
+    "expect": "MASK",
+    "category": "필리핀계좌",
+    "mustMask": ["3089 5521 47"]
+  },
+  {
+    "id": "H08",
+    "text": "My ARC number is 8803127481526, is that registered correctly?",
+    "expect": "MASK",
+    "category": "등록번호",
+    "mustMask": ["8803127481526"]
+  },
+  {
+    "id": "H09",
+    "text": "우리 1002857364019 로 보내면 바로 들어가요?",
+    "expect": "MASK",
+    "category": "한국계좌",
+    "mustMask": ["1002857364019"]
+  },
+  {
+    "id": "H10",
+    "text": "결제가 계속 안 돼요. 5241 8803 6619 0475 이거 막힌 건가요?",
+    "expect": "MASK",
+    "category": "카드",
+    "mustMask": ["5241 8803 6619 0475"]
+  },
+  {
+    "id": "H11",
+    "text": "어제 고향에 1,250,000원 보냈는데 아직 안 들어갔대요.",
+    "expect": "KEEP",
+    "category": "금액",
+    "mustMask": []
+  },
+  {
+    "id": "H12",
+    "text": "How much is the fee for sending 500000 KRW to Manila?",
+    "expect": "KEEP",
+    "category": "금액",
+    "mustMask": []
+  },
+  {
+    "id": "H13",
+    "text": "My mom received only 21850 PHP but I expected 22,400 PHP. Why?",
+    "expect": "KEEP",
+    "category": "금액",
+    "mustMask": []
+  },
+  {
+    "id": "H14",
+    "text": "Can I get my salary on 2026-11-25 instead of 11/30?",
+    "expect": "KEEP",
+    "category": "날짜",
+    "mustMask": []
+  },
+  {
+    "id": "H15",
+    "text": "해외송금 마감이 16:30 인가요, 아니면 17시 30분인가요?",
+    "expect": "KEEP",
+    "category": "시각",
+    "mustMask": []
+  },
+  {
+    "id": "H16",
+    "text": "Today rate is 1 PHP = 23.84 KRW? Yesterday it was 24.12.",
+    "expect": "KEEP",
+    "category": "환율",
+    "mustMask": []
+  },
+  {
+    "id": "H17",
+    "text": "제 신용점수 712점인데 비상금 대출 받을 수 있어요?",
+    "expect": "KEEP",
+    "category": "기타",
+    "mustMask": []
+  },
+  {
+    "id": "H18",
+    "text": "Loan term 36 months with 5.9% interest, is that okay for E-9 visa holders?",
+    "expect": "KEEP",
+    "category": "기타",
+    "mustMask": []
+  },
+  {
+    "id": "H19",
+    "text": "접수번호 20261112-0042 로 문의했는데 3일째 답이 없어요.",
+    "expect": "KEEP",
+    "category": "기타",
+    "mustMask": []
+  },
+  {
+    "id": "H20",
+    "text": "Remittance ref no. 7730-215 still shows pending after 72 hours.",
+    "expect": "KEEP",
+    "category": "기타",
+    "mustMask": []
+  }
+]
