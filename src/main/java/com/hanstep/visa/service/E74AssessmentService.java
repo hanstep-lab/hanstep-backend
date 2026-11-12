@@ -22,9 +22,11 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -61,6 +63,15 @@ public class E74AssessmentService {
             INSERT INTO e74_assessment_items (assessment_id, rule_code, category, status, earned_points,
                 potential_points, message_code, evidence_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)""";
+
+    // e74_assessments·e74_assessment_items 의 ENUM(01_hanstep_schema.sql).
+    // AI 의 EligibilityStatus·RuleCategory·ItemStatus 와 같은 값이다
+    private static final Set<String> ELIGIBILITY_STATUSES = Set.of("ELIGIBLE", "INELIGIBLE", "NEEDS_EVIDENCE",
+            "NEEDS_REVIEW");
+    private static final Set<String> ITEM_CATEGORIES = Set.of("BASE_INCOME", "BASE_KOREAN", "BASE_AGE", "BONUS",
+            "PENALTY", "REQUIREMENT", "EXCLUSION");
+    private static final Set<String> ITEM_STATUSES = Set.of("MET", "NOT_MET", "NEEDS_EVIDENCE", "NEEDS_REVIEW",
+            "NOT_APPLICABLE");
 
     private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate transactionTemplate;
@@ -153,6 +164,12 @@ public class E74AssessmentService {
         if (existing.isPresent()) {
             return new Result(existing.get(), false);
         }
+        // ENUM·NOT NULL·UNIQUE 에 맞지 않으면 저장할 수 없다. AI 응답이 약속과 다른 것이라 502
+        String mismatch = schemaMismatch(response);
+        if (mismatch != null) {
+            log.warn("e74 calculate result does not fit the tables: userId={} field={}", userId, mismatch);
+            throw new BusinessException(ErrorCode.AI_UPSTREAM_ERROR);
+        }
         try {
             Long assessmentId = transactionTemplate.execute(status -> insert(userId, ruleSet.id(), request, response));
             return new Result(new E74AssessmentResponse(assessmentId, false, response), true);
@@ -236,11 +253,7 @@ public class E74AssessmentService {
 
         List<Object[]> items = new ArrayList<>();
         for (JsonNode item : response.path("items")) {
-            String category = item.path("category").stringValue();
-            // 입력이 부족하거나 점수표 밖이면 기본항목(소득·한국어·나이)이 ruleCode 없이 온다.
-            // category 로 채운다(분류마다 하나뿐이고 다른 규칙 코드와 겹치지 않음)
-            String ruleCode = text(item.path("ruleCode"));
-            items.add(new Object[] {assessmentId, ruleCode != null ? ruleCode : category, category,
+            items.add(new Object[] {assessmentId, ruleCode(item), item.path("category").stringValue(),
                     item.path("status").stringValue(), integer(item.path("earnedPoints")),
                     integer(item.path("potentialPoints")), text(item.path("messageCode")),
                     jsonText(item.path("evidence"))});
@@ -249,6 +262,40 @@ public class E74AssessmentService {
             jdbcTemplate.batchUpdate(INSERT_ITEM, items);
         }
         return assessmentId;
+    }
+
+    // 저장할 수 없는 응답이면 걸린 필드 경로(로그용), 맞으면 null
+    private static String schemaMismatch(JsonNode response) {
+        if (!oneOf(response.path("status"), ELIGIBILITY_STATUSES)) {
+            return "status";
+        }
+        JsonNode items = response.path("items");
+        Set<String> ruleCodes = new HashSet<>();
+        for (int i = 0; i < items.size(); i++) {
+            JsonNode item = items.get(i);
+            if (!oneOf(item.path("category"), ITEM_CATEGORIES)) {
+                return "items." + i + ".category";
+            }
+            if (!oneOf(item.path("status"), ITEM_STATUSES)) {
+                return "items." + i + ".status";
+            }
+            // UNIQUE(assessment_id, rule_code)
+            if (!ruleCodes.add(ruleCode(item))) {
+                return "items." + i + ".ruleCode";
+            }
+        }
+        return null;
+    }
+
+    private static boolean oneOf(JsonNode value, Set<String> allowed) {
+        return value.isString() && allowed.contains(value.stringValue());
+    }
+
+    // 입력이 부족하거나 점수표 밖이면 기본항목(소득·한국어·나이)이 ruleCode 없이 온다. category 로 채운다
+    // (지금 AI 는 분류마다 하나만 만든다. 겹치면 schemaMismatch 가 막는다)
+    private static String ruleCode(JsonNode item) {
+        String ruleCode = text(item.path("ruleCode"));
+        return ruleCode != null ? ruleCode : item.path("category").stringValue();
     }
 
     private static E74AssessmentDetailResponse detail(ResultSet rs, int rowNum) throws SQLException {

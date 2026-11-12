@@ -38,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
@@ -142,7 +143,7 @@ class E74AssessmentApiTest {
 
     @Test
     void ruleCode가_없는_항목은_category로_저장한다() throws Exception {
-        // 입력이 부족하면 기본항목(소득·한국어)이 ruleCode 없이 온다
+        // 입력이 부족하거나 점수표 밖이면 기본항목(소득·한국어·나이)이 ruleCode 없이 온다
         ((ObjectNode) sample.path("items").get(0)).putNull("ruleCode");
 
         long id = assessmentId(create("{}").andExpect(status().isCreated()));
@@ -153,6 +154,38 @@ class E74AssessmentApiTest {
                 Integer.class, id)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM e74_assessment_items WHERE assessment_id = ?",
                 Integer.class, id)).isEqualTo(sample.path("items").size());
+    }
+
+    @Test
+    void ruleCode가_없는_같은_분류_항목이_둘이면_502이고_저장하지_않는다() throws Exception {
+        // 둘 다 category 로 채우면 UNIQUE(assessment_id, rule_code)에 걸린다
+        ObjectNode income = (ObjectNode) sample.path("items").get(0);
+        income.putNull("ruleCode");
+        ((ArrayNode) sample.path("items")).add(income.deepCopy());
+
+        create("{}")
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("AI_UPSTREAM_ERROR"));
+        assertThat(assessmentCount()).isZero();
+    }
+
+    @Test
+    void 분류나_판정이_스키마에_없는_값이면_502이고_저장하지_않는다() throws Exception {
+        // AI 가 값을 늘렸는데 테이블 ENUM 은 그대로인 경우
+        ObjectNode item = (ObjectNode) sample.path("items").get(0);
+        item.put("category", "BASE_EDUCATION");
+        create("{}")
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("AI_UPSTREAM_ERROR"));
+
+        item.put("category", "BASE_INCOME");
+        item.putNull("status");
+        create("{}").andExpect(status().isBadGateway());
+
+        item.put("status", "MET");
+        sample.put("status", "PENDING");
+        create("{}").andExpect(status().isBadGateway());
+        assertThat(assessmentCount()).isZero();
     }
 
     @Test
