@@ -14,7 +14,9 @@ import jakarta.persistence.EntityManager;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -29,15 +31,20 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
-/** AI-R1, INT-13. 실제 DB, 테스트마다 롤백. 문서는 테스트 안에서 새로 넣는다. */
+/** AI-R1, INT-13, 상태 목록. 실제 DB, 테스트마다 롤백. 문서는 테스트 안에서 새로 넣는다. */
 @SpringBootTest(properties = InternalApiTestSupport.KEY_PROPERTY)
 @AutoConfigureMockMvc
 @Transactional
 class PolicyDocumentInternalApiTest {
 
     private static final String ELIGIBILITY_URL = "/internal/v1/ai-context/policy-documents/search-eligibility";
+    private static final String STATES_URL = "/internal/v1/ai-context/policy-documents";
     private static final LocalDate TODAY = LocalDate.now(KstDates.KST);
+    private static final ObjectMapper MAPPER = JsonMapper.builder().build();
 
     @Autowired
     private MockMvc mockMvc;
@@ -120,6 +127,79 @@ class PolicyDocumentInternalApiTest {
     void ids가_20개면_통과() throws Exception {
         String twenty = IntStream.rangeClosed(1, 20).mapToObj(String::valueOf).collect(Collectors.joining(","));
         eligibility(twenty).andExpect(status().isOk());
+    }
+
+    // ---------- 상태 목록(AI 상태 대조) ----------
+
+    @Test
+    void 상태_목록은_모든_행을_id_순으로_스냅샷_필드만_준다() throws Exception {
+        String hash = randomHash();
+        long ingested = insertDoc("APPROVED", null, null, hash, "E74-STATE-v1", null);
+        jdbcTemplate.update("UPDATE policy_documents SET chunk_count = 12 WHERE id = ?", ingested);
+        long notIngested = insertDoc("DRAFT", null, null, null);
+
+        JsonNode documents = states().path("documents");
+
+        assertThat(documents.size())
+                .isEqualTo(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM policy_documents", Integer.class));
+        List<Long> ids = new ArrayList<>();
+        for (JsonNode doc : documents) {
+            // AI 스냅샷 모델은 모르는 필드를 거부한다(app/rag/reconcile.py SnapshotDocument)
+            assertThat(doc.propertyNames()).containsExactlyInAnyOrder("policyDocumentId", "policyVersion",
+                    "contentHash", "reviewStatus", "searchable", "chunkCount");
+            ids.add(doc.path("policyDocumentId").asLong());
+        }
+        assertThat(ids).isSorted();
+        JsonNode doc = find(documents, ingested);
+        assertThat(doc.path("policyVersion").stringValue()).isEqualTo("E74-STATE-v1");
+        assertThat(doc.path("contentHash").stringValue()).isEqualTo(hash);
+        assertThat(doc.path("reviewStatus").stringValue()).isEqualTo("APPROVED");
+        assertThat(doc.path("chunkCount").intValue()).isEqualTo(12);
+        assertThat(find(documents, notIngested).path("chunkCount").isNull()).isTrue();
+    }
+
+    @Test
+    void 상태_목록의_searchable은_검색_가능_여부와_같은_판정() throws Exception {
+        Map<Long, Boolean> expected = Map.of(
+                insertDoc("APPROVED", TODAY.minusDays(10), TODAY.plusDays(10), null), true,
+                insertDoc("APPROVED", null, null, null), true,
+                insertDoc("APPROVED", TODAY, null, null), true,
+                insertDoc("APPROVED", TODAY.plusDays(1), null, null), false,
+                insertDoc("APPROVED", TODAY.minusDays(30), TODAY, null), false, // 종료일 미포함
+                insertDoc("DRAFT", null, null, null), false,
+                insertDoc("NEEDS_REVIEW", null, null, null), false,
+                insertDoc("RETIRED", null, null, null), false);
+
+        JsonNode documents = states().path("documents");
+
+        expected.forEach((id, searchable) -> assertThat(find(documents, id).path("searchable").booleanValue())
+                .as("document %d", id).isEqualTo(searchable));
+    }
+
+    @Test
+    void 상태_목록이_1000행을_넘으면_잘라서_주지_않고_409() throws Exception {
+        int existing = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM policy_documents", Integer.class);
+        List<Object[]> rows = new ArrayList<>();
+        for (int i = existing; i <= 1000; i++) {
+            rows.add(new Object[] {"BULK-" + i, randomHash()});
+        }
+        jdbcTemplate.batchUpdate("""
+                INSERT INTO policy_documents (source_type, title, issuing_agency, source_url, visa_type_code,
+                  policy_version, content_hash)
+                VALUES ('NOTICE', '테스트 문서', '법무부', 'https://example.com', 'E-7-4', ?, ?)""", rows);
+
+        mockMvc.perform(get(STATES_URL).header(InternalTokenFilter.HEADER, InternalApiTestSupport.API_KEY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE"))
+                .andExpect(jsonPath("$.details.reason").value("TOO_MANY_DOCUMENTS"))
+                .andExpect(jsonPath("$.details.limit").value(1000))
+                .andExpect(jsonPath("$.details.total").value(1001))
+                .andExpect(jsonPath("$.documents").doesNotExist());
+    }
+
+    @Test
+    void 상태_목록도_토큰이_없으면_401() throws Exception {
+        mockMvc.perform(get(STATES_URL)).andExpect(status().isUnauthorized());
     }
 
     // ---------- INT-13 ----------
@@ -207,6 +287,25 @@ class PolicyDocumentInternalApiTest {
     }
 
     // ---------- helpers ----------
+
+    private JsonNode states() throws Exception {
+        String body = mockMvc.perform(get(STATES_URL).header(InternalTokenFilter.HEADER, InternalApiTestSupport.API_KEY))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode root = MAPPER.readTree(body);
+        // AI 스냅샷 모델은 documents 외 필드도 거부한다(app/rag/reconcile.py Snapshot)
+        assertThat(root.propertyNames()).containsExactly("documents");
+        return root;
+    }
+
+    private static JsonNode find(JsonNode documents, long id) {
+        for (JsonNode doc : documents) {
+            if (doc.path("policyDocumentId").asLong() == id) {
+                return doc;
+            }
+        }
+        throw new AssertionError("document " + id + " is not in the list");
+    }
 
     private ResultActions eligibility(String ids) throws Exception {
         return mockMvc.perform(get(ELIGIBILITY_URL).param("ids", ids)
