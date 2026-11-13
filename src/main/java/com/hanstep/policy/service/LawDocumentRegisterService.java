@@ -20,7 +20,8 @@ import org.springframework.stereotype.Service;
 
 /**
  * AI-R6 법제처 법령 문서 등록. content_hash UNIQUE 가 멱등 기준(같은 해시면 기존 행).
- * 동시 요청은 UNIQUE 위반을 잡아 먼저 들어간 행을 돌려주므로, 트랜잭션은 저장 한 번(repository)으로 짧게 둔다.
+ * 새 문서는 POLICY_INGEST 작업과 함께 저장하고 커밋 후 발행한다(LawDocumentWriter). 이미 있는 문서면 작업을 새로 만들지 않는다.
+ * 동시 요청은 UNIQUE 위반을 잡아 먼저 들어간 행을 돌려주므로, 이 메서드는 트랜잭션 밖에 두고 저장 트랜잭션만 짧게 둔다.
  */
 @Service
 public class LawDocumentRegisterService {
@@ -30,10 +31,13 @@ public class LawDocumentRegisterService {
     private static final int VERSION_HASH_SUFFIX = 6;
 
     private final PolicyDocumentRepository policyDocumentRepository;
+    private final LawDocumentWriter lawDocumentWriter;
     private final Clock clock;
 
-    public LawDocumentRegisterService(PolicyDocumentRepository policyDocumentRepository) {
+    public LawDocumentRegisterService(PolicyDocumentRepository policyDocumentRepository,
+                                      LawDocumentWriter lawDocumentWriter) {
         this.policyDocumentRepository = policyDocumentRepository;
+        this.lawDocumentWriter = lawDocumentWriter;
         this.clock = Clock.system(KstDates.KST);
     }
 
@@ -56,11 +60,11 @@ public class LawDocumentRegisterService {
                 request.externalId(), request.visaTypeCode(), request.publishedOn(), request.effectiveFrom(),
                 policyVersion(request), request.contentHash(), request.objectKey());
         try {
-            PolicyDocument saved = policyDocumentRepository.saveAndFlush(doc);
+            PolicyDocument saved = lawDocumentWriter.create(doc);
             log.info("law document registered: id={} version={}", saved.getId(), saved.getPolicyVersion());
             return new Result(PolicyDocumentRef.of(saved), true);
         } catch (DataIntegrityViolationException e) {
-            // 같은 해시가 동시에 들어온 경우. 먼저 들어간 행을 돌려준다
+            // 같은 해시가 동시에 들어온 경우(문서·작업 모두 롤백, 발행 없음). 먼저 들어간 행을 돌려준다
             PolicyDocument first = policyDocumentRepository.findByContentHash(request.contentHash())
                     .orElseThrow(() -> e);
             return new Result(PolicyDocumentRef.of(first), false);
