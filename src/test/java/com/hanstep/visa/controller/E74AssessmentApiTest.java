@@ -308,7 +308,7 @@ class E74AssessmentApiTest {
         assertThat(visaProfile.propertyNames()).containsExactlyInAnyOrder(
                 "visaTypeCode", "birthDate", "evidenceStatus", "currentStayStartedOn", "priorStayMonths");
         assertThat(visaProfile.path("visaTypeCode").stringValue()).isEqualTo("E-9");
-        assertThat(visaProfile.path("birthDate").stringValue()).isEqualTo("1996-07-21");
+        assertThat(visaProfile.path("birthDate").stringValue()).isEqualTo("1995-08-15");
         assertThat(visaProfile.path("currentStayStartedOn").stringValue()).isEqualTo("2022-03-07");
         assertThat(visaProfile.path("priorStayMonths").intValue()).isZero();
 
@@ -434,7 +434,7 @@ class E74AssessmentApiTest {
         jdbc.update("""
                 INSERT INTO visa_profiles (user_id, visa_type_id, stay_expires_on, nationality_code, birth_date,
                                            current_stay_started_on, prior_stay_months, evidence_status)
-                SELECT ?, id, '2027-01-06', 'PHL', '1996-07-21', '2022-03-07', 0, 'VERIFIED'
+                SELECT ?, id, '2027-10-04', 'PHL', '1995-08-15', '2022-03-07', 0, 'VERIFIED'
                 FROM visa_types WHERE code = 'E-9'""", id);
         jdbc.update("""
                 INSERT INTO employment_histories (user_id, employer_name, industry_code, workplace_region_code,

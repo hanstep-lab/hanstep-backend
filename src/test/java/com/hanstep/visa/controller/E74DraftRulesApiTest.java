@@ -57,7 +57,7 @@ class E74DraftRulesApiTest {
         userId = jdbc.queryForObject("SELECT id FROM users WHERE external_user_key = 'test-e74-draft'", Long.class);
         jdbc.update("""
                 INSERT INTO visa_profiles (user_id, visa_type_id, birth_date, current_stay_started_on, evidence_status)
-                SELECT ?, id, '1996-07-21', '2022-03-07', 'VERIFIED' FROM visa_types WHERE code = 'E-9'""", userId);
+                SELECT ?, id, '1995-08-15', '2022-03-07', 'VERIFIED' FROM visa_types WHERE code = 'E-9'""", userId);
         JsonNode sample;
         try (InputStream in = new ClassPathResource("e74/calculate_response.json").getInputStream()) {
             sample = MAPPER.readTree(in);

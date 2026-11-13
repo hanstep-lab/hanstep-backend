@@ -58,11 +58,11 @@ class AiRoadmapClientTest {
     void 정상_응답은_JsonNode_그대로_돌려준다() {
         respond(200, VALID);
 
-        JsonNode response = client().create(JsonMapper.builder().build().readTree("{\"stayExpiresOn\": \"2027-01-06\"}"));
+        JsonNode response = client().create(JsonMapper.builder().build().readTree("{\"stayExpiresOn\": \"2027-10-04\"}"));
 
         assertThat(response.path("assessmentRequestKey").stringValue()).isEqualTo("k1");
         assertThat(receivedPath.get()).isEqualTo(AiRoadmapClient.PATH);
-        assertThat(receivedBody.get()).contains("\"stayExpiresOn\":\"2027-01-06\"");
+        assertThat(receivedBody.get()).contains("\"stayExpiresOn\":\"2027-10-04\"");
     }
 
     @Test
