@@ -3,6 +3,17 @@ spring:
     name: hanstep-backend
   config:
     import: optional:file:.env[.properties]
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_DEFAULT_USER}
+    password: ${RABBITMQ_DEFAULT_PASS}
+    virtual-host: ${RABBITMQ_VIRTUAL_HOST:/}
+    connection-timeout: 3s
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
   datasource:
     url: jdbc:mysql://localhost:${MYSQL_PORT:3307}/${MYSQL_DATABASE:hanstep}?serverTimezone=UTC&characterEncoding=UTF-8&rewriteBatchedStatements=true
     username: root
@@ -20,6 +31,8 @@ server:
   port: 8080
 
 hanstep:
+  ai-jobs:
+    confirm-timeout: 5s
   jwt:
     secret: ${JWT_SECRET}
     expires-in-seconds: ${JWT_EXPIRES_IN_SECONDS:3600}
