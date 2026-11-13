@@ -29,11 +29,20 @@ public class E74ProfileSnapshotReader {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /** AI 입력 profile 과 체류 만료일(visa_profiles.stay_expires_on, 없으면 null). 만료일은 AI E74Profile 에 없어 따로 둔다. */
+    public record Snapshot(ObjectNode profile, LocalDate stayExpiresOn) {
+    }
+
     /** 체류 프로필(OCR 확정값)이 없으면 422 INSUFFICIENT_DATA(reason NO_VISA_PROFILE). */
     public ObjectNode read(Long userId) {
-        List<ObjectNode> visaProfiles = jdbcTemplate.query("""
+        return readWithStay(userId).profile();
+    }
+
+    /** read 와 같은 profile 에 체류 만료일을 함께 읽는다(로드맵 API 요청에 필요). */
+    public Snapshot readWithStay(Long userId) {
+        List<Snapshot> visaProfiles = jdbcTemplate.query("""
                         SELECT vt.code AS visa_type_code, vp.birth_date, vp.evidence_status,
-                               vp.current_stay_started_on, vp.prior_stay_months
+                               vp.current_stay_started_on, vp.prior_stay_months, vp.stay_expires_on
                         FROM visa_profiles vp LEFT JOIN visa_types vt ON vt.id = vp.visa_type_id
                         WHERE vp.user_id = ?""",
                 (rs, i) -> {
@@ -43,19 +52,21 @@ public class E74ProfileSnapshotReader {
                     node.put("evidenceStatus", rs.getString("evidence_status"));
                     node.put("currentStayStartedOn", date(rs, "current_stay_started_on"));
                     node.put("priorStayMonths", rs.getObject("prior_stay_months", Integer.class));
-                    return node;
+                    ObjectNode profile = JsonNodeFactory.instance.objectNode();
+                    profile.set("visaProfile", node);
+                    return new Snapshot(profile, rs.getObject("stay_expires_on", LocalDate.class));
                 },
                 userId);
         if (visaProfiles.isEmpty()) {
             throw new BusinessException(ErrorCode.INSUFFICIENT_DATA, Map.of("reason", "NO_VISA_PROFILE"));
         }
 
-        ObjectNode profile = JsonNodeFactory.instance.objectNode();
-        profile.set("visaProfile", visaProfiles.get(0));
+        Snapshot snapshot = visaProfiles.get(0);
+        ObjectNode profile = snapshot.profile();
         employmentHistories(userId, profile.putArray("employmentHistories"));
         incomeRecords(userId, profile.putArray("incomeRecords"));
         visaEvidences(userId, profile.putArray("visaEvidences"));
-        return profile;
+        return snapshot;
     }
 
     private void employmentHistories(Long userId, ArrayNode list) {
