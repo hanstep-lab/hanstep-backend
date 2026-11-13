@@ -4,6 +4,7 @@ import com.hanstep.common.config.OpenApiConfig;
 import com.hanstep.common.error.ErrorResponse;
 import com.hanstep.policy.dto.LawDocumentRegisterRequest;
 import com.hanstep.policy.dto.PolicyDocumentRef;
+import com.hanstep.policy.dto.PolicyDocumentStateResponse;
 import com.hanstep.policy.dto.PolicyIngestedRequest;
 import com.hanstep.policy.dto.SearchEligibilityResponse;
 import com.hanstep.policy.service.LawDocumentRegisterService;
@@ -55,6 +56,22 @@ public class PolicyDocumentInternalController {
             @Parameter(description = "쉼표로 구분한 policyDocumentId, 1~20개", example = "12,15,31")
             @RequestParam(required = false) String ids) {
         return policyDocumentInternalService.searchEligibility(ids);
+    }
+
+    @Operation(summary = "정책 문서 상태 목록 (AI 상태 대조)",
+            description = "AI scripts/reconcile_policy_state.py 가 MongoDB 청크 상태를 MySQL 과 맞출 때 스냅샷으로 쓴다. "
+                    + "모든 행을 id 순으로 주고, 모양은 스냅샷 파일과 같다(documents 외 필드 없음). "
+                    + "searchable 은 search-eligibility 와 같은 판정, chunkCount 는 적재 전이면 null. "
+                    + "행이 1,000개를 넘으면 잘라서 주지 않고 409(잘린 목록으로 대조하면 빠진 문서를 고아로 보고 끔).")
+    @ApiResponse(responseCode = "200", description = "성공")
+    @ApiResponse(responseCode = "401", description = "X-Internal-Token 없음·틀림",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "409", description = "INVALID_STATE: 행이 1,000개를 넘음(details.reason TOO_MANY_DOCUMENTS, "
+            + "limit, total)",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @GetMapping("/internal/v1/ai-context/policy-documents")
+    public PolicyDocumentStateResponse states() {
+        return policyDocumentInternalService.states();
     }
 
     @Operation(summary = "정책 문서 인덱싱 완료 (INT-13)",

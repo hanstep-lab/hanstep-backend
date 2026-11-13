@@ -4,6 +4,8 @@ import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
 import com.hanstep.common.time.KstDates;
 import com.hanstep.policy.domain.PolicyDocument;
+import com.hanstep.policy.dto.PolicyDocumentStateItem;
+import com.hanstep.policy.dto.PolicyDocumentStateResponse;
 import com.hanstep.policy.dto.PolicyIngestedRequest;
 import com.hanstep.policy.dto.SearchEligibilityItem;
 import com.hanstep.policy.dto.SearchEligibilityResponse;
@@ -16,15 +18,17 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** AI → Spring 정책 문서 내부 API(AI-R1, INT-13). */
+/** AI → Spring 정책 문서 내부 API(AI-R1, INT-13, 상태 목록). */
 @Service
 public class PolicyDocumentInternalService {
 
     static final int MAX_IDS = 20;
     static final int EMBEDDING_MODEL_MAX_LENGTH = 100;
+    static final int MAX_STATE_DOCUMENTS = 1000;
 
     private final PolicyDocumentRepository policyDocumentRepository;
     private final Clock clock;
@@ -43,6 +47,24 @@ public class PolicyDocumentInternalService {
                 .map(doc -> SearchEligibilityItem.of(doc, today))
                 .toList();
         return new SearchEligibilityResponse(documents);
+    }
+
+    /**
+     * AI 상태 대조용 전체 목록(id 순). AI 는 이 목록을 모든 행으로 보고 빠진 문서를 고아로 끄므로(--complete-snapshot)
+     * 상한을 넘으면 잘라서 주지 않고 409 로 알린다.
+     */
+    @Transactional(readOnly = true)
+    public PolicyDocumentStateResponse states() {
+        long total = policyDocumentRepository.count();
+        if (total > MAX_STATE_DOCUMENTS) {
+            throw new BusinessException(ErrorCode.INVALID_STATE, "too many policy documents for one snapshot",
+                    Map.of("reason", "TOO_MANY_DOCUMENTS", "limit", MAX_STATE_DOCUMENTS, "total", total));
+        }
+        LocalDate today = LocalDate.now(clock);
+        List<PolicyDocumentStateItem> documents = policyDocumentRepository.findAll(Sort.by("id")).stream()
+                .map(doc -> PolicyDocumentStateItem.of(doc, today))
+                .toList();
+        return new PolicyDocumentStateResponse(documents);
     }
 
     @Transactional
