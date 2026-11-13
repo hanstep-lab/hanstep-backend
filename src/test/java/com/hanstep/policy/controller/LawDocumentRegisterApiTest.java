@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.hanstep.common.security.InternalApiTestSupport;
 import com.hanstep.common.security.InternalTokenFilter;
 import com.hanstep.common.time.KstDates;
+import com.hanstep.common.web.RequestIdFilter;
 import com.jayway.jsonpath.JsonPath;
 import jakarta.persistence.EntityManager;
 import java.security.SecureRandom;
@@ -25,7 +26,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
-/** AI-R6. 실제 DB, 테스트마다 롤백. 법령ID는 테스트마다 새로 만들어 seed·다른 테스트와 겹치지 않게 한다. */
+/**
+ * AI-R6. 실제 DB, 테스트마다 롤백. 법령ID는 테스트마다 새로 만들어 seed·다른 테스트와 겹치지 않게 한다.
+ * 롤백이라 커밋 후 발행은 일어나지 않는다(발행까지는 LawDocumentRegisterPublishTest).
+ */
 @SpringBootTest(properties = InternalApiTestSupport.KEY_PROPERTY)
 @AutoConfigureMockMvc
 @Transactional
@@ -106,6 +110,42 @@ class LawDocumentRegisterApiTest {
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM policy_documents WHERE content_hash = ?", Integer.class, hash);
         assertThat(count).isEqualTo(1);
+        assertThat(jobCount(hash)).isEqualTo(1);
+    }
+
+    @Test
+    void 새_법령을_등록하면_POLICY_INGEST_작업을_같이_만든다() throws Exception {
+        String hash = randomHash();
+
+        long id = idOf(mockMvc.perform(post(URL)
+                        .header(InternalTokenFilter.HEADER, InternalApiTestSupport.API_KEY)
+                        .header("Idempotency-Key", hash)
+                        .header(RequestIdFilter.HEADER, "req_lawjob01")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(hash, "null", "\"2026-10-23\"")))
+                .andExpect(status().isCreated()));
+
+        // 테스트 트랜잭션이 커밋되지 않아 발행 전 상태 그대로다(발행은 AiJobPublishBrokerTest)
+        Map<String, Object> job = jdbcTemplate.queryForMap(
+                "SELECT * FROM ai_jobs WHERE job_type = 'POLICY_INGEST' AND idempotency_key = ?", hash);
+        assertThat(job.get("user_id")).isNull();
+        assertThat(job.get("resource_type")).isEqualTo("POLICY_DOCUMENT");
+        assertThat(((Number) job.get("resource_id")).longValue()).isEqualTo(id);
+        assertThat(job.get("status")).isEqualTo("PENDING");
+        assertThat(job.get("publish_status")).isEqualTo("NOT_PUBLISHED");
+        assertThat(((Number) job.get("retry_count")).intValue()).isZero();
+        assertThat(((Number) job.get("max_retries")).intValue()).isEqualTo(3);
+        assertThat(job.get("correlation_id")).isEqualTo("req_lawjob01");
+        assertThat(job.get("queued_at")).isNull();
+    }
+
+    @Test
+    void 잘못된_요청이면_작업을_만들지_않는다() throws Exception {
+        String hash = randomHash();
+
+        register(randomHash(), body(hash, "null", "null")).andExpect(status().isBadRequest());
+
+        assertThat(jobCount(hash)).isZero();
     }
 
     @Test
@@ -187,6 +227,12 @@ class LawDocumentRegisterApiTest {
     private static long idOf(ResultActions result) throws Exception {
         Number id = JsonPath.read(result.andReturn().getResponse().getContentAsString(), "$.policyDocumentId");
         return id.longValue();
+    }
+
+    private int jobCount(String hash) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM ai_jobs WHERE job_type = 'POLICY_INGEST' AND idempotency_key = ?",
+                Integer.class, hash);
     }
 
     // 테스트 트랜잭션 안이라 JPA 변경을 먼저 내려보내야 JDBC 로 보인다
