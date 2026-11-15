@@ -10,7 +10,7 @@ import com.hanstep.common.security.JwtTokenProvider;
 import com.hanstep.mydata.domain.MydataScope;
 import com.hanstep.mydata.service.MockIngestionService;
 import com.hanstep.mydata.service.MockMydataReader;
-import com.hanstep.user.repository.UserRepository;
+import com.hanstep.support.TestUsers;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
 import java.util.List;
@@ -26,7 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
-/** CMT-01 ~ 03. 실제 DB(데모 사용자 demo-e9-ph-reyes), 테스트마다 롤백. */
+/** CMT-01 ~ 03. 실제 DB(테스트 전용 사용자), 테스트마다 롤백. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -46,9 +46,6 @@ class CommitmentApiTest {
     private JwtTokenProvider jwtTokenProvider;
 
     @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
@@ -65,9 +62,15 @@ class CommitmentApiTest {
 
     @BeforeEach
     void setUp() {
-        userId = userRepository.findByExternalUserKey("demo-e9-ph-reyes").orElseThrow().getId();
+        // 표시 이름은 Mock 원천의 본인 명의 송금(MARK ANTHONY REYES)과 같게 둔다(sameNameAsUser 확인용)
+        userId = TestUsers.create(jdbcTemplate, "test-cmt-api", "MARK ANTHONY REYES");
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
-        jdbcTemplate.update("DELETE FROM monthly_commitments WHERE user_id = ?", userId); // 롤백되므로 실제 데이터는 그대로
+        // 데모 시드(03_hanstep_demo_seed.sql)와 같은 받는 분 2명
+        jdbcTemplate.update("INSERT INTO remittance_recipients (user_id, external_recipient_key, name_en, relationship, "
+                + "country_code, currency, bank_name, account_no_masked, source, is_mock, relationship_confirmed_at) "
+                + "VALUES (?, 'mock-recipient-mother-bdo', 'LORNA REYES', 'MOTHER', 'PH', 'PHP', 'BDO', '****5566', "
+                + "'MOCK', TRUE, NOW(3)), (?, 'mock-recipient-self-bpi', 'MARK ANTHONY REYES', 'SELF', 'PH', 'PHP', "
+                + "'BPI', '****7788', 'MOCK', TRUE, NOW(3))", userId, userId);
     }
 
     @Test
@@ -390,7 +393,7 @@ class CommitmentApiTest {
                 .header(HttpHeaders.AUTHORIZATION, bearer));
     }
 
-    /** 데모 사용자 신한은행 Mock 원천 12개월 적재(MYD-02 적재 부분). 테스트 트랜잭션에 묶여 롤백된다. */
+    /** 테스트 사용자에게 신한은행 Mock 원천 12개월 적재(MYD-02 적재 부분). 테스트 트랜잭션에 묶여 롤백된다. */
     private void ingestDemo() {
         jdbcTemplate.update("INSERT INTO user_consents (user_id, consent_type, policy_version, status, granted_at) "
                 + "VALUES (?, 'MYDATA', 'test', 'GRANTED', NOW(3))", userId);

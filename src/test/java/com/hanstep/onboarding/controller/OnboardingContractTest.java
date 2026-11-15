@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.hanstep.common.security.JwtTokenProvider;
+import com.hanstep.support.TestUsers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 온보딩 API 계약 확인. 인증·형식·오류 코드가 명세대로인지 확인.
- * ONB-01~03 은 실제 DB(데모 사용자)로 돌므로 필요한 상태를 테스트 안에서 만들고, 끝나면 롤백함.
+ * ONB-01~03 은 실제 DB(테스트 전용 사용자)로 돌므로 필요한 상태를 테스트 안에서 만들고, 끝나면 롤백함.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -37,11 +38,13 @@ class OnboardingContractTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    private long userId;
     private String bearer;
 
     @BeforeEach
     void setUp() {
-        bearer = "Bearer " + jwtTokenProvider.issue(1L);
+        userId = TestUsers.create(jdbcTemplate, "test-onb-contract", "TEST ONB CONTRACT USER");
+        bearer = "Bearer " + jwtTokenProvider.issue(userId);
     }
 
     @Test
@@ -116,7 +119,7 @@ class OnboardingContractTest {
         // MYD-02 는 MYDATA·MYDATA_TERMS 동의가 있어야 함(없으면 403). 롤백되므로 실제 데이터는 그대로
         for (String type : new String[] {"MYDATA", "MYDATA_TERMS"}) {
             jdbcTemplate.update("INSERT INTO user_consents (user_id, consent_type, policy_version, status, granted_at) "
-                    + "VALUES (1, ?, 'test', 'GRANTED', NOW(3))", type);
+                    + "VALUES (?, ?, 'test', 'GRANTED', NOW(3))", userId, type);
         }
         mockMvc.perform(post("/api/v1/mydata/connections")
                         .header(HttpHeaders.AUTHORIZATION, bearer)

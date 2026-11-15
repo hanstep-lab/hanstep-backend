@@ -5,12 +5,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.hanstep.user.repository.UserRepository;
+import com.hanstep.support.TestUsers;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,7 +30,7 @@ class InternalAuthApiTest {
     private JwtTokenProvider jwtTokenProvider;
 
     @Autowired
-    private UserRepository userRepository;
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void 토큰이_없으면_401() throws Exception {
@@ -83,7 +84,7 @@ class InternalAuthApiTest {
     }
 
     private String bearer() {
-        Long userId = userRepository.findByExternalUserKey("demo-e9-ph-reyes").orElseThrow().getId();
+        long userId = TestUsers.create(jdbcTemplate, "test-internal-auth", "TEST INTERNAL USER");
         return "Bearer " + jwtTokenProvider.issue(userId);
     }
 }

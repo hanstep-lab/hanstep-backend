@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.hanstep.common.security.JwtTokenProvider;
 import com.hanstep.common.time.KstDates;
-import com.hanstep.user.repository.UserRepository;
+import com.hanstep.support.TestUsers;
 import java.time.LocalDate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,7 +22,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
-/** GOL-01 ~ 02. 실제 DB(데모 사용자 demo-e9-ph-reyes), 테스트마다 롤백. */
+/** GOL-01 ~ 02. 실제 DB(테스트 전용 사용자), 테스트마다 롤백. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -38,9 +38,6 @@ class GoalApiTest {
     private JwtTokenProvider jwtTokenProvider;
 
     @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private Long userId;
@@ -48,9 +45,8 @@ class GoalApiTest {
 
     @BeforeEach
     void setUp() {
-        userId = userRepository.findByExternalUserKey("demo-e9-ph-reyes").orElseThrow().getId();
+        userId = TestUsers.create(jdbcTemplate, "test-gol-api", "TEST GOL USER");
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
-        jdbcTemplate.update("DELETE FROM financial_goals WHERE user_id = ?", userId); // 롤백되므로 실제 데이터는 그대로
     }
 
     @Test
