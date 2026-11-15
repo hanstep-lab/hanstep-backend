@@ -11,10 +11,13 @@ public enum ErrorCode {
     FORBIDDEN(HttpStatus.FORBIDDEN, "permission required"),
     CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "consent required"),
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "resource not found"),
+    RECIPIENT_NOT_FOUND(HttpStatus.NOT_FOUND, "recipient not found"),
+    FX_RATE_NOT_FOUND(HttpStatus.NOT_FOUND, "exchange rate not found"),
     DUPLICATE_REQUEST(HttpStatus.CONFLICT, "duplicate request"),
     RULESET_NOT_APPROVED(HttpStatus.CONFLICT, "rule set is not approved"),
     INVALID_STATE(HttpStatus.CONFLICT, "invalid state"),
     INSUFFICIENT_DATA(HttpStatus.UNPROCESSABLE_CONTENT, "insufficient data"),
+    INSUFFICIENT_BALANCE(HttpStatus.UNPROCESSABLE_CONTENT, "insufficient balance"),
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "too many requests"),
     AI_UPSTREAM_ERROR(HttpStatus.BAD_GATEWAY, "ai server error"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "internal server error");
