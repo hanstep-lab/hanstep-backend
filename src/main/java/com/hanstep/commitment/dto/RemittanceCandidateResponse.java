@@ -9,10 +9,10 @@ public record RemittanceCandidateResponse(
         @Schema(description = "순위(월평균 금액 큰 순, 1~3)", example = "1")
         int rank,
 
-        @Schema(description = "받는 분 이름(거래내역 counterparty_name 표기)", example = "NGUYEN THI MAI")
+        @Schema(description = "받는 분 이름(거래내역 counterparty_name 표기)", example = "LORNA REYES")
         String counterpartyName,
 
-        @Schema(description = "받는 은행(거래내역 counterparty_bank)", example = "Vietcombank", nullable = true)
+        @Schema(description = "받는 은행(거래내역 counterparty_bank)", example = "BDO", nullable = true)
         String counterpartyBank,
 
         @Schema(description = "등록된 받는 분(remittance_recipients) ID. 매칭 안 되면 null", example = "1",
