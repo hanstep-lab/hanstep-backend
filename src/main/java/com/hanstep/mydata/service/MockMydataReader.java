@@ -23,14 +23,14 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Mock 마이데이터 원천 파일(resources/mock/mydata/demo-e9-nguyen)을 읽음.
+ * Mock 마이데이터 원천 파일(resources/mock/mydata/demo-e9-ph-reyes)을 읽음.
  * MVP 테스트 사용자는 한 명이라 로그인 사용자와 상관없이 이 페르소나 파일을 씀.
  * 원천 값을 칼럼에 옮기기만 하고, 칼럼이 없는 값(거래별 잔액, 카드 status·pay_type·billing_day 등)은 버림.
  */
 @Component
 public class MockMydataReader {
 
-    private static final String BASE = "mock/mydata/demo-e9-nguyen/";
+    private static final String BASE = "mock/mydata/demo-e9-ph-reyes/";
     private static final Map<String, String> FILES = Map.of(
             "SHINHAN_BANK", "bank-shinhan.json",
             "SHINHAN_CARD", "card-shinhan.json");
