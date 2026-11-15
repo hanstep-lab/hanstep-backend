@@ -26,7 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
-/** CMT-01 ~ 03. 실제 DB(데모 사용자 demo-e9-nguyen), 테스트마다 롤백. */
+/** CMT-01 ~ 03. 실제 DB(데모 사용자 demo-e9-ph-reyes), 테스트마다 롤백. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -65,7 +65,7 @@ class CommitmentApiTest {
 
     @BeforeEach
     void setUp() {
-        userId = userRepository.findByExternalUserKey("demo-e9-nguyen").orElseThrow().getId();
+        userId = userRepository.findByExternalUserKey("demo-e9-ph-reyes").orElseThrow().getId();
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
         jdbcTemplate.update("DELETE FROM monthly_commitments WHERE user_id = ?", userId); // 롤백되므로 실제 데이터는 그대로
     }
@@ -160,7 +160,7 @@ class CommitmentApiTest {
         save(detected(txnId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].commitmentType").value("REMITTANCE"))
-                .andExpect(jsonPath("$.items[0].label").value("Vietcombank"))
+                .andExpect(jsonPath("$.items[0].label").value("BDO"))
                 .andExpect(jsonPath("$.items[0].source").value("DETECTED_CONFIRMED"))
                 .andExpect(jsonPath("$.items[0].detectedFromTxnId").value(txnId));
     }
@@ -232,8 +232,10 @@ class CommitmentApiTest {
     @Test
     void 송금_이력은_Mock_적재_후_월평균_큰_순으로_돌려준다() throws Exception {
         ingestDemo();
-        Long maiId = jdbcTemplate.queryForObject("SELECT id FROM remittance_recipients WHERE user_id = ? "
-                + "AND external_recipient_key = 'mock-recipient-mother-vcb'", Long.class, userId);
+        Long motherId = jdbcTemplate.queryForObject("SELECT id FROM remittance_recipients WHERE user_id = ? "
+                + "AND external_recipient_key = 'mock-recipient-mother-bdo'", Long.class, userId);
+        Long selfId = jdbcTemplate.queryForObject("SELECT id FROM remittance_recipients WHERE user_id = ? "
+                + "AND external_recipient_key = 'mock-recipient-self-bpi'", Long.class, userId);
 
         candidates()
                 .andExpect(status().isOk())
@@ -241,19 +243,19 @@ class CommitmentApiTest {
                 .andExpect(jsonPath("$.isMock").value(true))
                 .andExpect(jsonPath("$.candidates.length()").value(2))
                 .andExpect(jsonPath("$.candidates[0].rank").value(1))
-                .andExpect(jsonPath("$.candidates[0].counterpartyName").value("NGUYEN THI MAI"))
-                .andExpect(jsonPath("$.candidates[0].counterpartyBank").value("Vietcombank"))
+                .andExpect(jsonPath("$.candidates[0].counterpartyName").value("LORNA REYES"))
+                .andExpect(jsonPath("$.candidates[0].counterpartyBank").value("BDO"))
                 .andExpect(jsonPath("$.candidates[0].avgMonthlyAmount.amount").value(500000))
                 .andExpect(jsonPath("$.candidates[0].monthsSent").value(12))
                 .andExpect(jsonPath("$.candidates[0].lastSentOn").value("2026-10-10"))
                 .andExpect(jsonPath("$.candidates[0].lastTransactionId").value(txnId("SHB-20261010-RMT-MOTHER")))
-                .andExpect(jsonPath("$.candidates[0].recipientId").value(maiId))
+                .andExpect(jsonPath("$.candidates[0].recipientId").value(motherId))
                 .andExpect(jsonPath("$.candidates[0].sameNameAsUser").value(false))
                 .andExpect(jsonPath("$.candidates[1].rank").value(2))
-                .andExpect(jsonPath("$.candidates[1].counterpartyName").value("NGUYEN VAN MINH"))
-                .andExpect(jsonPath("$.candidates[1].counterpartyBank").value("Techcombank"))
+                .andExpect(jsonPath("$.candidates[1].counterpartyName").value("MARK ANTHONY REYES"))
+                .andExpect(jsonPath("$.candidates[1].counterpartyBank").value("BPI"))
                 .andExpect(jsonPath("$.candidates[1].avgMonthlyAmount.amount").value(200000))
-                .andExpect(jsonPath("$.candidates[1].recipientId").isEmpty())
+                .andExpect(jsonPath("$.candidates[1].recipientId").value(selfId))
                 .andExpect(jsonPath("$.candidates[1].sameNameAsUser").value(true));
     }
 
@@ -276,8 +278,8 @@ class CommitmentApiTest {
         candidates()
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.candidates.length()").value(2))
-                .andExpect(jsonPath("$.candidates[0].counterpartyName").value("NGUYEN THI MAI"))
-                .andExpect(jsonPath("$.candidates[1].counterpartyName").value("NGUYEN VAN MINH"));
+                .andExpect(jsonPath("$.candidates[0].counterpartyName").value("LORNA REYES"))
+                .andExpect(jsonPath("$.candidates[1].counterpartyName").value("MARK ANTHONY REYES"));
     }
 
     @Test
@@ -340,8 +342,8 @@ class CommitmentApiTest {
         jdbcTemplate.update("INSERT INTO users (external_user_key, display_name) VALUES ('test-other', 'OTHER USER')");
         Long otherUserId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         long[] ids = succeededBatch(otherUserId, "test-other");
-        remit(otherUserId, ids, "test-other-1", "NGUYEN THI MAI", "Vietcombank", "2026-08-10", 9000000);
-        remit(otherUserId, ids, "test-other-2", "NGUYEN THI MAI", "Vietcombank", "2026-09-10", 9000000);
+        remit(otherUserId, ids, "test-other-1", "LORNA REYES", "BDO", "2026-08-10", 9000000);
+        remit(otherUserId, ids, "test-other-2", "LORNA REYES", "BDO", "2026-09-10", 9000000);
         remit(otherUserId, ids, "test-other-3", "LE THI HOA", "BIDV", "2026-09-10", 9000000);
         remit(otherUserId, ids, "test-other-4", "LE THI HOA", "BIDV", "2026-10-10", 9000000);
         ingestDemo();
@@ -349,9 +351,9 @@ class CommitmentApiTest {
         candidates()
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.candidates.length()").value(2))
-                .andExpect(jsonPath("$.candidates[0].counterpartyName").value("NGUYEN THI MAI"))
+                .andExpect(jsonPath("$.candidates[0].counterpartyName").value("LORNA REYES"))
                 .andExpect(jsonPath("$.candidates[0].avgMonthlyAmount.amount").value(500000))
-                .andExpect(jsonPath("$.candidates[1].counterpartyName").value("NGUYEN VAN MINH"));
+                .andExpect(jsonPath("$.candidates[1].counterpartyName").value("MARK ANTHONY REYES"));
     }
 
     @Test
@@ -379,7 +381,7 @@ class CommitmentApiTest {
 
     /** CMT-03 에서 고른 송금. label 에는 FE 가 받는 은행명을 넣는다. */
     private static String detected(long txnId) {
-        return "{\"commitmentType\":\"REMITTANCE\",\"label\":\"Vietcombank\",\"amount\":{\"amount\":500000,"
+        return "{\"commitmentType\":\"REMITTANCE\",\"label\":\"BDO\",\"amount\":{\"amount\":500000,"
                 + "\"currency\":\"KRW\"},\"source\":\"DETECTED_CONFIRMED\",\"detectedFromTxnId\":" + txnId + "}";
     }
 
@@ -453,7 +455,7 @@ class CommitmentApiTest {
         Long accountId = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         jdbcTemplate.update("INSERT INTO financial_transactions (user_id, account_id, batch_id, external_txn_key, "
                 + "transacted_at, booked_date, direction, amount, counterparty_bank, category_code) "
-                + "VALUES (?, ?, ?, ?, '2026-10-10 01:00:00', '2026-10-10', 'EXPENSE', 500000, 'Vietcombank', "
+                + "VALUES (?, ?, ?, ?, '2026-10-10 01:00:00', '2026-10-10', 'EXPENSE', 500000, 'BDO', "
                 + "'REMITTANCE')", ownerId, accountId, batchId, key);
         return jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }

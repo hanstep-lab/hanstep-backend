@@ -22,7 +22,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
-/** GOL-01 ~ 02. 실제 DB(데모 사용자 demo-e9-nguyen), 테스트마다 롤백. */
+/** GOL-01 ~ 02. 실제 DB(데모 사용자 demo-e9-ph-reyes), 테스트마다 롤백. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -48,7 +48,7 @@ class GoalApiTest {
 
     @BeforeEach
     void setUp() {
-        userId = userRepository.findByExternalUserKey("demo-e9-nguyen").orElseThrow().getId();
+        userId = userRepository.findByExternalUserKey("demo-e9-ph-reyes").orElseThrow().getId();
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
         jdbcTemplate.update("DELETE FROM financial_goals WHERE user_id = ?", userId); // 롤백되므로 실제 데이터는 그대로
     }

@@ -39,7 +39,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * INT-06. 테스트 사용자에 데모 Minh 와 같은 값(분석·필수 확보액·목표)을 기존 서비스로 넣고, INT-06 이 FIN-06·CMT-01·GOL-01 과
+ * INT-06. 테스트 사용자에 데모 사용자(Reyes) 와 같은 값(분석·필수 확보액·목표)을 기존 서비스로 넣고, INT-06 이 FIN-06·CMT-01·GOL-01 과
  * 같은 값을 주는지 본다. INT-01(AI)은 가짜로 바꿔 끼움. 테스트마다 롤백.
  */
 @SpringBootTest(properties = InternalApiTestSupport.KEY_PROPERTY)
@@ -109,7 +109,7 @@ class AiContextInternalApiTest {
 
     @Test
     void 민_데이터는_FIN06_CMT01_GOL01과_같은_값이고_계좌_정보는_없다() throws Exception {
-        minhAnalysis();
+        demoAnalysis();
         commitmentService.saveCommitments(userId, new CommitmentSaveRequest(List.of(
                 new CommitmentSaveRequest.Item(CommitmentType.RENT, "Rent", Money.krw(520_000), null, null),
                 new CommitmentSaveRequest.Item(CommitmentType.REMITTANCE, "Mom", Money.krw(700_000), null, null),
@@ -155,7 +155,7 @@ class AiContextInternalApiTest {
                 .doesNotContain("TEST");
     }
 
-    private void minhAnalysis() {
+    private void demoAnalysis() {
         jdbc.update("INSERT INTO ingestion_batches (user_id, source_type, request_key, status, coverage_from, "
                 + "coverage_to, started_at, finished_at) VALUES (?, 'MOCK', 'test-ctx', 'SUCCEEDED', '2025-11-01', "
                 + "'2026-10-31', NOW(3), NOW(3))", userId);

@@ -21,7 +21,7 @@ import tools.jackson.databind.json.JsonMapper;
  */
 class MockMydataFileTest {
 
-    private static final String DIR = "/mock/mydata/demo-e9-nguyen/";
+    private static final String DIR = "/mock/mydata/demo-e9-ph-reyes/";
     private static final ObjectMapper MAPPER = JsonMapper.builder().build();
 
     // 02_hanstep_seed.sql 의 transaction_categories.code, financial_transactions.transaction_kind ENUM
@@ -71,8 +71,8 @@ class MockMydataFileTest {
                 .forEach(t -> sumByName.merge(t.path("counterparty_name").asString(),
                         t.path("trans_amt").asLong(), Long::sum));
 
-        assertThat(sumByName).containsEntry("NGUYEN THI MAI", 500_000L * 12)
-                .containsEntry("NGUYEN VAN MINH", 200_000L * 12);
+        assertThat(sumByName).containsEntry("LORNA REYES", 500_000L * 12)
+                .containsEntry("MARK ANTHONY REYES", 200_000L * 12);
     }
 
     @Test
