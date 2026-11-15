@@ -91,6 +91,44 @@ public class AiJob {
     @Column(name = "updated_at", insertable = false, updatable = false)
     private Instant updatedAt;
 
+    /** 새 작업. PENDING·NOT_PUBLISHED 로 시작하고, 커밋 후 발행 결과에 따라 발행 상태를 바꾼다. */
+    public static AiJob create(Long userId, AiJobType jobType, AiJobResourceType resourceType, Long resourceId,
+                               String idempotencyKey, String correlationId, int maxRetries) {
+        AiJob job = new AiJob();
+        job.userId = userId;
+        job.jobType = jobType;
+        job.resourceType = resourceType;
+        job.resourceId = resourceId;
+        job.idempotencyKey = idempotencyKey;
+        job.correlationId = correlationId;
+        job.status = AiJobStatus.PENDING;
+        job.publishStatus = PublishStatus.NOT_PUBLISHED;
+        job.retryCount = 0;
+        job.maxRetries = maxRetries;
+        return job;
+    }
+
+    /**
+     * 브로커가 받았다(ACK, 라우팅됨). PENDING 일 때만 QUEUED 로 바꾼다.
+     * confirm 보다 worker 의 started 가 먼저 와서 PROCESSING·종료 상태가 됐으면 상태는 그대로 둔다.
+     */
+    public void markPublished(Instant queuedAt) {
+        this.publishStatus = PublishStatus.PUBLISHED;
+        if (this.queuedAt == null) {
+            this.queuedAt = queuedAt;
+        }
+        if (status == AiJobStatus.PENDING) {
+            this.status = AiJobStatus.QUEUED;
+        }
+    }
+
+    /** 발행 실패(NACK·반환·연결 오류·confirm 시간 초과). 작업 상태는 바꾸지 않는다. 이미 PUBLISHED 면 그대로. */
+    public void markPublishFailed() {
+        if (publishStatus != PublishStatus.PUBLISHED) {
+            this.publishStatus = PublishStatus.PUBLISH_FAILED;
+        }
+    }
+
     /** PENDING·QUEUED 일 때만 시작할 수 있다. */
     public boolean canStart() {
         return status == AiJobStatus.PENDING || status == AiJobStatus.QUEUED;
