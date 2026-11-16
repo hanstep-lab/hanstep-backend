@@ -16,6 +16,8 @@ public enum ErrorCode {
     DUPLICATE_REQUEST(HttpStatus.CONFLICT, "duplicate request"),
     RULESET_NOT_APPROVED(HttpStatus.CONFLICT, "rule set is not approved"),
     INVALID_STATE(HttpStatus.CONFLICT, "invalid state"),
+    JOB_ALREADY_PROCESSING(HttpStatus.CONFLICT, "job already processing"),
+    JOB_ALREADY_FINISHED(HttpStatus.CONFLICT, "job already finished"),
     INSUFFICIENT_DATA(HttpStatus.UNPROCESSABLE_CONTENT, "insufficient data"),
     INSUFFICIENT_BALANCE(HttpStatus.UNPROCESSABLE_CONTENT, "insufficient balance"),
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "too many requests"),
