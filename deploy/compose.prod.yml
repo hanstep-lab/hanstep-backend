@@ -1,0 +1,182 @@
+# 운영 배포: 서버 1대(Ubuntu x86, 16GB)에서 전체 서비스를 띄운다. 사용법은 deploy/README.md.
+# 실행(hanstep-backend 루트에서): docker compose -f deploy/compose.prod.yml up -d --build
+# 상대 경로는 이 파일이 있는 deploy/ 기준. 비밀값은 deploy/.env(커밋 안 함, 예시는 deploy/.env.example).
+# 호스트에 여는 포트는 caddy 80·443 뿐이고, 나머지는 내부 네트워크에서 서비스 이름으로 통신한다.
+# 로컬 개발용 compose 는 루트의 docker-compose.yml(이 파일과 별개).
+#
+# mem_limit: 서버 실측 후 정함. 로컬 실측은 deploy/README.md "측정 기록" 표 참고.
+name: hanstep
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    volumes:
+      # 볼륨이 비어 있는 최초 기동 때만 스키마 → 기준 시드 → 데모 시드 순으로 실행된다
+      - ../db/init:/docker-entrypoint-initdb.d:ro
+      - mysql-data:/var/lib/mysql
+    # $$ 는 컨테이너 안 환경 변수(compose 설정에 비밀번호를 펼치지 않음)
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    # mem_limit: 서버 실측 후 정함
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    hostname: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # mem_limit: 서버 실측 후 정함
+
+  mongodb:
+    image: mongodb/mongodb-atlas-local:8.0
+    hostname: mongodb
+    restart: unless-stopped
+    environment:
+      MONGODB_INITDB_ROOT_USERNAME: ${MONGODB_USER}
+      MONGODB_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD}
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+      - mongo-search:/data/mongot
+    # healthcheck 는 이미지 기본값 사용
+    # mem_limit: 서버 실측 후 정함
+
+  spring:
+    build:
+      context: ..
+    image: hanstep-backend:prod
+    restart: unless-stopped
+    environment:
+      # 임시값, 서버 실측 후 조정
+      JAVA_OPTS: ${SPRING_JAVA_OPTS:--Xmx768m}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN_SECONDS: ${JWT_EXPIRES_IN_SECONDS:-3600}
+      SPRING_INTERNAL_API_KEY: ${SPRING_INTERNAL_API_KEY}
+      AI_INTERNAL_API_URL: http://ai-server:8000
+      AI_INTERNAL_API_TOKEN: ${AI_INTERNAL_API_TOKEN}
+      E74_INCLUDE_DRAFT_RULES: ${E74_INCLUDE_DRAFT_RULES:-false}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/v1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    # mem_limit: 서버 실측 후 정함
+
+  ai-server:
+    build:
+      # hanstep-AI 레포를 hanstep-backend 옆에 clone 해 둬야 한다
+      context: ../../hanstep-AI/ai
+    image: hanstep-ai:prod
+    restart: unless-stopped
+    init: true
+    environment:
+      LOAD_MODEL_ON_STARTUP: "true"
+      # 비밀번호는 URI 에 그대로 들어가므로 영문·숫자로 만든다(특수문자는 퍼센트 인코딩 필요)
+      MONGO_URI: mongodb://${MONGODB_USER}:${MONGODB_PASSWORD}@mongodb:27017/?authSource=admin&directConnection=true
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/%2F
+      # 팀 공통 고정값(hanstep-AI ai/.env.example 과 같음). 바꾸면 저장된 청크를 전부 다시 임베딩해야 한다
+      EMBEDDING_MODEL_REVISION: 5617a9f61b028005a4858fdac845db406aefb181
+      # AI → Spring 내부 API. 키는 Spring 의 SPRING_INTERNAL_API_KEY 와 같은 값(같은 변수를 양쪽에 넣음)
+      SPRING_INTERNAL_API_URL: http://spring:8080
+      SPRING_INTERNAL_API_KEY: ${SPRING_INTERNAL_API_KEY}
+      # Spring → AI 내부 API 토큰. Spring 의 AI_INTERNAL_API_TOKEN 과 같은 값(/health/ready 의 internal_auth 가 확인)
+      AI_INTERNAL_API_TOKEN: ${AI_INTERNAL_API_TOKEN}
+      # 챗봇 실제 모델 호출. AI 설정 기본값이 fake 라 빠지면 가짜 답변을 낸다
+      CHAT_LLM_MODE: ${CHAT_LLM_MODE:-anthropic}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # CHAT_PROMPT_VERSION 은 넣지 않는다(AI 코드 기본값을 따름)
+      R2_ENDPOINT_URL: ${R2_ENDPOINT_URL}
+      R2_REGION: ${R2_REGION:-auto}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      R2_POLICY_BUCKET: ${R2_POLICY_BUCKET:-hanstep-visa-policies}
+      R2_PRODUCT_BUCKET: ${R2_PRODUCT_BUCKET:-hanstep-financial-products}
+      R2_POLICY_PREFIX: ${R2_POLICY_PREFIX:-policy-sources}
+      R2_ARC_BUCKET: ${R2_ARC_BUCKET:-hanstep-arc-private}
+      LAW_API_OC: ${LAW_API_OC}
+      E74_INCLUDE_DRAFT_RULES: ${E74_INCLUDE_DRAFT_RULES:-false}
+    volumes:
+      # BGE-M3 가중치(~2.3GB). 처음 한 번 받고 재빌드해도 다시 쓴다
+      - hf-cache:/models/huggingface
+      # RAG 적재 원문(ingest_rag_documents.py 의 manifest data_root 가 /data/rag_documents 로 풀림)
+      - ../../hanstep-AI/data/rag_documents:/data/rag_documents:ro
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    # healthcheck 는 이미지 기본값(/health/live) 사용
+    # mem_limit: 서버 실측 후 정함
+
+  # ocr-worker: 이미지 미정. OCR 레포를 hanstep-backend 옆에 clone 하고 이미지가 정해지면 추가한다.
+  #   RabbitMQ 로 작업을 받고 결과는 Spring 내부 API(http://spring:8080/internal/v1)로 보낸다.
+  #   R2 는 외국인등록증 버킷(hanstep-arc-private) 전용 키를 따로 쓴다(R2_OCR_ACCESS_KEY_ID 등).
+  # ocr-worker:
+  #   build:
+  #     context: ../../<OCR 레포>
+  #   restart: unless-stopped
+  #   depends_on:
+  #     rabbitmq:
+  #       condition: service_healthy
+  #     spring:
+  #       condition: service_healthy
+  #   # mem_limit: 서버 실측 후 정함
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 발급받은 인증서를 보관(지우면 재발급, 발급 횟수 제한에 걸릴 수 있음)
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      spring:
+        condition: service_healthy
+    # mem_limit: 서버 실측 후 정함
+
+volumes:
+  mysql-data:
+  rabbitmq-data:
+  mongo-data:
+  mongo-config:
+  mongo-search:
+  hf-cache:
+  caddy-data:
+  caddy-config:
