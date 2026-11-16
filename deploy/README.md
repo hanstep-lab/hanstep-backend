@@ -4,7 +4,8 @@
 
 - 외부에 여는 포트는 Caddy의 80·443뿐이다. 나머지 서비스는 compose 내부 네트워크에서 서비스 이름(`mysql`, `rabbitmq`, `mongodb`, `spring`, `ai-server`)으로 통신한다.
 - `ai-worker`는 `ai-server`와 같은 이미지(`hanstep-ai:prod`)로 `python -m app.worker`를 실행한다. HTTP 포트 없이 RabbitMQ `policy.ingest` 큐를 소비해 정책 문서를 적재하고 Spring 내부 API로 상태를 보고한다. 1개만 띄운다.
-- Caddy는 `/api/v1/*`만 Spring으로 전달한다. `/internal/*`, `/swagger-ui*`, `/v3/api-docs*`는 외부에서 404로 막는다.
+- Caddy는 `/api/v1/*`를 Spring으로 전달하고, `/internal/*`는 외부에서 404로 막는다.
+- Swagger UI(`/swagger-ui/*`, `/v3/api-docs*`)는 Caddy 기본 인증을 통과해야 열린다. 운영 문서에는 `/api/v1`만 나온다(Spring `prod` 프로필, `application-prod.yaml`). 설정은 [Swagger UI 기본 인증](#swagger-ui-기본-인증).
 - 비밀값은 `deploy/.env`에 둔다(커밋 금지). 키 목록과 설명은 `deploy/.env.example`.
 - 로컬 개발용 `docker-compose.yml`(루트)과는 별개다.
 
@@ -59,6 +60,7 @@ vi deploy/.env
 - `CHAT_LLM_MODE`를 비우면 `anthropic`(실제 호출, 유료)이라 `ANTHROPIC_API_KEY`가 필요하다. AI 코드 기본값은 `fake`(가짜 답변)다.
 - 시연하려면 `E74_INCLUDE_DRAFT_RULES=true`(2026 규칙이 아직 DRAFT).
 - MySQL·RabbitMQ·MongoDB 계정은 볼륨이 비어 있는 최초 기동 때만 적용된다.
+- `SWAGGER_BASIC_USER`·`SWAGGER_BASIC_HASH`는 필수다. 만드는 법은 [Swagger UI 기본 인증](#swagger-ui-기본-인증).
 
 문법 확인(값은 화면에 펼쳐지므로 공유하지 않는다):
 
@@ -118,6 +120,47 @@ powershell -ExecutionPolicy Bypass -File scripts\demo-setup.ps1 -BaseUrl https:/
 ```
 
 마지막 줄의 여유자금이 **675,317 원**인지 확인한다.
+
+## Swagger UI 기본 인증
+
+운영 Swagger UI는 `https://<도메인>/swagger-ui/index.html`이고, Caddy 기본 인증(계정 1개)으로 막는다. 문서에는 `/api/v1`만 나오며 내부 API(`/internal/v1`)와 내부 토큰 설명은 빠진다.
+
+### 비밀번호 해시 만들기
+
+서버에서 실행한다. 비밀번호를 프롬프트로 두 번 입력하므로 평문이 셸 기록에 남지 않는다.
+
+```bash
+docker run --rm -it caddy:2 caddy hash-password
+```
+
+출력된 `$2a$14$...` 전체가 해시다. 비밀번호 평문은 팀에 따로 전달하고 `.env`에는 해시만 넣는다.
+
+### deploy/.env에 넣기
+
+```bash
+SWAGGER_BASIC_USER=hanstep
+SWAGGER_BASIC_HASH='$2a$14$...'
+```
+
+- 해시는 **반드시 작은따옴표**로 감싼다. 따옴표가 없거나 큰따옴표면 compose가 `$2a` 같은 부분을 변수로 치환해 해시가 깨진다.
+- 확인(값이 화면에 나오므로 공유하지 않는다): `docker compose -f deploy/compose.prod.yml config | grep SWAGGER_BASIC_HASH` 결과가 `$$2a$$14$$` 뒤로 해시 전체(53자)가 이어져야 한다(config 출력은 `$`를 `$$`로 표시). 따옴표를 빠뜨리면 `$$2a$$14/...`처럼 가운데가 잘린다.
+
+### 이미 떠 있는 서버에 적용하는 순서
+
+compose.prod.yml이 두 변수를 `${...:?}`(필수)로 읽는다. 변수가 없는 상태에서 새 코드를 pull하면 `up`뿐 아니라 `dc ps`, `dc logs` 같은 **모든 compose 명령이 오류로 멈춘다**. 그래서 순서를 지킨다.
+
+1. **`deploy/.env`에 `SWAGGER_BASIC_USER`·`SWAGGER_BASIC_HASH`를 먼저 추가한다.**
+2. **그다음 `git pull`.**
+3. `docker compose -f deploy/compose.prod.yml config --quiet && echo OK`
+4. `docker compose -f deploy/compose.prod.yml up -d --build` (Spring은 `prod` 프로필로 다시 빌드·기동되고, Caddy는 새 Caddyfile·환경 변수로 다시 만들어진다)
+
+### 배포 뒤 확인
+
+- [ ] 인증 없이 `curl -s -o /dev/null -w '%{http_code}\n' https://<도메인>/swagger-ui/index.html` → `401`
+- [ ] 브라우저로 같은 주소를 열고 계정을 입력하면 Swagger UI가 보이고, 위쪽 Servers가 `https://<도메인>`이다(`http://`이면 Try it out이 막힌다)
+- [ ] `curl -s -o /dev/null -w '%{http_code}\n' https://<도메인>/internal/v1/ai-context/documents/1/source` → `404`
+- [ ] 문서 목록에 `/internal/...` 경로가 없다
+- [ ] Try it out으로 `POST /api/v1/auth/entry`(entryToken `demo-e9-ph-reyes`) → 받은 `accessToken`을 Authorize에 넣기 → 다른 API(예: `GET /api/v1/onboarding`) 호출이 200
 
 ## 7. 비용 절약
 
