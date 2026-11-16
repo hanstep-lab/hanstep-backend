@@ -133,10 +133,12 @@ C·D 는 지금 발행 경로가 있는 유일한 작업이라 비교용으로 �
 | 항목 | 결정 |
 |---|---|
 | 면 | 앞면(FRONT)만 받는다. 뒷면은 쓰는 기능이 없어 받지 않는다(개인정보 최소 수집) |
+| 업로드 파트 | multipart `front`(필수)·`back`(선택). `back` 이 오면 400 `BACK_NOT_SUPPORTED`. 확장 때 이 400 만 풀고 BACK 문서·작업을 추가한다(지수 합의 11/16 16:36) |
 | 엔티티·테이블 | #82 의 `Document`·`DocumentField`·`DocumentRepository` 를 쓴다. 새 엔티티·테이블 없음 |
-| 진행·실패 상태 | `ai_jobs`(OCR 작업)에서 읽는다. `documents.status` 는 `UPLOADED → PENDING_CONFIRMATION → CONFIRMED` 만 쓰고 `OCR_QUEUED`·`OCR_PROCESSING`·`FAILED` 는 쓰지 않는다 |
-| 같은 사진 다시 올림 | 같은 사용자·같은 sha256 이면 기존 문서를 돌려준다(새 업로드·새 작업 없음) |
-| object_key | `arc/{userId}/{documentId}/front.jpg`(PNG 는 `.png`). 지수 확인 중, 바뀌면 고친다 |
+| 진행·실패 상태 | `ai_jobs`(OCR 작업)에서 읽는다. `documents.status` 는 `UPLOADED → PENDING_CONFIRMATION → CONFIRMED` 만 쓰고 `OCR_QUEUED`·`OCR_PROCESSING`·`FAILED` 는 쓰지 않는다. 응답(DOC-02)은 OCR 작업이 FAILED 면 `status=FAILED`·`failureCode`(작업의 error_code)를 준다(지수 합의) |
+| 같은 사진 다시 올림 | 같은 사용자·같은 sha256 이면 기존 문서를 돌려준다(새 업로드·새 작업 없음). OCR 실패 뒤 재업로드 허용은 별도 결정(검토 중) |
+| object_key | `arc/{side}/{UUID}.{ext}`(side=front, 사용자·문서 id 없음, UUID 는 R2 업로드 전에 생성. 지수 합의). 확장자는 실제 형식(jpg/png) |
+| OCR 작업 멱등 키 | `ocr:{documentId}` |
 | retention_until | 업로드 + 24시간. 기한 지난 원본 삭제는 후속 이슈(이번 범위 밖, PR 에 적음) |
 | 확정 | 원본 R2 삭제, `object_key` NULL, `original_deleted_at`, `document_fields` 값 삭제(status·confidence 유지), `visa_profiles` 반영(등록번호 저장 안 함) |
 | R2 키 | Spring 에 `R2_ENDPOINT_URL`·`R2_REGION`·`R2_OCR_ACCESS_KEY_ID`·`R2_OCR_SECRET_ACCESS_KEY`·`R2_ARC_BUCKET`. 운영 compose spring 서비스·README·`.env.example` 수정 |
@@ -173,6 +175,9 @@ C·D 는 지금 발행 경로가 있는 유일한 작업이라 비교용으로 �
 - **기준선 2 실행 이력:** 15:35 1회 실패(위 `bad_record_mac`, 결과 없음) → 16:19 e65c8e7 로 재실행 1회, 133건 실패 0(재시도 없이). 표는 16:19 실행 값이다. 16:19 시작 때 perf/ 잔여 객체는 0건이었다(15:35 실행의 tearDown 정리가 돈 것으로 보이나 그 로그는 남아 있지 않다). `bad_record_mac`은 이번에 재현되지 않았고 원인은 확인하지 못했다.
 - 기준선 2 의 raw.csv `r2_calls` 는 Spring 전체 카운터의 앞뒤 차이라, 동시 단계에서는 다른 요청의 호출이 섞인다(1~10). 표의 Spring→R2 호출 수는 순차 값이다.
 - 기준선 2 는 1회 실행이다. 순차 p50 차이(65~73 ms)는 반복 실행으로 확인하지 않았다.
+- **개선 후 재측정 도구 변경(v2, 측정 전에 바꿈):**
+  - 기준선 1(`OcrJobBrokerDownPerfTest`): 브로커 재기동·30초 관찰 뒤 R1(A·C 작업 재발행)·R2(같은 작업 다시, 보내지 않아야 함)·R3(D 작업, 보내지 않아야 함)을 측정 도구가 `AiJobRepublishService.republish(jobId, null)`로 직접 부른다(주기 스캔 스케줄러는 perfTest 에서 꺼짐). `ocr.request` 큐 메시지 수를 더했고, 결과는 `doc-u2-broker-down-v2*.md/csv`에 쓴다(기준선 1 원본 보존).
+  - 업로드(`DocUploadApiPerfTest`, 새 도구): 시제품 대신 실제 `POST /api/v1/documents`. 조건(합성 JPEG 1·5 MiB, 워밍업 2 + 순차 20 + 동시 10)은 같고, 요청마다 JPEG COM 세그먼트 16바이트를 바꿔 sha256 이 달라지게 했다(같은 사진 반환을 재지 않음). 요청 본문을 요청마다 따로 만든다(시제품은 크기마다 배열 1개 공유). 동시 단계 본문 10개는 시작 전 힙 표본 전에 만든다. Hikari 활성·대기 최대값과 R2 PUT 수(실제 저장소를 감싼 계수기)를 더했다. RabbitMQ 는 Testcontainers. 실제 엔드포인트는 시제품보다 일이 많다(documents·ai_jobs 저장, 커밋 후 OCR 발행 confirm 대기).
 - 기준선 2 는 클라이언트와 Spring 이 같은 JVM 이라 힙은 JVM 전체 값이다. 업로드 본문은 크기마다 한 번 만든 배열을 같이 쓴다(동시 10건이 클라이언트 쪽 배열을 10개 만들지 않음).
 - 기준선 2 의 multipart 시제품은 파일 전체를 메모리로 읽는다(`MultipartFile.getBytes()`). 스트리밍으로 구현하면 힙 값이 달라진다.
 - 기준선 2 의 presigned 는 Spring 이 sha256 을 검사하지 못한다(HEAD 로 크기만 확인). multipart 와 검사 범위가 다르다.
