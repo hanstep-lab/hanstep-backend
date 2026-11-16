@@ -2,6 +2,7 @@ package com.hanstep.document.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.hanstep.aijob.RabbitTestBroker;
@@ -10,7 +11,14 @@ import com.hanstep.common.security.JwtTokenProvider;
 import com.hanstep.document.ArcImages;
 import com.hanstep.document.FakeArcStorageConfig;
 import com.hanstep.document.FakeArcStorageConfig.FakeArcImageStorage;
+import com.hanstep.document.domain.DocumentSide;
+import com.hanstep.document.dto.OcrFieldResult;
+import com.hanstep.document.dto.OcrResultRequest;
+import com.hanstep.document.service.DocumentInternalService;
 import com.hanstep.support.TestUsers;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +41,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 업로드가 실제로 커밋될 때: OCR 작업 발행, R2 실패 시 롤백, R2 에 올린 뒤 롤백되면 객체 정리.
+ * 실제로 커밋될 때: 업로드의 OCR 작업 발행, R2 실패 시 롤백, R2 에 올린 뒤 롤백되면 객체 정리, 확정 중 R2 삭제 실패 시 롤백.
  * 실제 MySQL(커밋, 끝나고 사용자 삭제 → documents·ai_jobs CASCADE) + Testcontainers RabbitMQ + 메모리 저장소.
  */
 @SpringBootTest
@@ -65,6 +73,9 @@ class DocumentUploadCommitTest {
 
     @Autowired
     private RabbitAdmin rabbitAdmin;
+
+    @Autowired
+    private DocumentInternalService documentInternalService;
 
     private final String userKey = "test-doc-commit-" + UUID.randomUUID();
     private long userId;
@@ -123,6 +134,33 @@ class DocumentUploadCommitTest {
         assertThat(storage.objects).isEmpty();
         assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?")).isZero();
         assertThat(count("SELECT COUNT(*) FROM ai_jobs WHERE user_id = ?")).isZero();
+    }
+
+    @Test
+    void 확정_중_R2_원본_삭제가_실패하면_롤백되어_확정_전_상태로_남는다() throws Exception {
+        long documentId = json(upload(ArcImages.jpeg(20_000)).andExpect(status().isAccepted()))
+                .path("documentId").longValue();
+        documentInternalService.recordOcrResult(documentId, new OcrResultRequest(documentId, "ppocrv5-ko-mobile-int8",
+                842, DocumentSide.FRONT, List.of(
+                new OcrFieldResult("nameEn", "MARK ANTHONY REYES", new BigDecimal("0.98"), false),
+                new OcrFieldResult("nationality", "PHL", new BigDecimal("0.97"), false),
+                new OcrFieldResult("birthDate", "1995-08-15", new BigDecimal("0.97"), false),
+                new OcrFieldResult("visaType", "E-9", new BigDecimal("0.95"), false),
+                new OcrFieldResult("stayExpiry", "2027-03-01", new BigDecimal("0.90"), false),
+                new OcrFieldResult("registrationNo", "950815-5******", new BigDecimal("0.99"), true))));
+        storage.failDelete = true;
+
+        mockMvc.perform(post(DocumentApiTest.URL + "/{id}/confirm", documentId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtTokenProvider.issue(userId)))
+                .andExpect(status().isInternalServerError());
+
+        Map<String, Object> doc = jdbcTemplate.queryForMap("SELECT * FROM documents WHERE id = ?", documentId);
+        assertThat(doc.get("status")).isEqualTo("PENDING_CONFIRMATION");
+        assertThat(doc.get("object_key")).isEqualTo("arc/" + userId + "/" + documentId + "/front.jpg");
+        assertThat(count("SELECT COUNT(*) FROM visa_profiles WHERE user_id = ?")).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM document_fields WHERE document_id = ? "
+                + "AND extracted_value IS NOT NULL", Long.class, documentId)).isEqualTo(6);
+        assertThat(storage.objects).hasSize(1);
     }
 
     private ResultActions upload(byte[] image) throws Exception {

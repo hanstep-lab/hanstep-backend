@@ -75,7 +75,8 @@ public record DocumentResponse(
             String value,
             @Schema(description = "OCR 신뢰도 0~1. OCR 이 못 읽었으면 null", nullable = true, example = "0.9655")
             BigDecimal confidence,
-            @Schema(description = "확인 필요 표시. 확정 전이고 신뢰도가 0.8 미만이거나 없으면 true", example = "false")
+            @Schema(description = "확인 필요 표시. 확정 전, 사용자가 아직 확인·수정하지 않았고(EXTRACTED·MISSING) "
+                    + "신뢰도가 0.8 미만이거나 없으면 true", example = "false")
             boolean needsReview,
             @Schema(description = "EXTRACTED(OCR 값) · MISSING(못 읽음) · CONFIRMED(그대로 확정) · CORRECTED(사용자가 고침)",
                     example = "EXTRACTED")
@@ -104,7 +105,9 @@ public record DocumentResponse(
 
     private static Field field(DocumentField f, boolean confirmed) {
         String value = f.getConfirmedValue() != null ? f.getConfirmedValue() : f.getExtractedValue();
-        boolean needsReview = !confirmed
+        // 사용자가 이미 확인·수정한 항목(CONFIRMED·CORRECTED)은 다시 표시하지 않는다
+        boolean unchecked = f.getStatus() == DocumentFieldStatus.EXTRACTED || f.getStatus() == DocumentFieldStatus.MISSING;
+        boolean needsReview = !confirmed && unchecked
                 && (f.getConfidence() == null || f.getConfidence().compareTo(REVIEW_THRESHOLD) < 0);
         return new Field(f.getFieldKey(), value, f.getConfidence(), needsReview, f.getStatus(), f.getMasked());
     }

@@ -107,6 +107,22 @@ public class Document {
     }
 
     /**
+     * 사용자 확정(DOC-04). PENDING_CONFIRMATION → CONFIRMED. 원본 키를 지우고(object_key NULL, original_deleted_at)
+     * 지울 R2 키를 돌려준다(이미 지워졌으면 null).
+     */
+    public String confirm(Instant at) {
+        if (status != DocumentStatus.PENDING_CONFIRMATION) {
+            throw new IllegalStateException("document " + id + " cannot be confirmed from " + status);
+        }
+        String original = objectKey;
+        this.status = DocumentStatus.CONFIRMED;
+        this.confirmedAt = at;
+        this.objectKey = null;
+        this.originalDeletedAt = at;
+        return original;
+    }
+
+    /**
      * OCR 결과를 받을 수 있는 상태인가. 업로드 직후(UPLOADED)도 받는다: 발행 confirm 기록보다 worker 결과가 먼저 올 수 있다.
      */
     public boolean canRecordOcrResult() {

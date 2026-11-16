@@ -1,7 +1,9 @@
 package com.hanstep.document.controller;
 
 import com.hanstep.common.error.ErrorResponse;
+import com.hanstep.document.dto.DocumentFieldsUpdateRequest;
 import com.hanstep.document.dto.DocumentResponse;
+import com.hanstep.document.service.DocumentReviewService;
 import com.hanstep.document.service.DocumentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -9,13 +11,16 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,9 +32,11 @@ import org.springframework.web.multipart.MultipartFile;
 public class DocumentController {
 
     private final DocumentService documentService;
+    private final DocumentReviewService documentReviewService;
 
-    public DocumentController(DocumentService documentService) {
+    public DocumentController(DocumentService documentService, DocumentReviewService documentReviewService) {
         this.documentService = documentService;
+        this.documentReviewService = documentReviewService;
     }
 
     @Operation(summary = "외국인등록증 앞면 업로드(DOC-01)",
@@ -66,5 +73,49 @@ public class DocumentController {
             @Parameter(hidden = true) @AuthenticationPrincipal Long userId,
             @Parameter(description = "documents.id", example = "42") @PathVariable Long documentId) {
         return documentService.get(userId, documentId);
+    }
+
+    @Operation(summary = "OCR 항목 확인·수정(DOC-03)",
+            description = "확인 화면(ON-003)에서 고친 값. 보낸 항목만 바꾼다(OCR 값과 같으면 CONFIRMED, 다르면 CORRECTED). "
+                    + "OCR 결과 확인 대기(PENDING_CONFIRMATION)일 때만. 등록번호는 고칠 수 없다. "
+                    + "앞면에 없는 stayExpiry(체류 만료일)는 여기서 넣어야 확정할 수 있다.")
+    @ApiResponse(responseCode = "200", description = "성공(문서 전체)")
+    @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: 모르는·중복 fieldKey, registrationNo 수정, "
+            + "형식 오류(nationality 는 alpha-3, 날짜는 YYYY-MM-DD, birthDate 는 미래 불가, visaType 은 등록된 체류자격). "
+            + "details.fields 에 경로·이유(값은 싣지 않음)",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "404", description = "없거나 다른 사용자의 문서",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "409", description = "INVALID_STATE: OCR 결과 전(UPLOADED)이거나 이미 확정(CONFIRMED)",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @PatchMapping("/{documentId}/fields")
+    public DocumentResponse updateFields(
+            @Parameter(hidden = true) @AuthenticationPrincipal Long userId,
+            @Parameter(description = "documents.id", example = "42") @PathVariable Long documentId,
+            @Valid @RequestBody DocumentFieldsUpdateRequest request) {
+        return documentReviewService.updateFields(userId, documentId, request);
+    }
+
+    @Operation(summary = "OCR 확정 → 체류 프로필 반영(DOC-04)",
+            description = "본문 없음. 국적·생년월일·체류자격·체류 만료일을 visa_profiles 에 반영하고(등록번호·영문 이름은 "
+                    + "저장하지 않음), 원본 이미지와 OCR 항목 값을 지운다(status·confidence 만 남음). "
+                    + "이미 확정한 문서를 다시 확정하면 그대로 200.")
+    @ApiResponse(responseCode = "200", description = "확정(문서 전체, fields 의 value 는 null)")
+    @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "404", description = "없거나 다른 사용자의 문서",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "409", description = "INVALID_STATE: OCR 결과 전(UPLOADED)",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "422", description = "INSUFFICIENT_DATA: nationality·birthDate·visaType·stayExpiry 중 "
+            + "값이 없거나 형식이 틀림(details.fields 에 항목·이유). DOC-03 으로 고친 뒤 다시",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @PostMapping("/{documentId}/confirm")
+    public DocumentResponse confirm(
+            @Parameter(hidden = true) @AuthenticationPrincipal Long userId,
+            @Parameter(description = "documents.id", example = "42") @PathVariable Long documentId) {
+        return documentReviewService.confirm(userId, documentId);
     }
 }
