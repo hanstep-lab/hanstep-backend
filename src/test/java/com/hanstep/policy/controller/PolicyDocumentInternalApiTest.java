@@ -246,6 +246,81 @@ class PolicyDocumentInternalApiTest {
     }
 
     @Test
+    void 인덱싱_완료를_받으면_그_문서의_처리_중인_적재_작업을_COMPLETED로() throws Exception {
+        String hash = randomHash();
+        long id = insertDoc("DRAFT", null, null, hash, "E74-TEST-v1", null);
+        long job = insertJob(id, "PROCESSING");
+
+        ingested(id, ingestedBody("E74-TEST-v1", hash, null)).andExpect(status().isNoContent());
+
+        Map<String, Object> row = jobRow(job);
+        assertThat(row.get("status")).isEqualTo("COMPLETED");
+        assertThat(row.get("completed_at")).isNotNull();
+        assertThat(row.get("error_code")).isNull();
+    }
+
+    @Test
+    void 아직_시작하지_않은_적재_작업도_COMPLETED로() throws Exception {
+        String hash = randomHash();
+        long id = insertDoc("DRAFT", null, null, hash, "E74-TEST-v1", null);
+        long queued = insertJob(id, "QUEUED");
+
+        ingested(id, ingestedBody("E74-TEST-v1", hash, null)).andExpect(status().isNoContent());
+
+        assertThat(jobRow(queued).get("status")).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void 같은_보고를_다시_보내도_작업_완료_시각은_그대로() throws Exception {
+        String hash = randomHash();
+        long id = insertDoc("DRAFT", null, null, hash, "E74-TEST-v1", null);
+        long job = insertJob(id, "PROCESSING");
+        String body = ingestedBody("E74-TEST-v1", hash, null);
+        ingested(id, body).andExpect(status().isNoContent());
+        Object completedAt = jobRow(job).get("completed_at");
+
+        ingested(id, body).andExpect(status().isNoContent());
+
+        assertThat(jobRow(job).get("status")).isEqualTo("COMPLETED");
+        assertThat(jobRow(job).get("completed_at")).isEqualTo(completedAt);
+    }
+
+    @Test
+    void 실패한_적재_작업은_완료로_바꾸지_않는다() throws Exception {
+        String hash = randomHash();
+        long id = insertDoc("DRAFT", null, null, hash, "E74-TEST-v1", null);
+        long job = insertJob(id, "FAILED");
+
+        ingested(id, ingestedBody("E74-TEST-v1", hash, null)).andExpect(status().isNoContent());
+
+        assertThat(jobRow(job).get("status")).isEqualTo("FAILED");
+        assertThat(jobRow(job).get("error_code")).isEqualTo("EXTRACTION_FAILED");
+    }
+
+    @Test
+    void 다른_문서의_작업은_건드리지_않는다() throws Exception {
+        String hash = randomHash();
+        long id = insertDoc("DRAFT", null, null, hash, "E74-TEST-v1", null);
+        long other = insertDoc("DRAFT", null, null, null);
+        long otherJob = insertJob(other, "PROCESSING");
+
+        ingested(id, ingestedBody("E74-TEST-v1", hash, null)).andExpect(status().isNoContent());
+
+        assertThat(jobRow(otherJob).get("status")).isEqualTo("PROCESSING");
+    }
+
+    @Test
+    void 버전이_달라_409면_작업도_그대로() throws Exception {
+        String hash = randomHash();
+        long id = insertDoc("DRAFT", null, null, hash, "E74-TEST-v1", null);
+        long job = insertJob(id, "PROCESSING");
+
+        ingested(id, ingestedBody("E74-TEST-v2", hash, null)).andExpect(status().isConflict());
+
+        assertThat(jobRow(job).get("status")).isEqualTo("PROCESSING");
+    }
+
+    @Test
     void 없는_문서면_404() throws Exception {
         ingested(999999999L, ingestedBody("E74-TEST-v1", randomHash(), null))
                 .andExpect(status().isNotFound())
@@ -350,6 +425,30 @@ class PolicyDocumentInternalApiTest {
             return ps;
         }, keys);
         return keys.getKey().longValue();
+    }
+
+    // LawDocumentWriter 처럼 문서 하나에 POLICY_INGEST 작업 하나. 끝난 상태는 completed_at 이 있어야 한다(ck_ai_jobs_done)
+    private long insertJob(long policyDocumentId, String status) {
+        boolean done = status.equals("COMPLETED") || status.equals("FAILED");
+        GeneratedKeyHolder keys = new GeneratedKeyHolder();
+        jdbcTemplate.update(con -> {
+            PreparedStatement ps = con.prepareStatement("""
+                    INSERT INTO ai_jobs (job_type, resource_type, resource_id, idempotency_key, correlation_id,
+                      status, error_code, completed_at)
+                    VALUES ('POLICY_INGEST', 'POLICY_DOCUMENT', ?, ?, 'req_test', ?, %s, %s)
+                    """.formatted(status.equals("FAILED") ? "'EXTRACTION_FAILED'" : "NULL",
+                    done ? "CURRENT_TIMESTAMP(3)" : "NULL"), Statement.RETURN_GENERATED_KEYS);
+            ps.setLong(1, policyDocumentId);
+            ps.setString(2, "test-" + UUID.randomUUID());
+            ps.setString(3, status);
+            return ps;
+        }, keys);
+        return keys.getKey().longValue();
+    }
+
+    private Map<String, Object> jobRow(long id) {
+        entityManager.flush();
+        return jdbcTemplate.queryForMap("SELECT * FROM ai_jobs WHERE id = ?", id);
     }
 
     // 테스트 트랜잭션 안이라 JPA 변경을 먼저 내려보내야 JDBC 로 보인다
