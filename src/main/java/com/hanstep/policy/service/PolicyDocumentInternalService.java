@@ -1,5 +1,6 @@
 package com.hanstep.policy.service;
 
+import com.hanstep.aijob.service.AiJobStatusService;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
 import com.hanstep.common.time.KstDates;
@@ -31,10 +32,13 @@ public class PolicyDocumentInternalService {
     static final int MAX_STATE_DOCUMENTS = 1000;
 
     private final PolicyDocumentRepository policyDocumentRepository;
+    private final AiJobStatusService aiJobStatusService;
     private final Clock clock;
 
-    public PolicyDocumentInternalService(PolicyDocumentRepository policyDocumentRepository) {
+    public PolicyDocumentInternalService(PolicyDocumentRepository policyDocumentRepository,
+                                         AiJobStatusService aiJobStatusService) {
         this.policyDocumentRepository = policyDocumentRepository;
+        this.aiJobStatusService = aiJobStatusService;
         this.clock = Clock.system(KstDates.KST);
     }
 
@@ -87,6 +91,7 @@ public class PolicyDocumentInternalService {
         }
         doc.recordIngestion(request.chunkCount(), request.mongoCollection(), embeddingModel,
                 request.objectKey(), request.ingestedAt().toInstant());
+        aiJobStatusService.markPolicyIngestCompleted(policyDocumentId);
     }
 
     // "12,15,31" → 1~20개 양의 정수. 중복은 한 번만.
