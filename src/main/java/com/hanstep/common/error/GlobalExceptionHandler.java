@@ -5,9 +5,13 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -72,6 +76,24 @@ public class GlobalExceptionHandler {
         return build(ErrorCode.RESOURCE_NOT_FOUND, null, null);
     }
 
+    // 주소는 있는데 메서드가 다름 (예: POST 전용에 GET). Allow 헤더로 받는 메서드를 알려 준다
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotAllowed(HttpRequestMethodNotSupportedException e) {
+        return build(ErrorCode.METHOD_NOT_ALLOWED, null, null, e.getHeaders());
+    }
+
+    // 요청 Content-Type 을 받지 않음 (예: JSON 본문에 text/plain). Accept 헤더로 받는 형식을 알려 준다
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleUnsupportedMediaType(HttpMediaTypeNotSupportedException e) {
+        return build(ErrorCode.UNSUPPORTED_MEDIA_TYPE, null, null, e.getHeaders());
+    }
+
+    // 요청 Accept 로 응답할 수 없음 (예: Accept: application/xml). 오류 본문은 그래도 JSON
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<ErrorResponse> handleNotAcceptable(HttpMediaTypeNotAcceptableException e) {
+        return build(ErrorCode.NOT_ACCEPTABLE, null, null);
+    }
+
     // AI 호출 실패(연결 실패·타임아웃·AI 오류 응답). 외부 HTTP 호출은 지금 aiRestClient 뿐이다.
     // 다른 외부 호출이 생기면 출처를 구분해야 한다
     @ExceptionHandler(RestClientException.class)
@@ -88,8 +110,14 @@ public class GlobalExceptionHandler {
     }
 
     private ResponseEntity<ErrorResponse> build(ErrorCode code, String message, Map<String, Object> details) {
+        return build(code, message, details, HttpHeaders.EMPTY);
+    }
+
+    private ResponseEntity<ErrorResponse> build(ErrorCode code, String message, Map<String, Object> details,
+                                                HttpHeaders headers) {
         // Content-Type 을 미리 정해 Accept 협상을 건너뛴다. CHT-04 처럼 Accept: text/event-stream 요청도 오류는 JSON 으로 받는다
         return ResponseEntity.status(code.getStatus())
+                .headers(headers)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(ErrorResponse.of(code, message, details, RequestIdFilter.current()));
     }
