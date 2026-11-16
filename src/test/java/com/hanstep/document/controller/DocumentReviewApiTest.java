@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.hanstep.aijob.dto.JobFailedRequest;
+import com.hanstep.aijob.service.AiJobStatusService;
 import com.hanstep.common.security.JwtTokenProvider;
 import com.hanstep.document.ArcImages;
 import com.hanstep.document.FakeArcStorageConfig;
@@ -64,6 +66,9 @@ class DocumentReviewApiTest {
     @Autowired
     DocumentInternalService documentInternalService;
 
+    @Autowired
+    AiJobStatusService aiJobStatusService;
+
     long userId;
     String bearer;
 
@@ -114,6 +119,34 @@ class DocumentReviewApiTest {
         // 등록번호는 마스킹 값만
         assertThat(field(fields, "registrationNo").path("value").stringValue()).isEqualTo("950815-5******");
         assertThat(field(fields, "registrationNo").path("isMasked").booleanValue()).isTrue();
+    }
+
+    @Test
+    void OCR_작업이_실패하면_status_FAILED와_failureCode() throws Exception {
+        long id = upload();
+        long jobId = json(mockMvc.perform(get(URL, id).header(HttpHeaders.AUTHORIZATION, bearer)))
+                .path("ocrJob").path("jobId").longValue();
+        // worker 의 job_failed(INT-10) 와 같은 상태 전이
+        aiJobStatusService.markFailed(jobId, new JobFailedRequest("OCR_FAILED", "image too blurry", false));
+
+        mockMvc.perform(get(URL, id).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.failureCode").value("OCR_FAILED"))
+                .andExpect(jsonPath("$.ocrJob.status").value("FAILED"))
+                .andExpect(jsonPath("$.ocrJob.retryable").value(false));
+        // documents.status 에는 FAILED 를 쓰지 않는다(결정 2)
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM documents WHERE id = ?", String.class, id))
+                .isEqualTo("UPLOADED");
+    }
+
+    @Test
+    void 실패하지_않았으면_failureCode는_없다() throws Exception {
+        long id = upload();
+
+        mockMvc.perform(get(URL, id).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(jsonPath("$.status").value("UPLOADED"))
+                .andExpect(jsonPath("$.failureCode").doesNotExist());
     }
 
     @Test

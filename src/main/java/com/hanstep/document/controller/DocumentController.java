@@ -63,7 +63,8 @@ public class DocumentController {
     }
 
     @Operation(summary = "등록증 문서·OCR 결과 조회(DOC-02)",
-            description = "본인 문서만. OCR 진행·실패는 ocrJob(status·publishStatus·errorCode)으로 본다. "
+            description = "본인 문서만. OCR 진행은 ocrJob(status·publishStatus)으로 본다. OCR 작업이 실패하면 "
+                    + "status=FAILED 와 failureCode(작업의 error_code). "
                     + "OCR 결과가 오면 status=PENDING_CONFIRMATION 이고 fields 6개(nameEn·nationality·birthDate·visaType·"
                     + "stayExpiry·registrationNo)가 온다. 신뢰도 0.8 미만이거나 못 읽은 항목은 needsReview=true. "
                     + "확정 후에는 value 가 null 이고 status·confidence 만 남는다. 등록번호는 마스킹 값만 준다.")

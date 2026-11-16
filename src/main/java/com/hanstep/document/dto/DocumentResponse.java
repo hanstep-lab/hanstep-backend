@@ -31,9 +31,12 @@ public record DocumentResponse(
         DocumentType documentType,
         @Schema(description = "면. 앞면만 받는다", example = "FRONT")
         DocumentSide side,
-        @Schema(description = "문서 상태. UPLOADED(OCR 대기·처리 중·실패는 ocrJob 으로 판단) → "
-                + "PENDING_CONFIRMATION(OCR 결과 확인 대기) → CONFIRMED(확정, 원본 삭제)", example = "UPLOADED")
+        @Schema(description = "문서 상태. UPLOADED(OCR 대기·처리 중, 세부는 ocrJob) → PENDING_CONFIRMATION(OCR 결과 확인 대기) → "
+                + "CONFIRMED(확정, 원본 삭제). OCR 작업이 실패(ocrJob.status=FAILED)하면 FAILED 와 failureCode",
+                example = "UPLOADED", allowableValues = {"UPLOADED", "PENDING_CONFIRMATION", "CONFIRMED", "FAILED"})
         DocumentStatus status,
+        @Schema(description = "실패 코드(status=FAILED 일 때, OCR 작업의 error_code)", nullable = true, example = "OCR_FAILED")
+        String failureCode,
         @Schema(description = "가장 최근 OCR 작업. 진행·실패 상태는 여기서 본다", nullable = true)
         OcrJob ocrJob,
         @Schema(description = "OCR 항목. OCR 결과가 오기 전에는 빈 배열. 확정 후에는 value 가 null 이고 status·confidence 만 남는다")
@@ -102,8 +105,16 @@ public record DocumentResponse(
                 .filter(Objects::nonNull)
                 .map(f -> field(f, confirmed))
                 .toList();
-        return new DocumentResponse(doc.getId(), doc.getDocumentType(), doc.getSide(), doc.getStatus(),
-                OcrJob.of(ocrJob), ordered, kst(doc.getCreatedAt()), kst(doc.getConfirmedAt()));
+        // documents.status 에는 FAILED 를 쓰지 않는다(진행·실패는 ai_jobs, 기준선 v1 결정 2). OCR 결과 전에 작업이 실패했으면 FAILED
+        DocumentStatus status = doc.getStatus();
+        String failureCode = doc.getFailureCode();
+        if (status == DocumentStatus.UPLOADED && ocrJob != null && ocrJob.getStatus() == AiJobStatus.FAILED) {
+            status = DocumentStatus.FAILED;
+            failureCode = failureCode != null ? failureCode : ocrJob.getErrorCode();
+        }
+        return new DocumentResponse(doc.getId(), doc.getDocumentType(), doc.getSide(), status,
+                status == DocumentStatus.FAILED ? failureCode : null, OcrJob.of(ocrJob), ordered,
+                kst(doc.getCreatedAt()), kst(doc.getConfirmedAt()));
     }
 
     private static Field field(DocumentField f, boolean confirmed) {
