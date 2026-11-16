@@ -189,7 +189,50 @@ class AiJobPublishBrokerTest {
         JsonNode bindings = RabbitTestBroker.managementApi("exchanges/%2F/" + AiJobRoute.EXCHANGE + "/bindings/source");
         assertThat(bindings.valueStream().map(b -> b.path("destination").stringValue() + "<-" + b.path("routing_key").stringValue()))
                 .containsExactlyInAnyOrder(WORK_QUEUE + "<-" + WORK_QUEUE, RETRY_QUEUE + "<-" + RETRY_QUEUE,
-                        DEAD_LETTER_QUEUE + "<-" + DEAD_LETTER_QUEUE);
+                        DEAD_LETTER_QUEUE + "<-" + DEAD_LETTER_QUEUE,
+                        "ocr.request<-ocr.request", "ocr.request.retry<-ocr.request.retry",
+                        "ocr.request.dlq<-ocr.request.dlq");
+    }
+
+    @Test
+    void OCR_큐_3개도_같은_dead_letter_경로로_선언된다() throws Exception {
+        assertThat(AiJobRoute.OCR.routingKey()).isEqualTo("ocr.request");
+
+        JsonNode work = RabbitTestBroker.queue("ocr.request");
+        assertThat(work.path("durable").booleanValue()).isTrue();
+        assertThat(work.path("arguments").path("x-dead-letter-exchange").stringValue()).isEqualTo(AiJobRoute.EXCHANGE);
+        assertThat(work.path("arguments").path("x-dead-letter-routing-key").stringValue()).isEqualTo("ocr.request.dlq");
+
+        JsonNode retry = RabbitTestBroker.queue("ocr.request.retry");
+        assertThat(retry.path("arguments").has("x-message-ttl")).isFalse();
+        assertThat(retry.path("arguments").path("x-dead-letter-routing-key").stringValue()).isEqualTo("ocr.request");
+
+        JsonNode dlq = RabbitTestBroker.queue("ocr.request.dlq");
+        assertThat(dlq.path("durable").booleanValue()).isTrue();
+        assertThat(dlq.path("arguments").propertyNames()).containsOnly("x-queue-type");
+    }
+
+    @Test
+    void OCR_작업은_커밋_후_ocr_request로_보내고_PUBLISHED와_QUEUED() throws Exception {
+        String ocrQueue = AiJobRoute.OCR.routingKey();
+        rabbitAdmin.purgeQueue(ocrQueue, false);
+        long documentId = 900_000_000L + (long) (Math.random() * 99_999_999);
+
+        long jobId = tx.execute(status -> enqueueService.enqueue(AiJobType.OCR, AiJobResourceType.DOCUMENT, documentId,
+                null, keyPrefix + "ocr").getId());
+
+        Map<String, Object> row = row(jobId);
+        assertThat(row.get("publish_status")).isEqualTo("PUBLISHED");
+        assertThat(row.get("status")).isEqualTo("QUEUED");
+        Message message = rabbitTemplate.receive(ocrQueue, 5_000);
+        assertThat(message).isNotNull();
+        JsonNode body = MAPPER.readTree(message.getBody());
+        assertThat(body.path("jobId").longValue()).isEqualTo(jobId);
+        assertThat(body.path("jobType").stringValue()).isEqualTo("OCR");
+        assertThat(body.path("resourceType").stringValue()).isEqualTo("DOCUMENT");
+        assertThat(body.path("resourceId").longValue()).isEqualTo(documentId);
+        assertThat(message.getMessageProperties().getReceivedRoutingKey()).isEqualTo(ocrQueue);
+        assertThat(messageCount(WORK_QUEUE)).isZero();
     }
 
     @Test
