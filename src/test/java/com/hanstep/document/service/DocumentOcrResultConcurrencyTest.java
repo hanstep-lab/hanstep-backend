@@ -122,11 +122,11 @@ class DocumentOcrResultConcurrencyTest {
     private OcrResultRequest request() {
         return new OcrResultRequest(documentId, "ppocrv5-ko-mobile-int8", 842, DocumentSide.FRONT, List.of(
                 new OcrFieldResult("nameEn", "MARK ANTHONY REYES", new BigDecimal("0.9812"), false),
-                new OcrFieldResult("nationality", "PHILIPPINES", new BigDecimal("0.9655"), false),
-                new OcrFieldResult("birthDate", "1996-07-21", new BigDecimal("0.9734"), false),
+                new OcrFieldResult("nationality", "PHL", new BigDecimal("0.9655"), false),
+                new OcrFieldResult("birthDate", "1995-08-15", new BigDecimal("0.9734"), false),
                 new OcrFieldResult("visaType", "E-9", new BigDecimal("0.9521"), false),
                 new OcrFieldResult("stayExpiry", null, null, false),
-                new OcrFieldResult("registrationNo", "960721-5******", new BigDecimal("0.9907"), true)));
+                new OcrFieldResult("registrationNo", "950815-5******", new BigDecimal("0.9907"), true)));
     }
 
     private static void await(CountDownLatch latch) {

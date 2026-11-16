@@ -121,26 +121,33 @@ class DocumentInternalApiTest {
         assertThat(fields).containsOnlyKeys("nameEn", "nationality", "birthDate", "visaType", "stayExpiry",
                 "registrationNo");
         assertField(fields.get("nameEn"), "MARK ANTHONY REYES", "0.9812", false, "EXTRACTED");
-        assertField(fields.get("nationality"), "PHILIPPINES", "0.9655", false, "EXTRACTED");
-        assertField(fields.get("birthDate"), "1996-07-21", "0.9734", false, "EXTRACTED");
+        assertField(fields.get("nationality"), "PHL", "0.9655", false, "EXTRACTED");
+        assertField(fields.get("birthDate"), "1995-08-15", "0.9734", false, "EXTRACTED");
         assertField(fields.get("visaType"), "E-9", "0.9521", false, "EXTRACTED");
         assertField(fields.get("stayExpiry"), null, null, false, "MISSING");
-        assertField(fields.get("registrationNo"), "960721-5******", "0.9907", true, "EXTRACTED");
+        assertField(fields.get("registrationNo"), "950815-5******", "0.9907", true, "EXTRACTED");
         assertThat(fields.values()).allSatisfy(f -> {
             assertThat(f.get("confirmed_value")).isNull();
             assertThat(f.get("confirmed_at")).isNull();
         });
     }
 
+    // #73 이 업로드 뒤 문서 상태를 OCR_QUEUED 등으로 바꾸기 전에도 후에도 같은 동작이어야 한다.
+    // 발행 confirm 기록보다 Worker 결과가 먼저 오면 문서는 UPLOADED, 작업은 PENDING 일 수 있다
     @Test
-    void 업로드_직후나_발행된_문서도_결과를_받는다() throws Exception {
-        for (String status : new String[] {"UPLOADED", "OCR_QUEUED"}) {
-            long id = insertDoc("FRONT", status);
+    void 업로드_상태_그대로인_문서도_결과를_받는다() throws Exception {
+        long id = insertDoc("FRONT", "UPLOADED");
+        long job = insertJob("OCR", "DOCUMENT", id, "PENDING");
 
-            ocrResult(id, json(body(id))).andExpect(status().isNoContent());
+        ocrResult(id, json(body(id))).andExpect(status().isNoContent());
 
-            assertThat(docRow(id).get("status")).as(status).isEqualTo("PENDING_CONFIRMATION");
-        }
+        Map<String, Object> doc = docRow(id);
+        assertThat(doc.get("status")).isEqualTo("PENDING_CONFIRMATION");
+        assertThat(doc.get("ocr_model_version")).isEqualTo(MODEL);
+        assertThat(doc.get("ocr_latency_ms")).isEqualTo(842L);
+        assertThat(fieldRows(id)).hasSize(6);
+        assertThat(jobRow(job).get("status")).isEqualTo("COMPLETED");
+        assertThat(jobRow(job).get("completed_at")).isNotNull();
     }
 
     @Test
@@ -167,14 +174,27 @@ class DocumentInternalApiTest {
     }
 
     @Test
-    void 실패한_OCR_작업은_완료로_바꾸지_않는다() throws Exception {
+    void OCR_작업이_실패했으면_409이고_아무것도_바꾸지_않는다() throws Exception {
         long id = insertDoc("FRONT", "OCR_PROCESSING");
         long job = insertJob("OCR", "DOCUMENT", id, "FAILED");
+        Object completedAt = jobRow(job).get("completed_at");
 
-        ocrResult(id, json(body(id))).andExpect(status().isNoContent());
+        ocrResult(id, json(body(id)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("JOB_ALREADY_FINISHED"))
+                .andExpect(jsonPath("$.details.documentId").value(id))
+                .andExpect(jsonPath("$.details.jobId").value(job))
+                .andExpect(jsonPath("$.details.status").value("FAILED"));
 
-        assertThat(jobRow(job).get("status")).isEqualTo("FAILED");
-        assertThat(jobRow(job).get("error_code")).isEqualTo("OCR_FAILED");
+        Map<String, Object> doc = docRow(id);
+        assertThat(doc.get("status")).isEqualTo("OCR_PROCESSING");
+        assertThat(doc.get("ocr_model_version")).isNull();
+        assertThat(doc.get("ocr_latency_ms")).isNull();
+        assertThat(fieldRows(id)).isEmpty();
+        Map<String, Object> row = jobRow(job);
+        assertThat(row.get("status")).isEqualTo("FAILED");
+        assertThat(row.get("error_code")).isEqualTo("OCR_FAILED");
+        assertThat(row.get("completed_at")).isEqualTo(completedAt);
     }
 
     @Test
@@ -214,13 +234,13 @@ class DocumentInternalApiTest {
         long id = insertDoc("FRONT", "OCR_PROCESSING");
         String body = json(body(id));
         ocrResult(id, body).andExpect(status().isNoContent());
-        jdbcTemplate.update("UPDATE document_fields SET confirmed_value = '2029-03-13', status = 'CORRECTED'"
+        jdbcTemplate.update("UPDATE document_fields SET confirmed_value = '2027-10-04', status = 'CORRECTED'"
                 + " WHERE document_id = ? AND field_key = 'stayExpiry'", id);
 
         ocrResult(id, body).andExpect(status().isNoContent());
 
         Map<String, Object> stayExpiry = fieldRows(id).get("stayExpiry");
-        assertThat(stayExpiry.get("confirmed_value")).isEqualTo("2029-03-13");
+        assertThat(stayExpiry.get("confirmed_value")).isEqualTo("2027-10-04");
         assertThat(stayExpiry.get("status")).isEqualTo("CORRECTED");
     }
 
@@ -237,15 +257,36 @@ class DocumentInternalApiTest {
     }
 
     @Test
-    void 이미_다른_결과가_반영됐으면_409이고_그대로() throws Exception {
+    void 처리_시간만_다른_재전송은_같은_결과로_보고_204이고_처음_값을_유지한다() throws Exception {
         long id = insertDoc("FRONT", "OCR_PROCESSING");
+        long job = insertJob("OCR", "DOCUMENT", id, "PROCESSING");
         ocrResult(id, json(body(id))).andExpect(status().isNoContent());
-        Map<String, Object> changed = body(id);
-        fields(changed).set(0, field("nameEn", "MARK ANTONY REYES", 0.8812, false));
+        Object completedAt = jobRow(job).get("completed_at");
+        List<Long> fieldIds = fieldIds(id);
         Map<String, Object> slower = body(id);
         slower.put("latencyMs", 900);
 
-        for (Map<String, Object> body : List.of(changed, slower)) {
+        ocrResult(id, json(slower)).andExpect(status().isNoContent());
+
+        assertThat(docRow(id).get("ocr_latency_ms")).isEqualTo(842L);
+        assertThat(fieldIds(id)).isEqualTo(fieldIds);
+        assertThat(jobRow(job).get("completed_at")).isEqualTo(completedAt);
+    }
+
+    @Test
+    void 이미_다른_결과가_반영됐으면_409이고_그대로() throws Exception {
+        long id = insertDoc("FRONT", "OCR_PROCESSING");
+        ocrResult(id, json(body(id))).andExpect(status().isNoContent());
+        Map<String, Object> otherValue = body(id);
+        fields(otherValue).set(0, field("nameEn", "MARK ANTONY REYES", 0.9812, false));
+        Map<String, Object> otherConfidence = body(id);
+        fields(otherConfidence).set(0, field("nameEn", "MARK ANTHONY REYES", 0.8812, false));
+        Map<String, Object> otherMasked = body(id);
+        fields(otherMasked).set(0, field("nameEn", "MARK ANTHONY REYES", 0.9812, true));
+        Map<String, Object> otherModel = body(id);
+        otherModel.put("modelVersion", "ppocrv5-ko-server-fp32");
+
+        for (Map<String, Object> body : List.of(otherValue, otherConfidence, otherMasked, otherModel)) {
             ocrResult(id, json(body))
                     .andExpect(status().isConflict())
                     .andExpect(jsonPath("$.code").value("INVALID_STATE"))
@@ -253,8 +294,11 @@ class DocumentInternalApiTest {
                     .andExpect(jsonPath("$.details.status").value("PENDING_CONFIRMATION"));
         }
 
-        assertThat(fieldRows(id).get("nameEn").get("extracted_value")).isEqualTo("MARK ANTHONY REYES");
-        assertThat(docRow(id).get("ocr_latency_ms")).isEqualTo(842L);
+        Map<String, Object> nameEn = fieldRows(id).get("nameEn");
+        assertThat(nameEn.get("extracted_value")).isEqualTo("MARK ANTHONY REYES");
+        assertThat((BigDecimal) nameEn.get("confidence")).isEqualByComparingTo("0.9812");
+        assertThat(nameEn.get("is_masked")).isEqualTo(false);
+        assertThat(docRow(id).get("ocr_model_version")).isEqualTo(MODEL);
     }
 
     @Test
@@ -276,9 +320,9 @@ class DocumentInternalApiTest {
         long id = insertDoc("FRONT", "OCR_PROCESSING");
         long job = insertJob("OCR", "DOCUMENT", id, "PROCESSING");
         Map<String, Object> notMasked = body(id);
-        fields(notMasked).set(5, field("registrationNo", "960721-5******", 0.9907, false));
+        fields(notMasked).set(5, field("registrationNo", "950815-5******", 0.9907, false));
         Map<String, Object> fullNumber = body(id);
-        fields(fullNumber).set(5, field("registrationNo", "960721-5123456", 0.9907, true));
+        fields(fullNumber).set(5, field("registrationNo", "950815-5123456", 0.9907, true));
 
         ocrResult(id, json(notMasked))
                 .andExpect(status().isBadRequest())
@@ -299,8 +343,8 @@ class DocumentInternalApiTest {
     @Test
     void 등록번호_마스킹_형식이_아니면_400() throws Exception {
         long id = insertDoc("FRONT", "OCR_PROCESSING");
-        for (String value : new String[] {"9607215******", "960721-5*****", "960721-*******", "960721-5******1",
-                "96O721-5******", "960721-5XXXXXX", " 960721-5******", ""}) {
+        for (String value : new String[] {"9508155******", "950815-5*****", "950815-*******", "950815-5******1",
+                "95O815-5******", "950815-5XXXXXX", " 950815-5******", ""}) {
             Map<String, Object> body = body(id);
             fields(body).set(5, field("registrationNo", value, 0.9907, true));
 
@@ -440,7 +484,8 @@ class DocumentInternalApiTest {
         JsonNode content = paths.path("/internal/v1/ai/documents/{documentId}/ocr-result").path("post")
                 .path("requestBody").path("content").path(MediaType.APPLICATION_JSON_VALUE);
         assertThat(content.path("schema").path("$ref").stringValue()).endsWith("/OcrResultRequest");
-        assertThat(content.path("examples").toString()).contains("MARK ANTHONY REYES", "960721-5******");
+        assertThat(content.path("examples").toString())
+                .contains("MARK ANTHONY REYES", "PHL", "1995-08-15", "950815-5******");
     }
 
     // ---------- helpers ----------
@@ -461,11 +506,11 @@ class DocumentInternalApiTest {
         body.put("side", "FRONT");
         body.put("fields", new ArrayList<>(List.of(
                 field("nameEn", "MARK ANTHONY REYES", 0.9812, false),
-                field("nationality", "PHILIPPINES", 0.9655, false),
-                field("birthDate", "1996-07-21", 0.9734, false),
+                field("nationality", "PHL", 0.9655, false),
+                field("birthDate", "1995-08-15", 0.9734, false),
                 field("visaType", "E-9", 0.9521, false),
                 field("stayExpiry", null, null, false),
-                field("registrationNo", "960721-5******", 0.9907, true))));
+                field("registrationNo", "950815-5******", 0.9907, true))));
         return body;
     }
 
