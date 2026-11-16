@@ -53,6 +53,10 @@ tasks.named('test') {
     }
     // 발행 대기 작업 주기 재발행(U2)을 끈다. 켜 두면 테스트 중 공용 DB 의 대기 작업을 .env 의 로컬 브로커로 보낸다
     systemProperty 'hanstep.ai-jobs.republish.enabled', 'false'
+    // 테스트 컨텍스트마다 Hikari 가 처음부터 연결 10개를 잡아 캐시된 컨텍스트가 늘면 공용 MySQL 이 "Too many connections".
+    // 최소 유휴만 줄인다(최대 풀 10 은 그대로라 동시성 테스트는 그대로). perfTest 에는 넣지 않는다(측정 조건 유지)
+    systemProperty 'spring.datasource.hikari.minimum-idle', '1'
+    systemProperty 'spring.datasource.hikari.idle-timeout', '10000'
 }
 
 // 적재 기준선 측정(@Tag("perf")). Docker MySQL(3307)이 떠 있어야 함: ./gradlew perfTest
