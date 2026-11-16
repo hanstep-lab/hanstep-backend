@@ -83,7 +83,7 @@ class InternalAuthApiTest {
     }
 
     private String bearer() {
-        Long userId = userRepository.findByExternalUserKey("demo-e9-nguyen").orElseThrow().getId();
+        Long userId = userRepository.findByExternalUserKey("demo-e9-ph-reyes").orElseThrow().getId();
         return "Bearer " + jwtTokenProvider.issue(userId);
     }
 }

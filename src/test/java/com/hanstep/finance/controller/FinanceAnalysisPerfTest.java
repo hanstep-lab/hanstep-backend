@@ -35,7 +35,7 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * FIN-05 반복 요청 기준선(측정만). 기본 test 에서는 빠짐: ./gradlew perfTest
  *
- * <p>perf- 사용자 1명에 데모(Minh) Mock 원천을 MYD-02 방식으로 적재한 뒤, 로컬 AI 서버(AI_INTERNAL_API_URL)의 실제 INT-01 을
+ * <p>perf- 사용자 1명에 데모(Reyes) Mock 원천을 MYD-02 방식으로 적재한 뒤, 로컬 AI 서버(AI_INTERNAL_API_URL)의 실제 INT-01 을
  * 호출한다(규칙 계산이라 LLM 호출 없음). 같은 요청(Idempotency-Key 없이)을 워밍업 {@value #WARMUP}회 + 측정 {@value #RUNS}회를
  * 한 묶음으로 {@value #BATCHES}묶음 보낸다(같은 JVM, 같은 사용자). 회차마다 FIN-05 전체 시간과 그 안의 INT-01 호출 시간
  * (AiFinanceClient 스파이를 감싼 래퍼에서 nanoTime)을 기록하고, 나머지(전체 − INT-01)는 DB 조회·저장 등이다.
@@ -141,7 +141,7 @@ class FinanceAnalysisPerfTest {
                         .append(row(label, "나머지", measured, Sample::restNs));
             }
             String md = PerfSupport.header(jdbc, "FIN-05 반복 요청 기준선(결과 재사용 전)",
-                    "perf- 사용자 1명, 데모 Minh Mock(신한은행·신한카드) 적재, INT-01 에 보낸 거래 " + txnCount + "건, 기간 "
+                    "perf- 사용자 1명, 데모 Reyes Mock(신한은행·신한카드) 적재, INT-01 에 보낸 거래 " + txnCount + "건, 기간 "
                             + first.path("periodFrom").asString() + " ~ " + first.path("periodTo").asString(),
                     "MockMvc POST /api/v1/finance/analyses(Idempotency-Key 없음) 워밍업 " + WARMUP + "회 + 측정 " + RUNS
                             + "회 × " + BATCHES + "묶음(같은 JVM·같은 사용자)",

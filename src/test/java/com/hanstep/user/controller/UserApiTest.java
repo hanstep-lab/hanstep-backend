@@ -17,7 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
-/** USR-02. 실제 DB(데모 사용자 demo-e9-nguyen), 테스트마다 롤백. */
+/** USR-02. 실제 DB(데모 사용자 demo-e9-ph-reyes), 테스트마다 롤백. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -36,7 +36,7 @@ class UserApiTest {
 
     @BeforeEach
     void setUp() {
-        Long userId = userRepository.findByExternalUserKey("demo-e9-nguyen").orElseThrow().getId();
+        Long userId = userRepository.findByExternalUserKey("demo-e9-ph-reyes").orElseThrow().getId();
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
     }
 

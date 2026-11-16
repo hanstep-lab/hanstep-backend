@@ -26,7 +26,7 @@ public class OpenApiConfig {
                         .title("신한걸음 API")
                         .version("v1")
                         .description("""
-                                1. POST /api/v1/auth/entry 에 entryToken(데모: demo-e9-nguyen)을 보내 accessToken 을 받는다.
+                                1. POST /api/v1/auth/entry 에 entryToken(데모: demo-e9-ph-reyes)을 보내 accessToken 을 받는다.
                                 2. Authorize 버튼에 accessToken 을 넣는다(Bearer 는 자동으로 붙음).
                                 오류 응답은 모두 { code, message, details, requestId } 형식.
                                 내부 API(/internal/v1/**)는 JWT 대신 X-Internal-Token(SPRING_INTERNAL_API_KEY)을 쓴다.

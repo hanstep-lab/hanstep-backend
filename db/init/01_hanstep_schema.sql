@@ -941,9 +941,9 @@ CREATE TABLE remittance_recipients (
   external_recipient_key VARCHAR(100)    NOT NULL COMMENT 'SOL 등록 수취인 식별값(Mock은 고정 ID)',
   name_en                VARCHAR(200)    NOT NULL COMMENT '받는 분 영문 이름(해외송금 필수, 거래내역 counterparty_name과 같은 표기)',
   relationship           ENUM('MOTHER','FATHER','SPOUSE','CHILD','SIBLING','SELF','OTHER') NULL COMMENT '관계(사용자가 확인한 값만. 거래내역으로 추정해 저장하지 않음)',
-  country_code           CHAR(2)         NOT NULL COMMENT '받는 나라(ISO 3166-1 alpha-2, 예: VN)',
-  currency               CHAR(3)         NOT NULL COMMENT '받는 통화(예: VND)',
-  bank_name              VARCHAR(100)    NOT NULL COMMENT '받는 은행 이름(예: Vietcombank)',
+  country_code           CHAR(2)         NOT NULL COMMENT '받는 나라(ISO 3166-1 alpha-2, 예: PH)',
+  currency               CHAR(3)         NOT NULL COMMENT '받는 통화(예: PHP)',
+  bank_name              VARCHAR(100)    NOT NULL COMMENT '받는 은행 이름(예: BDO)',
   swift_code             VARCHAR(11)     NULL COMMENT '받는 은행 SWIFT(BIC) 코드(8자리 또는 11자리)',
   account_no_masked      VARCHAR(50)     NOT NULL COMMENT '화면 표시용 마스킹 계좌번호(원문 저장 안 함)',
   source                 ENUM('MOCK','SOL','USER') NOT NULL DEFAULT 'MOCK' COMMENT '출처(Mock / SOL 등록 수취인 / 사용자 입력)',
@@ -958,4 +958,4 @@ CREATE TABLE remittance_recipients (
   CONSTRAINT fk_remittance_recipients_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT ck_remittance_recipients_swift CHECK (swift_code IS NULL OR CHAR_LENGTH(swift_code) IN (8, 11)),
   CONSTRAINT ck_remittance_recipients_mock CHECK (source <> 'MOCK' OR is_mock = TRUE)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 해외송금 받는 분(Mock 시드 1건, 송금 실행 없음)';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] 해외송금 받는 분(Mock 시드 2건, 송금 실행 없음)';

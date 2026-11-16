@@ -29,13 +29,13 @@ public record OnboardingSummaryResponse(
             @Schema(example = "1")
             Long id,
 
-            @Schema(description = "표시 이름(영문)", example = "NGUYEN VAN MINH")
+            @Schema(description = "표시 이름(영문)", example = "MARK ANTHONY REYES")
             String displayName,
 
             @Schema(description = "화면·답변 언어", example = "en")
             Language preferredLanguage,
 
-            @Schema(description = "국적(ISO 3166-1 alpha-3, visa_profiles)", example = "VNM", nullable = true)
+            @Schema(description = "국적(ISO 3166-1 alpha-3, visa_profiles)", example = "PHL", nullable = true)
             String nationalityCode
     ) {
     }

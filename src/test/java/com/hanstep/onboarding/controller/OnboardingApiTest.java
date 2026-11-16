@@ -28,7 +28,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
-/** ONB-01 ~ 04. 실제 DB(데모 사용자 demo-e9-nguyen), 테스트마다 롤백. */
+/** ONB-01 ~ 04. 실제 DB(데모 사용자 demo-e9-ph-reyes), 테스트마다 롤백. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -60,7 +60,7 @@ class OnboardingApiTest {
 
     @BeforeEach
     void setUp() {
-        userId = userRepository.findByExternalUserKey("demo-e9-nguyen").orElseThrow().getId();
+        userId = userRepository.findByExternalUserKey("demo-e9-ph-reyes").orElseThrow().getId();
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
         // 롤백되므로 실제 데이터는 그대로
         progressRepository.deleteAll(progressRepository.findAllByUserId(userId));
@@ -147,7 +147,7 @@ class OnboardingApiTest {
         jdbcTemplate.update("DELETE FROM financial_goals WHERE user_id = ?", userId);
         jdbcTemplate.update("DELETE FROM monthly_commitments WHERE user_id = ?", userId);
         jdbcTemplate.update("INSERT INTO visa_profiles (user_id, visa_type_id, stay_expires_on, nationality_code) "
-                + "VALUES (?, ?, ?, 'VNM')", userId, e9, date);
+                + "VALUES (?, ?, ?, 'PHL')", userId, e9, date);
         jdbcTemplate.update("INSERT INTO financial_goals (user_id, goal_type, target_amount, target_date) "
                 + "VALUES (?, 'LUMP_SUM', 6000000, ?)", userId, date);
         jdbcTemplate.update("INSERT INTO financial_goals (user_id, goal_type) VALUES (?, 'REMITTANCE')", userId);
@@ -156,7 +156,7 @@ class OnboardingApiTest {
 
         mockMvc.perform(get("/api/v1/onboarding/summary").header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.user.nationalityCode").value("VNM"))
+                .andExpect(jsonPath("$.user.nationalityCode").value("PHL"))
                 .andExpect(jsonPath("$.visa.visaTypeCode").value("E-9"))
                 .andExpect(jsonPath("$.visa.stayExpiresOn").value(date.toString()))
                 .andExpect(jsonPath("$.visa.monthsRemaining").value(10))

@@ -37,7 +37,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * (JdbcTemplate 쿼리 포함)와 Hibernate prepareStatementCount 를 기록하고, 측정 회차 중 1회의 SQL 목록을
  * org.hibernate.SQL·JdbcTemplate DEBUG 로그로 남김(테스트 안에서만 로거 레벨 변경, 끝나면 되돌림).
  *
- * <p>① 데모 사용자(Minh, 수정하지 않음) ② 목표·필수 확보액·체류 정보 행이 있는 perf- 사용자(행 수에 따라
+ * <p>① 데모 사용자(Reyes, 수정하지 않음) ② 목표·필수 확보액·체류 정보 행이 있는 perf- 사용자(행 수에 따라
  * SQL 이 늘어나는지 보려는 비교용, 끝나면 삭제).
  */
 @Tag("perf")
@@ -71,13 +71,13 @@ class OnboardingSummaryPerfTest {
     void ONB04_요청당_SQL_수() throws Exception {
         PerfSupport.deletePerfUsers(jdbc);
         try {
-            Long minhId = userRepository.findByExternalUserKey("demo-e9-nguyen").orElseThrow().getId();
+            Long demoId = userRepository.findByExternalUserKey("demo-e9-ph-reyes").orElseThrow().getId();
             Long perfId = createPerfUserWithRows();
 
             StringBuilder md = new StringBuilder(PerfSupport.header(jdbc, "ONB-04 온보딩 최종 확인 요청당 SQL 수 기준선",
-                    "① 데모 사용자 Minh(현재 DB 상태 그대로) " + describe(minhId) + " ② perf- 사용자 " + describe(perfId),
+                    "① 데모 사용자 Reyes(현재 DB 상태 그대로) " + describe(demoId) + " ② perf- 사용자 " + describe(perfId),
                     "MockMvc GET /api/v1/onboarding/summary 워밍업 " + WARMUP + "회 + " + RUNS + "회"));
-            md.append(measure("① 데모 사용자 Minh", minhId));
+            md.append(measure("① 데모 사용자 Reyes", demoId));
             md.append(measure("② perf- 사용자(목표·필수 확보액·체류 정보 있음)", perfId));
             PerfSupport.write(REPORT, md.toString());
         } finally {
@@ -143,7 +143,7 @@ class OnboardingSummaryPerfTest {
         return md.toString();
     }
 
-    /** Minh 은 건드리지 않고, 비교용 perf- 사용자에만 목표 3·필수 확보액 6·체류 정보 1행을 넣음. */
+    /** Reyes 는 건드리지 않고, 비교용 perf- 사용자에만 목표 3·필수 확보액 6·체류 정보 1행을 넣음. */
     private Long createPerfUserWithRows() {
         jdbc.update("INSERT INTO users (external_user_key, display_name) VALUES ('perf-onb04', 'PERF ONB04')");
         Long userId = jdbc.queryForObject("SELECT id FROM users WHERE external_user_key = 'perf-onb04'", Long.class);

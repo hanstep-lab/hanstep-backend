@@ -12,7 +12,7 @@ public record UserMeResponse(
         @Schema(example = "1")
         Long id,
 
-        @Schema(description = "표시 이름(영문)", example = "NGUYEN VAN MINH")
+        @Schema(description = "표시 이름(영문)", example = "MARK ANTHONY REYES")
         String displayName,
 
         @Schema(description = "화면·답변 언어", example = "en", allowableValues = {"en", "ko", "vi", "zh"})

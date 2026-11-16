@@ -45,7 +45,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
- * 온보딩 API 계약(Swagger) 단계의 고정 예시 응답. 데모 페르소나 Nguyen Van Minh(E-9, 베트남) 기준.
+ * 온보딩 API 계약(Swagger) 단계의 고정 예시 응답. 데모 페르소나 Mark Anthony Reyes(E-9, 필리핀) 기준.
  *
  * <p>FE 가 실제 로직 전에 화면을 만들 수 있게 컨트롤러가 이 값을 그대로 돌려줌.
  * 각 API 의 서비스 로직을 구현하면 해당 메서드를 지우고, 모두 구현되면 이 클래스를 삭제함.
@@ -105,7 +105,7 @@ public final class DemoExamples {
     public static OnboardingSummaryResponse summary() {
         long daysRemaining = ChronoUnit.DAYS.between(LocalDate.now(KST), STAY_EXPIRES_ON);
         return new OnboardingSummaryResponse(
-                new OnboardingSummaryResponse.User(1L, "NGUYEN VAN MINH", Language.en, "VNM"),
+                new OnboardingSummaryResponse.User(1L, "MARK ANTHONY REYES", Language.en, "PHL"),
                 new OnboardingSummaryResponse.Visa("E-9", "Non-professional Employment", STAY_EXPIRES_ON,
                         daysRemaining, 10),
                 goals().goals(),
@@ -184,9 +184,9 @@ public final class DemoExamples {
                         CommitmentSource.USER, null),
                 new CommitmentResponse(3L, CommitmentType.UTILITY, "전기·수도", Money.krw(ELECTRICITY_WATER),
                         CommitmentSource.USER, null),
-                new CommitmentResponse(4L, CommitmentType.REMITTANCE, "가족 송금(Vietcombank)",
+                new CommitmentResponse(4L, CommitmentType.REMITTANCE, "가족 송금(BDO)",
                         Money.krw(REMITTANCE_MOTHER), CommitmentSource.DETECTED_CONFIRMED, 1187L),
-                new CommitmentResponse(5L, CommitmentType.REMITTANCE, "본인 계좌 송금(Techcombank)",
+                new CommitmentResponse(5L, CommitmentType.REMITTANCE, "본인 계좌 송금(BPI)",
                         Money.krw(REMITTANCE_SELF), CommitmentSource.DETECTED_CONFIRMED, 1188L),
                 new CommitmentResponse(6L, CommitmentType.VARIABLE_EXPENSE, "식비·교통·여가",
                         Money.krw(VARIABLE_EXPENSE), CommitmentSource.USER, null));
@@ -198,9 +198,9 @@ public final class DemoExamples {
 
     public static RemittanceCandidateListResponse remittanceCandidates() {
         return new RemittanceCandidateListResponse(List.of(
-                new RemittanceCandidateResponse(1, "NGUYEN THI MAI", "Vietcombank", 1L,
+                new RemittanceCandidateResponse(1, "LORNA REYES", "BDO", 1L,
                         Money.krw(REMITTANCE_MOTHER), 12, LocalDate.of(2026, 10, 10), 1187L, false),
-                new RemittanceCandidateResponse(2, "NGUYEN VAN MINH", "Techcombank", null,
+                new RemittanceCandidateResponse(2, "MARK ANTHONY REYES", "BPI", 2L,
                         Money.krw(REMITTANCE_SELF), 12, LocalDate.of(2026, 10, 10), 1188L, true)),
                 12, true);
     }

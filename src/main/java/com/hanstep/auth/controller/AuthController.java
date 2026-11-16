@@ -29,7 +29,7 @@ public class AuthController {
 
     @Operation(summary = "SOL 진입 토큰으로 JWT 발급 (AUTH-01)",
             description = "자체 로그인 없음. SOL 인증이 끝났다고 전제하고 진입 토큰만 교환한다. "
-                    + "데모 entryToken: demo-e9-nguyen")
+                    + "데모 entryToken: demo-e9-ph-reyes")
     @SecurityRequirements // 토큰 없이 호출
     @ApiResponse(responseCode = "200", description = "성공")
     @ApiResponse(responseCode = "400", description = "entryToken 누락",
