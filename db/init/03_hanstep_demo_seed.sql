@@ -6,19 +6,21 @@ SET NAMES utf8mb4;
 -- 계좌·거래내역 12개월 Mock은 resources/mock/mydata/demo-e9-ph-reyes 를 MYD-02 로 적재한다(이 파일에 넣지 않음).
 
 -- 데모 사용자: /api/v1/auth/entry 의 entryToken = external_user_key. 고용기업 추천서만 아직 내지 않았다.
--- E-7-4 기대 결과(기준일 2026-11-12, E74-2026-v1): NEEDS_EVIDENCE, 확정 235점, 가능 285점(증빙 필요 REC_EMPLOYER·REQ_EMPLOYER_REC).
+-- 입국(현재 체류 시작) 2022-12-05, 근무 시작 2022-12-12. 체류 4년(48개월)은 2026-12-05 에 채운다.
+-- E-7-4 기대 결과(E74-2026-v1): 확정 235점, 가능 285점(증빙 필요 REC_EMPLOYER·REQ_EMPLOYER_REC).
+--   기준일 ~2026-12-04: INELIGIBLE(REQ_STAY_PERIOD 47/48개월), 2026-12-05~: NEEDS_EVIDENCE.
 -- 감점·제외 6문항은 저장하지 않는다(계산 요청 때 legalDeclaration 으로 보낸다).
 INSERT INTO users (external_user_key, display_name, preferred_language) VALUES
  ('demo-e9-ph-reyes', 'MARK ANTHONY REYES', 'en');
 
 INSERT INTO visa_profiles
  (user_id, visa_type_id, stay_expires_on, nationality_code, birth_date, current_stay_started_on, prior_stay_months, evidence_status)
-SELECT u.id, vt.id, '2027-10-04', 'PHL', '1995-08-15', '2022-03-07', 0, 'VERIFIED'
+SELECT u.id, vt.id, '2027-10-04', 'PHL', '1995-08-15', '2022-12-05', 0, 'VERIFIED'
 FROM users u JOIN visa_types vt ON vt.code = 'E-9' WHERE u.external_user_key = 'demo-e9-ph-reyes';
 
 INSERT INTO employment_histories
  (user_id, employer_name, industry_code, workplace_region_code, is_depopulation_area, started_on, contract_end_on, contract_annual_salary, verification_status)
-SELECT u.id, 'DEMO-PH-METAL', 'MANUFACTURING', '48250', FALSE, '2022-03-14', '2029-03-13', 31500000, 'VERIFIED'
+SELECT u.id, 'DEMO-PH-METAL', 'MANUFACTURING', '48250', FALSE, '2022-12-12', '2029-03-13', 31500000, 'VERIFIED'
 FROM users u WHERE u.external_user_key = 'demo-e9-ph-reyes';
 
 INSERT INTO income_records (user_id, income_year, annual_amount, source, verification_status)
