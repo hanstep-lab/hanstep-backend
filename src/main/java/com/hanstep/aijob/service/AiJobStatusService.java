@@ -1,6 +1,7 @@
 package com.hanstep.aijob.service;
 
 import com.hanstep.aijob.domain.AiJob;
+import com.hanstep.aijob.domain.AiJobStatus;
 import com.hanstep.aijob.dto.JobFailedRequest;
 import com.hanstep.aijob.dto.JobStartedRequest;
 import com.hanstep.aijob.repository.AiJobRepository;
@@ -32,13 +33,18 @@ public class AiJobStatusService {
         this.aiJobRepository = aiJobRepository;
     }
 
-    /** PENDING·QUEUED → PROCESSING. 이미 시작·종료된 작업이면 409(AI 는 "이미 시작됨"으로 처리). worker 의 startedAt 은 로그에만. */
+    /**
+     * PENDING·QUEUED → PROCESSING. worker 의 startedAt 은 로그에만.
+     * 시작할 수 없으면 409: PROCESSING 이면 JOB_ALREADY_PROCESSING, COMPLETED·FAILED 면 JOB_ALREADY_FINISHED.
+     * worker 는 이 코드와 redelivered 로 중복 메시지와 처리 중 죽었다 다시 온 메시지를 나눈다.
+     */
     @Transactional
     public void markStarted(Long jobId, JobStartedRequest request) {
         AiJob job = findForUpdate(jobId);
         if (!job.canStart()) {
-            throw new BusinessException(ErrorCode.INVALID_STATE, "job already started or finished",
-                    Map.of("jobId", jobId, "status", job.getStatus().name()));
+            ErrorCode code = job.getStatus() == AiJobStatus.PROCESSING
+                    ? ErrorCode.JOB_ALREADY_PROCESSING : ErrorCode.JOB_ALREADY_FINISHED;
+            throw new BusinessException(code, Map.of("jobId", jobId, "status", job.getStatus().name()));
         }
         job.start(Instant.now());
         log.info("ai job {} started by {} (worker startedAt={})", jobId, request.workerId(), request.startedAt());

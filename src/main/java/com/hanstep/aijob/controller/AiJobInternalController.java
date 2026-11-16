@@ -33,7 +33,8 @@ public class AiJobInternalController {
 
     @Operation(summary = "작업 처리 시작 (INT-08)",
             description = "PENDING·QUEUED → PROCESSING, started_at 에 Spring 수신 시각 기록(startedAt 은 로그만). "
-                    + "이미 시작·종료된 작업이면 409.")
+                    + "시작할 수 없으면 409: PROCESSING 이면 JOB_ALREADY_PROCESSING, COMPLETED·FAILED 면 "
+                    + "JOB_ALREADY_FINISHED.")
     @ApiResponse(responseCode = "204", description = "반영됨")
     @ApiResponse(responseCode = "400", description = "본문 형식 오류(details.fields)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -41,7 +42,8 @@ public class AiJobInternalController {
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "404", description = "작업 없음",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    @ApiResponse(responseCode = "409", description = "이미 PROCESSING·COMPLETED·FAILED (INVALID_STATE)",
+    @ApiResponse(responseCode = "409", description = "JOB_ALREADY_PROCESSING: 이미 PROCESSING(처리 중). "
+            + "JOB_ALREADY_FINISHED: 이미 COMPLETED·FAILED. details 에 jobId·status(현재 상태)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @PostMapping("/started")
     public ResponseEntity<Void> started(@PathVariable Long jobId, @Valid @RequestBody JobStartedRequest request) {
