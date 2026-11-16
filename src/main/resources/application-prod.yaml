@@ -1,0 +1,10 @@
+# 운영 프로필(deploy/compose.prod.yml 의 SPRING_PROFILES_ACTIVE=prod). 로컬은 프로필 없이 application.yaml 만 쓴다.
+
+server:
+  # Caddy(HTTPS 종료) 뒤에서 X-Forwarded-Proto·Host 를 읽는다. Swagger 서버 주소가 https://<도메인> 으로 잡힌다.
+  # native: Tomcat 이 내부망 IP(compose 네트워크)에서 온 헤더만 믿는다
+  forward-headers-strategy: native
+
+springdoc:
+  # 운영 API 문서에는 외부 API 만 노출한다(/internal/v1 은 Caddy 에서도 404). 내부 보안 스킴·안내 문장은 ProdOpenApiCustomizer 가 뺀다
+  paths-to-match: /api/v1/**
