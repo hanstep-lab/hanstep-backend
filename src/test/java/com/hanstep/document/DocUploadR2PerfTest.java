@@ -88,8 +88,9 @@ import tools.jackson.databind.json.JsonMapper;
  *   <li>presigned: Spring 이 PUT URL 발급 → 클라이언트가 R2 에 직접 PUT → 완료 알림 → Spring 이 HEAD 로 크기 확인</li>
  * </ol>
  * 시제품 컨트롤러({@link PrototypeUploadController})는 test 소스에만 있고 이 테스트만 @Import 한다.
- * R2 접속 정보는 Spring 이 .env 를 읽는 방식(spring.config.import) 그대로 R2_ENDPOINT_URL·R2_REGION·R2_ACCESS_KEY_ID·
- * R2_SECRET_ACCESS_KEY·R2_ARC_BUCKET 를 쓴다. 없으면 건너뛴다. 객체는 perf/ 아래에만 올리고 끝나면 perf/ 를 모두 지운다.
+ * R2 접속 정보는 Spring 이 .env 를 읽는 방식(spring.config.import) 그대로 R2_ENDPOINT_URL·R2_REGION·
+ * 등록증 버킷 전용 키 R2_OCR_ACCESS_KEY_ID·R2_OCR_SECRET_ACCESS_KEY·R2_ARC_BUCKET 를 쓴다(정책·상품 키 R2_ACCESS_KEY_ID 는
+ * 쓰지 않음). 하나라도 비면 비어 있는 변수 이름을 출력하고 건너뛴다. 객체는 perf/ 아래에만 올리고 끝나면 perf/ 를 모두 지운다.
  * 실행: .\gradlew.bat perfTest --tests "com.hanstep.document.DocUploadR2PerfTest"
  */
 @Tag("perf")
@@ -99,6 +100,8 @@ import tools.jackson.databind.json.JsonMapper;
 class DocUploadR2PerfTest {
 
     static final String PREFIX = "perf/";
+    static final List<String> REQUIRED_VARIABLES = List.of(
+            "R2_ENDPOINT_URL", "R2_OCR_ACCESS_KEY_ID", "R2_OCR_SECRET_ACCESS_KEY", "R2_ARC_BUCKET");
     private static final Path REPORT = Path.of("build", "perf", "doc-upload-r2.md");
     private static final Path RAW = Path.of("build", "perf", "doc-upload-r2-raw.csv");
     private static final int[] SIZES = {1024 * 1024, 5 * 1024 * 1024};
@@ -146,7 +149,11 @@ class DocUploadR2PerfTest {
 
     @Test
     void 업로드_경로_기준선() throws Exception {
-        assumeTrue(controller.configured(), "R2_ENDPOINT_URL·R2_ACCESS_KEY_ID·R2_SECRET_ACCESS_KEY·R2_ARC_BUCKET 이 없어 건너뜀");
+        List<String> missing = controller.missingVariables();
+        if (!missing.isEmpty()) {
+            System.out.println("[DocUploadR2PerfTest] 측정 건너뜀: 비어 있는 변수 " + missing);
+        }
+        assumeTrue(missing.isEmpty(), "비어 있는 변수 " + missing + " 때문에 측정 건너뜀");
         bearer = "Bearer " + jwtTokenProvider.issue(TestUsers.create(jdbc, userKey, "TEST PERF UPLOAD USER"));
         csv.add("method,size_bytes,phase,seq,elapsed_ms,client_round_trips,r2_calls,status");
 
@@ -501,9 +508,13 @@ class DocUploadR2PerfTest {
 
         // ---------- R2 ----------
 
+        /** 비어 있는 접속 변수 이름. 등록증 버킷 전용 키만 쓴다(정책·상품 키 R2_ACCESS_KEY_ID 는 쓰지 않음). */
+        List<String> missingVariables() {
+            return REQUIRED_VARIABLES.stream().filter(this::blank).toList();
+        }
+
         boolean configured() {
-            return !blank("R2_ENDPOINT_URL") && !blank("R2_ACCESS_KEY_ID") && !blank("R2_SECRET_ACCESS_KEY")
-                    && !blank("R2_ARC_BUCKET");
+            return missingVariables().isEmpty();
         }
 
         long r2Calls() {
@@ -586,7 +597,7 @@ class DocUploadR2PerfTest {
 
         private StaticCredentialsProvider credentials() {
             return StaticCredentialsProvider.create(AwsBasicCredentials.create(
-                    env.getProperty("R2_ACCESS_KEY_ID"), env.getProperty("R2_SECRET_ACCESS_KEY")));
+                    env.getProperty("R2_OCR_ACCESS_KEY_ID"), env.getProperty("R2_OCR_SECRET_ACCESS_KEY")));
         }
     }
 }
