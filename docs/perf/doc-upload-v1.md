@@ -116,6 +116,51 @@ C·D 는 지금 발행 경로가 있는 유일한 작업이라 비교용으로 �
 3. **presigned 는 완료 알림이 빠지면 객체가 그대로 남는다(5/5).** presigned 를 고르면 고아 객체 정리(대기 중 document 만료 + 버킷 수명 주기 규칙 등)가 필요하다.
 4. presigned 는 클라이언트 왕복이 3번(multipart 1번)이고, Spring 은 HEAD 로 크기만 확인한다(sha256·매직 바이트는 검사 못 함).
 
+## 본 구현 결정(2026-11-16)
+
+기준선 1·2 를 보고 정한 것. 구현은 이 결정을 따르고, 바뀌면 여기를 고친다.
+
+### 업로드 경로: ① Spring multipart → R2
+
+- 시연 규모(사용자 1명, 등록증 앞면 1장, FE 가 4000px 이하로 줄여 올림)에서는 ② 가 나았던 조건(5 MiB 10건 동시)이 나오지 않는다.
+- 운영 서버가 AWS 시드니라 ① 은 한국→시드니→R2 로 본문이 두 번 이동한다(로컬 측정엔 미반영). ② 도 presign·complete 두 번은 한국→시드니 왕복이라, 줄인 사진(1~2 MB)에서는 차이가 상쇄될 수 있다(추정, 미측정).
+- ① 은 서버가 형식·크기·매직 바이트·sha256 을 검사한 뒤에만 R2 에 넣는다. ② 는 FE 3단계 흐름·R2 CORS·실패 처리·고아 객체 정리가 더 필요하고, 서버가 내용을 검사하지 못한다.
+- ② 는 확장 시 개선안으로 남긴다(근거: 위 기준선 2 표). 옮길 조건: 동시 업로드가 여러 명 규모, 원본을 줄이지 않고 받아야 함, 서버 대역폭·비용이 문제.
+- 크기 제한: `spring.servlet.multipart.max-file-size`·`max-request-size` 10MB.
+
+### 범위와 데이터
+
+| 항목 | 결정 |
+|---|---|
+| 면 | 앞면(FRONT)만 받는다. 뒷면은 쓰는 기능이 없어 받지 않는다(개인정보 최소 수집) |
+| 엔티티·테이블 | #82 의 `Document`·`DocumentField`·`DocumentRepository` 를 쓴다. 새 엔티티·테이블 없음 |
+| 진행·실패 상태 | `ai_jobs`(OCR 작업)에서 읽는다. `documents.status` 는 `UPLOADED → PENDING_CONFIRMATION → CONFIRMED` 만 쓰고 `OCR_QUEUED`·`OCR_PROCESSING`·`FAILED` 는 쓰지 않는다 |
+| 같은 사진 다시 올림 | 같은 사용자·같은 sha256 이면 기존 문서를 돌려준다(새 업로드·새 작업 없음) |
+| object_key | `arc/{userId}/{documentId}/front.jpg`(PNG 는 `.png`). 지수 확인 중, 바뀌면 고친다 |
+| retention_until | 업로드 + 24시간. 기한 지난 원본 삭제는 후속 이슈(이번 범위 밖, PR 에 적음) |
+| 확정 | 원본 R2 삭제, `object_key` NULL, `original_deleted_at`, `document_fields` 값 삭제(status·confidence 유지), `visa_profiles` 반영(등록번호 저장 안 함) |
+| R2 키 | Spring 에 `R2_ENDPOINT_URL`·`R2_REGION`·`R2_OCR_ACCESS_KEY_ID`·`R2_OCR_SECRET_ACCESS_KEY`·`R2_ARC_BUCKET`. 운영 compose spring 서비스·README·`.env.example` 수정 |
+
+### OCR 경로와 U2(발행 대기 작업 재발행)
+
+- `AiJobRoute` 에 `OCR("ocr.request")` 추가 → `ocr.request`·`ocr.request.retry`·`ocr.request.dlq` 선언. 로컬 공용 RabbitMQ 에 선언하는 것 승인됨.
+- 재발행 대상: `status = PENDING` 이고 `publish_status` 가 `NOT_PUBLISHED`·`PUBLISH_FAILED` 인 작업. 같은 jobId 를 다시 보낸다(새 작업 없음). 중복 발행은 worker 의 started 409 로 거른다. `retry_count` 는 쓰지 않는다.
+- (a) 사용자 "다시 시도" API: 본인 문서, 대상 상태일 때만.
+- (b) 1분 주기 `@Scheduled` 스캔: 위 조건 + `updated_at` 30초 경과. OCR·POLICY_INGEST 모두 대상.
+
+### 개선 후 다시 잴 지표와 성공 기준(고정)
+
+| 측정 | 지표 | 성공 기준 |
+|---|---|---|
+| 기준선 1 재측정(OCR 경로 + U2) | OCR, 브로커 켬(B) | PUBLISHED 10/10, `ocr.request` 메시지 10 |
+| 〃 | OCR, 브로커 멈춤(A) | 호출 쪽 예외 0, 롤백 0, PUBLISH_FAILED 10 |
+| 〃 | 브로커 다시 켠 뒤 U2 재발행 | 10/10 PUBLISHED. 이미 PUBLISHED 인 작업은 다시 보내지 않음 |
+| 업로드 API(①, 실제 엔드포인트) | 1·5 MiB 순차 20 + 동시 10 | 성공 100%. 로컬 p95 가 시제품 기준선보다 20% 넘게 나빠지지 않음. 5 MiB 동시 10건 힙 증가 ≤ 181 MiB |
+| 〃 | 잘못된 입력(이미지 아님, 너무 큼) | 400/413, R2 호출 0, R2 객체 0 |
+| 〃 | R2 PUT 실패 시 정합성 | documents 행이 남지 않음, R2 객체 수 = `documents.object_key` 수 |
+| 〃 | 확정 | R2 원본 삭제, `object_key` NULL, `document_fields` 값 지움 |
+| 서버(시드니) | 시연 흐름: 앞면 업로드 → PENDING_CONFIRMATION | 측정값 공개. 목표치는 첫 측정 뒤 정함 |
+
 ## 공개할 것
 
 - **기준선 1 측정 도구 변경 없음.** 기준선 1 은 위 테스트를 처음 작성해 한 번 돌린 결과이고, 측정 뒤 테스트를 고치지 않았다.
