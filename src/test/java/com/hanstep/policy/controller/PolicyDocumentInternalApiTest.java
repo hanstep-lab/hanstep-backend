@@ -202,6 +202,57 @@ class PolicyDocumentInternalApiTest {
         mockMvc.perform(get(STATES_URL)).andExpect(status().isUnauthorized());
     }
 
+    // ---------- 단건 조회(AI Worker) ----------
+
+    @Test
+    void 단건_조회는_적재에_필요한_원본_위치와_출처_메타를_준다() throws Exception {
+        String hash = randomHash();
+        String key = "policy-sources/visa/sha256/" + hash + ".pdf";
+        long id = insertDoc("DRAFT", LocalDate.of(2026, 6, 1), LocalDate.of(2027, 6, 1), hash, "E74-DETAIL-v1", key);
+
+        mockMvc.perform(get(STATES_URL + "/{id}", id).header(InternalTokenFilter.HEADER, InternalApiTestSupport.API_KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.policyDocumentId").value(id))
+                .andExpect(jsonPath("$.sourceType").value("NOTICE"))
+                .andExpect(jsonPath("$.title").value("테스트 문서"))
+                .andExpect(jsonPath("$.issuingAgency").value("법무부"))
+                .andExpect(jsonPath("$.sourceUrl").value("https://example.com"))
+                .andExpect(jsonPath("$.externalId").doesNotExist())
+                .andExpect(jsonPath("$.visaTypeCode").value("E-7-4"))
+                .andExpect(jsonPath("$.publishedOn").doesNotExist())
+                .andExpect(jsonPath("$.effectiveFrom").value("2026-06-01"))
+                .andExpect(jsonPath("$.effectiveTo").value("2027-06-01"))
+                .andExpect(jsonPath("$.policyVersion").value("E74-DETAIL-v1"))
+                .andExpect(jsonPath("$.contentHash").value(hash))
+                .andExpect(jsonPath("$.objectKey").value(key))
+                .andExpect(jsonPath("$.reviewStatus").value("DRAFT"));
+    }
+
+    @Test
+    void 단건_조회에서_원본_키가_없으면_null() throws Exception {
+        long id = insertDoc("DRAFT", null, null, null);
+
+        mockMvc.perform(get(STATES_URL + "/{id}", id).header(InternalTokenFilter.HEADER, InternalApiTestSupport.API_KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.objectKey").doesNotExist());
+    }
+
+    @Test
+    void 단건_조회에서_없는_문서면_404() throws Exception {
+        mockMvc.perform(get(STATES_URL + "/{id}", 999999999L)
+                        .header(InternalTokenFilter.HEADER, InternalApiTestSupport.API_KEY))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.details.policyDocumentId").value(999999999L));
+    }
+
+    @Test
+    void 단건_조회도_토큰이_없으면_401() throws Exception {
+        long id = insertDoc("DRAFT", null, null, null);
+
+        mockMvc.perform(get(STATES_URL + "/{id}", id)).andExpect(status().isUnauthorized());
+    }
+
     // ---------- INT-13 ----------
 
     @Test
