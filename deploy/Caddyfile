@@ -1,0 +1,18 @@
+# {$DOMAIN} 은 deploy/.env 의 DOMAIN. 도메인의 A 레코드가 서버 IP 를 가리키고 80·443 이 열려 있으면 HTTPS 인증서를 자동 발급한다.
+{$DOMAIN} {
+	encode gzip
+
+	# 내부 API·API 문서는 외부에서 막는다(내부 통신은 compose 네트워크에서 spring:8080 으로 직접)
+	@blocked path /internal/* /swagger-ui* /v3/api-docs*
+	respond @blocked 404
+
+	# 외부 API 만 Spring 으로 전달. 챗봇 스트림(text/event-stream)은 Caddy 가 버퍼링 없이 바로 흘려보낸다
+	handle /api/v1/* {
+		reverse_proxy spring:8080
+	}
+
+	# 그 밖의 경로는 전달하지 않는다
+	handle {
+		respond 404
+	}
+}
