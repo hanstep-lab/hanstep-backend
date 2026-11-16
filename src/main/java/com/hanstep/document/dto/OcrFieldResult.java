@@ -16,7 +16,7 @@ public record OcrFieldResult(
         @NotBlank String fieldKey,
 
         @Schema(description = "추출값. 못 읽었으면 null(MISSING 으로 저장). stayExpiry 는 항상 null. "
-                + "registrationNo 는 ######-#****** 마스킹 형식만", nullable = true, example = "960721-5******")
+                + "registrationNo 는 ######-#****** 마스킹 형식만", nullable = true, example = "950815-5******")
         @Size(max = 255) String value,
 
         @Schema(description = "신뢰도 0~1(소수 4자리로 반올림해 저장). 없으면 null", nullable = true, example = "0.9907")

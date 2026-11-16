@@ -59,6 +59,7 @@ public class DocumentInternalService {
     /**
      * OCR 결과 → document_fields 6행(value null 은 MISSING), 문서 PENDING_CONFIRMATION·모델 버전·처리 시간,
      * 같은 문서의 OCR 작업 COMPLETED. 한 트랜잭션에서 문서 → 작업 순으로 잠근다.
+     * OCR 작업이 이미 FAILED 면 409 이고 아무것도 바꾸지 않는다.
      * 이미 PENDING_CONFIRMATION 이고 저장된 결과와 같으면 재전송으로 보고 아무것도 바꾸지 않는다.
      */
     @Transactional
@@ -69,6 +70,7 @@ public class DocumentInternalService {
             throw new BusinessException(ErrorCode.INVALID_STATE, "side does not match",
                     Map.of("field", "side", "expected", doc.getSide().name()));
         }
+        aiJobStatusService.checkOcrJobsNotFailed(documentId);
         if (!doc.canRecordOcrResult()) {
             if (doc.getStatus() == DocumentStatus.PENDING_CONFIRMATION && sameAsRecorded(doc, request, fields)) {
                 return;
@@ -123,11 +125,10 @@ public class DocumentInternalService {
         return byKey;
     }
 
-    // 재전송 판단: 모델 버전·처리 시간과 항목별 추출값·신뢰도·마스킹 여부가 모두 같은가.
-    // 사용자가 확인 화면에서 고친 값(confirmed_value)은 보지 않는다
+    // 재전송 판단: 모델 버전과 항목별 추출값·신뢰도·마스킹 여부가 모두 같은가. 처리 시간은 보지 않는다(처음 값 유지).
+    // 사용자가 확인 화면에서 고친 값(confirmed_value)도 보지 않는다
     private boolean sameAsRecorded(Document doc, OcrResultRequest request, Map<String, OcrFieldResult> fields) {
-        if (!request.modelVersion().equals(doc.getOcrModelVersion())
-                || !request.latencyMs().equals(doc.getOcrLatencyMs())) {
+        if (!request.modelVersion().equals(doc.getOcrModelVersion())) {
             return false;
         }
         List<DocumentField> recorded = documentFieldRepository.findByDocumentId(doc.getId());

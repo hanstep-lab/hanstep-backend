@@ -35,11 +35,11 @@ public class DocumentInternalController {
               "side": "FRONT",
               "fields": [
                 {"fieldKey": "nameEn", "value": "MARK ANTHONY REYES", "confidence": 0.9812, "isMasked": false},
-                {"fieldKey": "nationality", "value": "PHILIPPINES", "confidence": 0.9655, "isMasked": false},
-                {"fieldKey": "birthDate", "value": "1996-07-21", "confidence": 0.9734, "isMasked": false},
+                {"fieldKey": "nationality", "value": "PHL", "confidence": 0.9655, "isMasked": false},
+                {"fieldKey": "birthDate", "value": "1995-08-15", "confidence": 0.9734, "isMasked": false},
                 {"fieldKey": "visaType", "value": "E-9", "confidence": 0.9521, "isMasked": false},
                 {"fieldKey": "stayExpiry", "value": null, "confidence": null, "isMasked": false},
-                {"fieldKey": "registrationNo", "value": "960721-5******", "confidence": 0.9907, "isMasked": true}
+                {"fieldKey": "registrationNo", "value": "950815-5******", "confidence": 0.9907, "isMasked": true}
               ]
             }""";
 
@@ -67,10 +67,12 @@ public class DocumentInternalController {
                     + "한 번씩 보낸다. document_fields 에 저장(value null 은 MISSING, stayExpiry 는 항상 null)하고, "
                     + "문서를 PENDING_CONFIRMATION 으로 바꾸고 ocr_model_version·ocr_latency_ms 를 기록한다. "
                     + "같은 문서의 OCR 작업이 PENDING·QUEUED·PROCESSING 이면 COMPLETED·completed_at(Spring 수신 시각)으로 "
-                    + "바꾼다(COMPLETED·FAILED 는 그대로). 받는 문서 상태는 UPLOADED·OCR_QUEUED·OCR_PROCESSING. "
+                    + "바꾼다. OCR 작업이 이미 FAILED 면 409 JOB_ALREADY_FINISHED 이고 아무것도 바꾸지 않는다. "
+                    + "받는 문서 상태는 UPLOADED·OCR_QUEUED·OCR_PROCESSING. "
                     + "registrationNo 는 isMasked=true 이고 ######-#****** 형식이어야 한다(전체 번호는 400, 값은 오류에 "
                     + "싣지 않음). confidence 는 소수 4자리로 반올림해 저장한다. "
-                    + "이미 반영된 것과 같은 본문을 다시 보내면 204 이고 아무것도 바꾸지 않는다.")
+                    + "이미 반영된 결과와 fields(fieldKey·value·confidence·isMasked)·modelVersion 이 같으면 204 이고 "
+                    + "아무것도 바꾸지 않는다(latencyMs 는 비교하지 않고 처음 값을 유지).")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE,
             schema = @Schema(implementation = OcrResultRequest.class),
@@ -84,8 +86,9 @@ public class DocumentInternalController {
     @ApiResponse(responseCode = "404", description = "documents 행 없음(RESOURCE_NOT_FOUND, details.documentId)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "409", description = "INVALID_STATE: 문서 side 가 다름(details.field·expected), "
-            + "이미 다른 결과가 반영됨(PENDING_CONFIRMATION) 또는 결과를 받을 수 없는 상태(CONFIRMED·FAILED). "
-            + "details 에 documentId·status",
+            + "이미 다른 결과가 반영됨(PENDING_CONFIRMATION) 또는 결과를 받을 수 없는 문서 상태(CONFIRMED·FAILED), "
+            + "details 에 documentId·status. JOB_ALREADY_FINISHED: 그 문서의 OCR 작업이 FAILED, "
+            + "details 에 documentId·jobId·status",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @PostMapping("/internal/v1/ai/documents/{documentId}/ocr-result")
     public ResponseEntity<Void> ocrResult(@PathVariable Long documentId,

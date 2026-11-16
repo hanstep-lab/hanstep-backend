@@ -82,8 +82,23 @@ public class AiJobStatusService {
     }
 
     /**
-     * 등록증 OCR 결과 보고 → 그 문서의 OCR 작업을 COMPLETED. markPolicyIngestCompleted 와 같은 규칙·잠금이고,
-     * OCR 결과 기록과 같은 트랜잭션에서 바꾼다.
+     * 등록증 OCR 결과를 반영하기 전에 그 문서의 OCR 작업을 잠그고(문서 행 다음), FAILED 작업이 있으면
+     * 409 JOB_ALREADY_FINISHED. 실패로 끝난 작업에 늦게 온 결과로 문서·작업을 바꾸지 않는다.
+     */
+    @Transactional
+    public void checkOcrJobsNotFailed(Long documentId) {
+        for (AiJob job : aiJobRepository.findByResourceForUpdate(AiJobType.OCR, AiJobResourceType.DOCUMENT,
+                documentId)) {
+            if (job.getStatus() == AiJobStatus.FAILED) {
+                throw new BusinessException(ErrorCode.JOB_ALREADY_FINISHED,
+                        Map.of("documentId", documentId, "jobId", job.getId(), "status", job.getStatus().name()));
+            }
+        }
+    }
+
+    /**
+     * 등록증 OCR 결과 보고 → 그 문서의 OCR 작업을 COMPLETED. markPolicyIngestCompleted 와 같은 잠금이고,
+     * OCR 결과 기록과 같은 트랜잭션에서 바꾼다. FAILED 작업은 checkOcrJobsNotFailed 에서 먼저 막는다.
      */
     @Transactional
     public void markOcrCompleted(Long documentId) {
