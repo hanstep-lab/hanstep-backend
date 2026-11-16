@@ -2,9 +2,22 @@
 {$DOMAIN} {
 	encode gzip
 
-	# 내부 API·API 문서는 외부에서 막는다(내부 통신은 compose 네트워크에서 spring:8080 으로 직접)
-	@blocked path /internal/* /swagger-ui* /v3/api-docs*
-	respond @blocked 404
+	# 내부 API 는 외부에서 막는다(내부 통신은 compose 네트워크에서 spring:8080 으로 직접)
+	# 맨 끝 catch-all 에 기대지 않고 자기 handle 에서 직접 404 를 낸다(catch-all 이 바뀌어도 /internal 은 열리지 않음)
+	@blocked path /internal/*
+	handle @blocked {
+		respond 404
+	}
+
+	# API 문서(Swagger UI)는 기본 인증을 통과해야 Spring 으로 전달한다. 계정·bcrypt 해시는 deploy/.env
+	# 문서에는 /api/v1 만 나온다(Spring prod 프로필의 springdoc.paths-to-match)
+	@swagger path /swagger-ui.html /swagger-ui/* /v3/api-docs /v3/api-docs/*
+	handle @swagger {
+		basic_auth {
+			{$SWAGGER_BASIC_USER} {$SWAGGER_BASIC_HASH}
+		}
+		reverse_proxy spring:8080
+	}
 
 	# 외부 API 만 Spring 으로 전달. 챗봇 스트림(text/event-stream)은 Caddy 가 버퍼링 없이 바로 흘려보낸다
 	handle /api/v1/* {
