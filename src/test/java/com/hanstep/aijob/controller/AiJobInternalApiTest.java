@@ -79,27 +79,45 @@ class AiJobInternalApiTest {
     }
 
     @Test
-    void 이미_시작한_작업을_다시_시작하면_409() throws Exception {
+    void 이미_시작한_작업을_다시_시작하면_409_JOB_ALREADY_PROCESSING() throws Exception {
         long id = insertJob("QUEUED");
         started(id).andExpect(status().isNoContent());
 
         started(id)
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+                .andExpect(jsonPath("$.code").value("JOB_ALREADY_PROCESSING"))
+                .andExpect(jsonPath("$.message").value("job already processing"))
+                .andExpect(jsonPath("$.details.jobId").value(id))
+                .andExpect(jsonPath("$.details.status").value("PROCESSING"))
+                .andExpect(jsonPath("$.requestId").exists());
+
+        assertThat(row(id).get("status")).isEqualTo("PROCESSING");
     }
 
     @Test
-    void 완료된_작업을_시작하면_409() throws Exception {
+    void 완료된_작업을_시작하면_409_JOB_ALREADY_FINISHED() throws Exception {
         long id = insertJob("COMPLETED");
 
-        started(id).andExpect(status().isConflict());
+        started(id)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("JOB_ALREADY_FINISHED"))
+                .andExpect(jsonPath("$.message").value("job already finished"))
+                .andExpect(jsonPath("$.details.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.requestId").exists());
+
+        assertThat(row(id).get("status")).isEqualTo("COMPLETED");
     }
 
     @Test
-    void 실패한_작업을_시작하면_409() throws Exception {
+    void 실패한_작업을_시작하면_409_JOB_ALREADY_FINISHED() throws Exception {
         long id = insertJob("FAILED");
 
-        started(id).andExpect(status().isConflict());
+        started(id)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("JOB_ALREADY_FINISHED"))
+                .andExpect(jsonPath("$.details.status").value("FAILED"));
+
+        assertThat(row(id).get("status")).isEqualTo("FAILED");
     }
 
     @Test
