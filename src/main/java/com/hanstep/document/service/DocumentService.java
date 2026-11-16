@@ -9,6 +9,7 @@ import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
 import com.hanstep.document.domain.Document;
 import com.hanstep.document.dto.DocumentResponse;
+import com.hanstep.document.repository.DocumentFieldRepository;
 import com.hanstep.document.repository.DocumentRepository;
 import com.hanstep.document.storage.ArcImageStorage;
 import jakarta.persistence.EntityManager;
@@ -27,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -48,16 +50,18 @@ public class DocumentService {
     private static final Map<String, String> EXTENSIONS = Map.of("image/jpeg", "jpg", "image/png", "png");
 
     private final DocumentRepository documentRepository;
+    private final DocumentFieldRepository documentFieldRepository;
     private final AiJobRepository aiJobRepository;
     private final AiJobEnqueueService aiJobEnqueueService;
     private final ArcImageStorage storage;
     private final TransactionTemplate tx;
     private final EntityManager entityManager;
 
-    public DocumentService(DocumentRepository documentRepository, AiJobRepository aiJobRepository,
-                           AiJobEnqueueService aiJobEnqueueService, ArcImageStorage storage, TransactionTemplate tx,
-                           EntityManager entityManager) {
+    public DocumentService(DocumentRepository documentRepository, DocumentFieldRepository documentFieldRepository,
+                           AiJobRepository aiJobRepository, AiJobEnqueueService aiJobEnqueueService,
+                           ArcImageStorage storage, TransactionTemplate tx, EntityManager entityManager) {
         this.documentRepository = documentRepository;
+        this.documentFieldRepository = documentFieldRepository;
         this.aiJobRepository = aiJobRepository;
         this.aiJobEnqueueService = aiJobEnqueueService;
         this.storage = storage;
@@ -127,10 +131,21 @@ public class DocumentService {
         });
     }
 
+    /** DOC-02. 본인 문서만(남의 문서·없는 문서는 404). */
+    @Transactional(readOnly = true)
+    public DocumentResponse get(Long userId, Long documentId) {
+        return view(ownDocument(userId, documentId));
+    }
+
+    Document ownDocument(Long userId, Long documentId) {
+        return documentRepository.findByIdAndUserId(documentId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, Map.of("documentId", documentId)));
+    }
+
     DocumentResponse view(Document doc) {
         AiJob job = aiJobRepository.findFirstByJobTypeAndResourceTypeAndResourceIdOrderByIdDesc(AiJobType.OCR,
                 AiJobResourceType.DOCUMENT, doc.getId()).orElse(null);
-        return DocumentResponse.of(doc, job);
+        return DocumentResponse.of(doc, job, documentFieldRepository.findByDocumentId(doc.getId()));
     }
 
     // ---------- 검사 ----------

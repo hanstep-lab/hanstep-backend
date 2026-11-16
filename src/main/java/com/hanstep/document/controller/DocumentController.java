@@ -13,6 +13,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -47,5 +49,22 @@ public class DocumentController {
             @Parameter(description = "등록증 앞면 이미지(JPEG·PNG, 10MB 이하)") @RequestPart("file") MultipartFile file) {
         DocumentService.UploadResult result = documentService.upload(userId, file);
         return ResponseEntity.status(result.created() ? HttpStatus.ACCEPTED : HttpStatus.OK).body(result.body());
+    }
+
+    @Operation(summary = "등록증 문서·OCR 결과 조회(DOC-02)",
+            description = "본인 문서만. OCR 진행·실패는 ocrJob(status·publishStatus·errorCode)으로 본다. "
+                    + "OCR 결과가 오면 status=PENDING_CONFIRMATION 이고 fields 6개(nameEn·nationality·birthDate·visaType·"
+                    + "stayExpiry·registrationNo)가 온다. 신뢰도 0.8 미만이거나 못 읽은 항목은 needsReview=true. "
+                    + "확정 후에는 value 가 null 이고 status·confidence 만 남는다. 등록번호는 마스킹 값만 준다.")
+    @ApiResponse(responseCode = "200", description = "성공")
+    @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "404", description = "없거나 다른 사용자의 문서",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @GetMapping("/{documentId}")
+    public DocumentResponse get(
+            @Parameter(hidden = true) @AuthenticationPrincipal Long userId,
+            @Parameter(description = "documents.id", example = "42") @PathVariable Long documentId) {
+        return documentService.get(userId, documentId);
     }
 }
