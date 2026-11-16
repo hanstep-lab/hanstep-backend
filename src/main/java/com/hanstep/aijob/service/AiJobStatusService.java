@@ -19,7 +19,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * ai_jobs 상태 전이는 여기서만 한다(INT-08, INT-10, INT-13 적재 완료, 발행 결과). 시각은 모두 Spring 이 받은 시각(worker 시계와 섞지 않음).
+ * ai_jobs 상태 전이는 여기서만 한다(INT-08, INT-10, INT-13 적재 완료, OCR 결과 보고, 발행 결과). 시각은 모두 Spring 이 받은 시각(worker 시계와 섞지 않음).
  */
 @Service
 public class AiJobStatusService {
@@ -78,15 +78,31 @@ public class AiJobStatusService {
      */
     @Transactional
     public void markPolicyIngestCompleted(Long policyDocumentId) {
-        List<AiJob> jobs = aiJobRepository.findByResourceForUpdate(AiJobType.POLICY_INGEST,
-                AiJobResourceType.POLICY_DOCUMENT, policyDocumentId);
-        Instant now = Instant.now();
-        for (AiJob job : jobs) {
-            if (job.canComplete()) {
-                job.complete(now);
-                log.info("ai job {} completed by policy document {} ingestion", job.getId(), policyDocumentId);
+        completeResourceJobs(AiJobType.POLICY_INGEST, AiJobResourceType.POLICY_DOCUMENT, policyDocumentId);
+    }
+
+    /**
+     * 등록증 OCR 결과를 반영하기 전에 그 문서의 OCR 작업을 잠그고(문서 행 다음), FAILED 작업이 있으면
+     * 409 JOB_ALREADY_FINISHED. 실패로 끝난 작업에 늦게 온 결과로 문서·작업을 바꾸지 않는다.
+     */
+    @Transactional
+    public void checkOcrJobsNotFailed(Long documentId) {
+        for (AiJob job : aiJobRepository.findByResourceForUpdate(AiJobType.OCR, AiJobResourceType.DOCUMENT,
+                documentId)) {
+            if (job.getStatus() == AiJobStatus.FAILED) {
+                throw new BusinessException(ErrorCode.JOB_ALREADY_FINISHED,
+                        Map.of("documentId", documentId, "jobId", job.getId(), "status", job.getStatus().name()));
             }
         }
+    }
+
+    /**
+     * 등록증 OCR 결과 보고 → 그 문서의 OCR 작업을 COMPLETED. markPolicyIngestCompleted 와 같은 잠금이고,
+     * OCR 결과 기록과 같은 트랜잭션에서 바꾼다. FAILED 작업은 checkOcrJobsNotFailed 에서 먼저 막는다.
+     */
+    @Transactional
+    public void markOcrCompleted(Long documentId) {
+        completeResourceJobs(AiJobType.OCR, AiJobResourceType.DOCUMENT, documentId);
     }
 
     /**
@@ -112,6 +128,18 @@ public class AiJobStatusService {
         if (message.codePointCount(0, message.length()) > MAX_ERROR_MESSAGE) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, null, Map.of("fields", List.of(
                     Map.of("field", "message", "reason", "must be at most " + MAX_ERROR_MESSAGE + " characters"))));
+        }
+    }
+
+    // 결과 보고를 받은 리소스의 끝나지 않은 작업만 완료. started 와 같은 행 잠금이라 동시에 와도 순서대로 반영된다
+    private void completeResourceJobs(AiJobType jobType, AiJobResourceType resourceType, Long resourceId) {
+        List<AiJob> jobs = aiJobRepository.findByResourceForUpdate(jobType, resourceType, resourceId);
+        Instant now = Instant.now();
+        for (AiJob job : jobs) {
+            if (job.canComplete()) {
+                job.complete(now);
+                log.info("ai job {} ({}) completed by {} {} result", job.getId(), jobType, resourceType, resourceId);
+            }
         }
     }
 
