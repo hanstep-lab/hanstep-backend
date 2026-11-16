@@ -309,7 +309,7 @@ class E74AssessmentApiTest {
                 "visaTypeCode", "birthDate", "evidenceStatus", "currentStayStartedOn", "priorStayMonths");
         assertThat(visaProfile.path("visaTypeCode").stringValue()).isEqualTo("E-9");
         assertThat(visaProfile.path("birthDate").stringValue()).isEqualTo("1995-08-15");
-        assertThat(visaProfile.path("currentStayStartedOn").stringValue()).isEqualTo("2022-03-07");
+        assertThat(visaProfile.path("currentStayStartedOn").stringValue()).isEqualTo("2022-12-05");
         assertThat(visaProfile.path("priorStayMonths").intValue()).isZero();
 
         JsonNode employment = profile.path("employmentHistories").get(0);
@@ -434,13 +434,13 @@ class E74AssessmentApiTest {
         jdbc.update("""
                 INSERT INTO visa_profiles (user_id, visa_type_id, stay_expires_on, nationality_code, birth_date,
                                            current_stay_started_on, prior_stay_months, evidence_status)
-                SELECT ?, id, '2027-10-04', 'PHL', '1995-08-15', '2022-03-07', 0, 'VERIFIED'
+                SELECT ?, id, '2027-10-04', 'PHL', '1995-08-15', '2022-12-05', 0, 'VERIFIED'
                 FROM visa_types WHERE code = 'E-9'""", id);
         jdbc.update("""
                 INSERT INTO employment_histories (user_id, employer_name, industry_code, workplace_region_code,
                     is_depopulation_area, started_on, contract_end_on, contract_annual_salary, left_without_fault,
                     verification_status)
-                VALUES (?, 'TEST-METAL', 'MANUFACTURING', '48250', FALSE, '2022-03-14', '2029-03-13', 31500000.00,
+                VALUES (?, 'TEST-METAL', 'MANUFACTURING', '48250', FALSE, '2022-12-12', '2029-03-13', 31500000.00,
                         TRUE, 'VERIFIED')""", id);
         jdbc.update("""
                 INSERT INTO income_records (user_id, income_year, annual_amount, source, verification_status)
