@@ -18,9 +18,14 @@ public enum AiJobRoute {
         this.routingKey = routingKey;
     }
 
+    public AiJobType jobType() { return jobType; }
     public String routingKey() { return routingKey; }
     public String retryQueue() { return routingKey + ".retry"; }
     public String deadLetterQueue() { return routingKey + ".dlq"; }
+
+    public static boolean supports(AiJobType type) {
+        return Arrays.stream(values()).anyMatch(route -> route.jobType == type);
+    }
 
     public static AiJobRoute forType(AiJobType type) {
         return Arrays.stream(values()).filter(route -> route.jobType == type).findFirst()

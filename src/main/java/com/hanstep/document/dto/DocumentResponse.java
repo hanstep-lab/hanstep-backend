@@ -55,12 +55,15 @@ public record DocumentResponse(
                     example = "PUBLISHED")
             PublishStatus publishStatus,
             @Schema(description = "실패 코드(FAILED 일 때)", nullable = true, example = "OCR_FAILED")
-            String errorCode
+            String errorCode,
+            @Schema(description = "다시 시도(POST /{documentId}/ocr-retry) 가능 여부. 발행 대기일 때 true. "
+                    + "서버도 1분마다 자동으로 다시 보낸다", example = "false")
+            boolean retryable
     ) {
 
         public static OcrJob of(AiJob job) {
-            return job == null ? null
-                    : new OcrJob(job.getId(), job.getStatus(), job.getPublishStatus(), job.getErrorCode());
+            return job == null ? null : new OcrJob(job.getId(), job.getStatus(), job.getPublishStatus(),
+                    job.getErrorCode(), job.isAwaitingPublish());
         }
     }
 

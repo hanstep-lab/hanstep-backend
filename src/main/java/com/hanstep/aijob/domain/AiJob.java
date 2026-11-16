@@ -129,6 +129,14 @@ public class AiJob {
         }
     }
 
+    /**
+     * 발행 대기(U2 재발행 대상): 아직 큐에 들어간 적 없는 작업(PENDING)인데 발행 기록이 성공이 아니다
+     * (NOT_PUBLISHED: 커밋 후 발행 전에 죽음·기록 실패, PUBLISH_FAILED: 브로커 거절·연결 실패).
+     */
+    public boolean isAwaitingPublish() {
+        return status == AiJobStatus.PENDING && publishStatus != PublishStatus.PUBLISHED;
+    }
+
     /** PENDING·QUEUED 일 때만 시작할 수 있다. */
     public boolean canStart() {
         return status == AiJobStatus.PENDING || status == AiJobStatus.QUEUED;

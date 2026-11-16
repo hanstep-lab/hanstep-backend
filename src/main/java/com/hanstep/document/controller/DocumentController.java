@@ -75,6 +75,25 @@ public class DocumentController {
         return documentService.get(userId, documentId);
     }
 
+    @Operation(summary = "OCR 다시 시도(발행 대기 작업 재발행)",
+            description = "본문 없음. OCR 작업이 큐에 들어가지 못한 채(ocrJob.retryable=true: status PENDING 이면서 "
+                    + "publishStatus NOT_PUBLISHED·PUBLISH_FAILED) 남았을 때 같은 작업을 다시 보낸다(새 작업 없음). "
+                    + "서버도 1분마다 자동으로 다시 보낸다. 응답의 ocrJob.publishStatus 로 결과를 본다.")
+    @ApiResponse(responseCode = "202", description = "다시 보냄(브로커가 받으면 publishStatus=PUBLISHED)")
+    @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "404", description = "없거나 다른 사용자의 문서",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "409", description = "INVALID_STATE: 발행 대기가 아님(이미 큐에 들어감·처리 중·끝남, "
+            + "OCR 결과가 이미 옴)",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @PostMapping("/{documentId}/ocr-retry")
+    public ResponseEntity<DocumentResponse> retryOcr(
+            @Parameter(hidden = true) @AuthenticationPrincipal Long userId,
+            @Parameter(description = "documents.id", example = "42") @PathVariable Long documentId) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(documentService.retryOcr(userId, documentId));
+    }
+
     @Operation(summary = "OCR 항목 확인·수정(DOC-03)",
             description = "확인 화면(ON-003)에서 고친 값. 보낸 항목만 바꾼다(OCR 값과 같으면 CONFIRMED, 다르면 CORRECTED). "
                     + "OCR 결과 확인 대기(PENDING_CONFIRMATION)일 때만. 등록번호는 고칠 수 없다. "

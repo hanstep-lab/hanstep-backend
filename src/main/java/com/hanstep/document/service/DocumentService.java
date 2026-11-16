@@ -5,9 +5,11 @@ import com.hanstep.aijob.domain.AiJobResourceType;
 import com.hanstep.aijob.domain.AiJobType;
 import com.hanstep.aijob.repository.AiJobRepository;
 import com.hanstep.aijob.service.AiJobEnqueueService;
+import com.hanstep.aijob.service.AiJobRepublishService;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
 import com.hanstep.document.domain.Document;
+import com.hanstep.document.domain.DocumentStatus;
 import com.hanstep.document.dto.DocumentResponse;
 import com.hanstep.document.repository.DocumentFieldRepository;
 import com.hanstep.document.repository.DocumentRepository;
@@ -53,17 +55,20 @@ public class DocumentService {
     private final DocumentFieldRepository documentFieldRepository;
     private final AiJobRepository aiJobRepository;
     private final AiJobEnqueueService aiJobEnqueueService;
+    private final AiJobRepublishService republishService;
     private final ArcImageStorage storage;
     private final TransactionTemplate tx;
     private final EntityManager entityManager;
 
     public DocumentService(DocumentRepository documentRepository, DocumentFieldRepository documentFieldRepository,
                            AiJobRepository aiJobRepository, AiJobEnqueueService aiJobEnqueueService,
-                           ArcImageStorage storage, TransactionTemplate tx, EntityManager entityManager) {
+                           AiJobRepublishService republishService, ArcImageStorage storage, TransactionTemplate tx,
+                           EntityManager entityManager) {
         this.documentRepository = documentRepository;
         this.documentFieldRepository = documentFieldRepository;
         this.aiJobRepository = aiJobRepository;
         this.aiJobEnqueueService = aiJobEnqueueService;
+        this.republishService = republishService;
         this.storage = storage;
         this.tx = tx;
         this.entityManager = entityManager;
@@ -131,6 +136,23 @@ public class DocumentService {
         });
     }
 
+    /**
+     * U2(a) OCR 다시 시도. 본인 문서이고, OCR 결과 전(UPLOADED)이며, OCR 작업이 발행 대기(PENDING 이면서
+     * NOT_PUBLISHED·PUBLISH_FAILED)일 때만 같은 작업을 다시 보낸다. 아니면 409. 트랜잭션 밖에서 불러 재발행 커밋·발행이
+     * 끝난 뒤 다시 읽어 준다.
+     */
+    public DocumentResponse retryOcr(Long userId, Long documentId) {
+        Document doc = ownDocument(userId, documentId);
+        AiJob job = latestOcrJob(doc.getId());
+        boolean requested = doc.getStatus() == DocumentStatus.UPLOADED && job != null && job.isAwaitingPublish()
+                && republishService.republish(job.getId(), null);
+        if (!requested) {
+            throw new BusinessException(ErrorCode.INVALID_STATE, "OCR job is not waiting for publish",
+                    Map.of("documentId", documentId, "status", doc.getStatus().name()));
+        }
+        return view(documentRepository.findById(documentId).orElseThrow());
+    }
+
     /** DOC-02. 본인 문서만(남의 문서·없는 문서는 404). */
     @Transactional(readOnly = true)
     public DocumentResponse get(Long userId, Long documentId) {
@@ -143,9 +165,12 @@ public class DocumentService {
     }
 
     DocumentResponse view(Document doc) {
-        AiJob job = aiJobRepository.findFirstByJobTypeAndResourceTypeAndResourceIdOrderByIdDesc(AiJobType.OCR,
-                AiJobResourceType.DOCUMENT, doc.getId()).orElse(null);
-        return DocumentResponse.of(doc, job, documentFieldRepository.findByDocumentId(doc.getId()));
+        return DocumentResponse.of(doc, latestOcrJob(doc.getId()), documentFieldRepository.findByDocumentId(doc.getId()));
+    }
+
+    private AiJob latestOcrJob(Long documentId) {
+        return aiJobRepository.findFirstByJobTypeAndResourceTypeAndResourceIdOrderByIdDesc(AiJobType.OCR,
+                AiJobResourceType.DOCUMENT, documentId).orElse(null);
     }
 
     // ---------- 검사 ----------

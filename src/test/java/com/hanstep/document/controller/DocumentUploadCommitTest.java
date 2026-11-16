@@ -41,7 +41,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 실제로 커밋될 때: 업로드의 OCR 작업 발행, R2 실패 시 롤백, R2 에 올린 뒤 롤백되면 객체 정리, 확정 중 R2 삭제 실패 시 롤백.
+ * 실제로 커밋될 때: 업로드의 OCR 작업 발행, 발행 실패 뒤 다시 시도(U2), R2 실패 시 롤백, R2 에 올린 뒤 롤백되면 객체 정리,
+ * 확정 중 R2 삭제 실패 시 롤백.
  * 실제 MySQL(커밋, 끝나고 사용자 삭제 → documents·ai_jobs CASCADE) + Testcontainers RabbitMQ + 메모리 저장소.
  */
 @SpringBootTest
@@ -137,6 +138,42 @@ class DocumentUploadCommitTest {
     }
 
     @Test
+    void 발행에_실패하면_업로드는_202이고_다시_시도로_같은_작업을_보낸다() throws Exception {
+        rabbitAdmin.deleteQueue(OCR_QUEUE);   // 라우팅 안 됨 → PUBLISH_FAILED
+        JsonNode uploaded;
+        try {
+            uploaded = json(upload(ArcImages.jpeg(20_000)).andExpect(status().isAccepted()));
+        } finally {
+            rabbitAdmin.initialize();
+        }
+        long documentId = uploaded.path("documentId").longValue();
+        long jobId = uploaded.path("ocrJob").path("jobId").longValue();
+        assertThat(uploaded.path("ocrJob").path("status").stringValue()).isEqualTo("PENDING");
+        assertThat(uploaded.path("ocrJob").path("publishStatus").stringValue()).isEqualTo("PUBLISH_FAILED");
+        assertThat(uploaded.path("ocrJob").path("retryable").booleanValue()).isTrue();
+
+        JsonNode retried = json(retry(documentId, userId).andExpect(status().isAccepted()));
+
+        assertThat(retried.path("ocrJob").path("jobId").longValue()).isEqualTo(jobId);
+        assertThat(retried.path("ocrJob").path("status").stringValue()).isEqualTo("QUEUED");
+        assertThat(retried.path("ocrJob").path("publishStatus").stringValue()).isEqualTo("PUBLISHED");
+        assertThat(retried.path("ocrJob").path("retryable").booleanValue()).isFalse();
+        Message message = rabbitTemplate.receive(OCR_QUEUE, 5_000);
+        assertThat(message).isNotNull();
+        assertThat(JsonMapper.builder().build().readTree(message.getBody()).path("jobId").longValue()).isEqualTo(jobId);
+        assertThat(count("SELECT COUNT(*) FROM ai_jobs WHERE user_id = ?")).isEqualTo(1);
+
+        // 이미 큐에 들어갔으면 409, 남의 문서는 404
+        retry(documentId, userId).andExpect(status().isConflict());
+        long otherId = TestUsers.create(jdbcTemplate, userKey + "-other", "OTHER USER");
+        try {
+            retry(documentId, otherId).andExpect(status().isNotFound());
+        } finally {
+            jdbcTemplate.update("DELETE FROM users WHERE id = ?", otherId);
+        }
+    }
+
+    @Test
     void 확정_중_R2_원본_삭제가_실패하면_롤백되어_확정_전_상태로_남는다() throws Exception {
         long documentId = json(upload(ArcImages.jpeg(20_000)).andExpect(status().isAccepted()))
                 .path("documentId").longValue();
@@ -161,6 +198,11 @@ class DocumentUploadCommitTest {
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM document_fields WHERE document_id = ? "
                 + "AND extracted_value IS NOT NULL", Long.class, documentId)).isEqualTo(6);
         assertThat(storage.objects).hasSize(1);
+    }
+
+    private ResultActions retry(long documentId, long asUser) throws Exception {
+        return mockMvc.perform(post(DocumentApiTest.URL + "/{id}/ocr-retry", documentId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtTokenProvider.issue(asUser)));
     }
 
     private ResultActions upload(byte[] image) throws Exception {
