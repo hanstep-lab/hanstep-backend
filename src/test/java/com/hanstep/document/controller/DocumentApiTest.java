@@ -76,9 +76,11 @@ class DocumentApiTest {
         long documentId = body.path("documentId").longValue();
 
         Map<String, Object> doc = jdbcTemplate.queryForMap("SELECT * FROM documents WHERE id = ?", documentId);
-        String key = "arc/" + userId + "/" + documentId + "/front.jpg";
+        String key = (String) doc.get("object_key");
         assertThat(((Number) doc.get("user_id")).longValue()).isEqualTo(userId);
-        assertThat(doc.get("object_key")).isEqualTo(key);
+        // arc/{side}/{UUID}.jpg: 사용자·문서 id 를 넣지 않는다(지수 합의 11/16)
+        assertThat(key).matches("arc/front/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.jpg")
+                .doesNotContain(String.valueOf(userId) + "/");
         assertThat(doc.get("content_type")).isEqualTo("image/jpeg");
         assertThat(((Number) doc.get("file_size_bytes")).intValue()).isEqualTo(image.length);
         assertThat(doc.get("sha256")).isEqualTo(sha256(image));
@@ -92,7 +94,7 @@ class DocumentApiTest {
         Map<String, Object> job = jdbcTemplate.queryForMap(
                 "SELECT * FROM ai_jobs WHERE job_type = 'OCR' AND resource_type = 'DOCUMENT' AND resource_id = ?",
                 documentId);
-        assertThat(job.get("idempotency_key")).isEqualTo("document:" + documentId);
+        assertThat(job.get("idempotency_key")).isEqualTo("ocr:" + documentId);
         assertThat(((Number) job.get("user_id")).longValue()).isEqualTo(userId);
         assertThat(body.path("ocrJob").path("jobId").longValue()).isEqualTo(((Number) job.get("id")).longValue());
         assertThat(body.path("ocrJob").path("status").stringValue()).isEqualTo("PENDING");
@@ -123,22 +125,41 @@ class DocumentApiTest {
                 .path("documentId").longValue();
         long otherId = TestUsers.create(jdbcTemplate, "test-doc-" + UUID.randomUUID(), "OTHER USER");
 
-        long theirs = json(mockMvc.perform(multipart(URL).file(new MockMultipartFile("file", "f.jpg", "image/jpeg", image))
+        long theirs = json(mockMvc.perform(multipart(URL).file(new MockMultipartFile("front", "f.jpg", "image/jpeg", image))
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtTokenProvider.issue(otherId)))
                 .andExpect(status().isAccepted())).path("documentId").longValue();
 
         assertThat(theirs).isNotEqualTo(mine);
-        assertThat(storage.objects).containsKeys("arc/" + userId + "/" + mine + "/front.jpg",
-                "arc/" + otherId + "/" + theirs + "/front.jpg");
+        // 같은 내용이어도 키는 UUID 라 겹치지 않는다
+        assertThat(storage.objects).containsKeys(objectKey(mine), objectKey(theirs));
+        assertThat(objectKey(mine)).isNotEqualTo(objectKey(theirs));
     }
 
     @Test
-    void PNG는_png_키로_저장한다() throws Exception {
+    void PNG는_png_확장자로_저장한다() throws Exception {
         long documentId = json(upload("front.png", "image/png", ArcImages.png(8 * 1024))
                 .andExpect(status().isAccepted())).path("documentId").longValue();
 
-        assertThat(jdbcTemplate.queryForObject("SELECT object_key FROM documents WHERE id = ?", String.class, documentId))
-                .isEqualTo("arc/" + userId + "/" + documentId + "/front.png");
+        assertThat(objectKey(documentId)).startsWith("arc/front/").endsWith(".png");
+    }
+
+    @Test
+    void back_파트가_오면_400_BACK_NOT_SUPPORTED이고_아무것도_저장하지_않는다() throws Exception {
+        mockMvc.perform(multipart(URL)
+                        .file(new MockMultipartFile("front", "f.jpg", "image/jpeg", ArcImages.jpeg(4096)))
+                        .file(new MockMultipartFile("back", "b.jpg", "image/jpeg", ArcImages.jpeg(4096)))
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BACK_NOT_SUPPORTED"))
+                .andExpect(jsonPath("$.details.fields[0].field").value("back"));
+        // back 만 와도 같은 400
+        mockMvc.perform(multipart(URL).file(new MockMultipartFile("back", "b.jpg", "image/jpeg", ArcImages.jpeg(4096)))
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BACK_NOT_SUPPORTED"));
+
+        assertThat(storage.puts.get()).isZero();
+        assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?", userId)).isZero();
     }
 
     @Test
@@ -160,17 +181,18 @@ class DocumentApiTest {
     }
 
     @Test
-    void file_파트가_없으면_400() throws Exception {
-        mockMvc.perform(multipart(URL).file(new MockMultipartFile("image", "f.jpg", "image/jpeg", ArcImages.jpeg(1024)))
+    void front_파트가_없으면_400() throws Exception {
+        mockMvc.perform(multipart(URL).file(new MockMultipartFile("file", "f.jpg", "image/jpeg", ArcImages.jpeg(1024)))
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.details.fields[0].field").value("file"));
+                .andExpect(jsonPath("$.details.fields[0].field").value("front"))
+                .andExpect(jsonPath("$.details.fields[0].reason").value("required part"));
     }
 
     @Test
     void 토큰이_없으면_401() throws Exception {
-        mockMvc.perform(multipart(URL).file(new MockMultipartFile("file", "f.jpg", "image/jpeg", ArcImages.jpeg(1024))))
+        mockMvc.perform(multipart(URL).file(new MockMultipartFile("front", "f.jpg", "image/jpeg", ArcImages.jpeg(1024))))
                 .andExpect(status().isUnauthorized());
         assertThat(storage.puts.get()).isZero();
     }
@@ -178,14 +200,18 @@ class DocumentApiTest {
     // ---------- helpers ----------
 
     private ResultActions upload(String filename, String contentType, byte[] bytes) throws Exception {
-        return mockMvc.perform(multipart(URL).file(new MockMultipartFile("file", filename, contentType, bytes))
+        return mockMvc.perform(multipart(URL).file(new MockMultipartFile("front", filename, contentType, bytes))
                 .header(HttpHeaders.AUTHORIZATION, bearer));
+    }
+
+    private String objectKey(long documentId) {
+        return jdbcTemplate.queryForObject("SELECT object_key FROM documents WHERE id = ?", String.class, documentId);
     }
 
     private static void expectInvalidFile(ResultActions result, String reason) throws Exception {
         result.andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.details.fields[0].field").value("file"))
+                .andExpect(jsonPath("$.details.fields[0].field").value("front"))
                 .andExpect(jsonPath("$.details.fields[0].reason").value(reason));
     }
 

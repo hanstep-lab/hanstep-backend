@@ -73,7 +73,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ErrorResponse> handleUploadTooLarge(MaxUploadSizeExceededException e) {
         return build(ErrorCode.VALIDATION_ERROR, null,
-                Map.of("fields", List.of(Map.of("field", "file", "reason", "file too large"))));
+                Map.of("fields", List.of(Map.of("field", "front", "reason", "file too large"))));
     }
 
     // multipart 필수 파트 누락 (예: DOC-01 의 file)

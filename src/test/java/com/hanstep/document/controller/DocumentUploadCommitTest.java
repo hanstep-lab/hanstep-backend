@@ -108,7 +108,7 @@ class DocumentUploadCommitTest {
         assertThat(payload.path("resourceId").longValue()).isEqualTo(documentId);
         // 메시지에 사용자·원본 위치 같은 정보는 없다
         assertThat(new String(message.getBody())).doesNotContain("arc/", "REYES");
-        assertThat(storage.objects).containsKey("arc/" + userId + "/" + documentId + "/front.jpg");
+        assertThat(storage.objects).containsKey(objectKey(documentId));
         assertThat(storage.deletes.get()).isZero();
     }
 
@@ -193,7 +193,8 @@ class DocumentUploadCommitTest {
 
         Map<String, Object> doc = jdbcTemplate.queryForMap("SELECT * FROM documents WHERE id = ?", documentId);
         assertThat(doc.get("status")).isEqualTo("PENDING_CONFIRMATION");
-        assertThat(doc.get("object_key")).isEqualTo("arc/" + userId + "/" + documentId + "/front.jpg");
+        assertThat((String) doc.get("object_key")).startsWith("arc/front/");
+        assertThat(storage.objects).containsKey((String) doc.get("object_key"));
         assertThat(count("SELECT COUNT(*) FROM visa_profiles WHERE user_id = ?")).isZero();
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM document_fields WHERE document_id = ? "
                 + "AND extracted_value IS NOT NULL", Long.class, documentId)).isEqualTo(6);
@@ -207,8 +208,12 @@ class DocumentUploadCommitTest {
 
     private ResultActions upload(byte[] image) throws Exception {
         return mockMvc.perform(multipart(DocumentApiTest.URL)
-                .file(new MockMultipartFile("file", "front.jpg", "image/jpeg", image))
+                .file(new MockMultipartFile("front", "front.jpg", "image/jpeg", image))
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtTokenProvider.issue(userId)));
+    }
+
+    private String objectKey(long documentId) {
+        return jdbcTemplate.queryForObject("SELECT object_key FROM documents WHERE id = ?", String.class, documentId);
     }
 
     private long count(String sql) {

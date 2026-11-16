@@ -210,7 +210,7 @@ class DocumentReviewApiTest {
     @Test
     void 확정하면_visa_profiles에_반영하고_원본과_항목_값을_지운다() throws Exception {
         long id = upload();
-        String key = "arc/" + userId + "/" + id + "/front.jpg";
+        String key = jdbcTemplate.queryForObject("SELECT object_key FROM documents WHERE id = ?", String.class, id);
         recordOcr(id, new BigDecimal("0.95"));
         patchFields(id, "{\"fields\": [{\"fieldKey\": \"stayExpiry\", \"value\": \"2027-03-01\"}]}")
                 .andExpect(status().isOk());
@@ -323,7 +323,7 @@ class DocumentReviewApiTest {
 
     long upload() throws Exception {
         return json(mockMvc.perform(multipart(DocumentApiTest.URL)
-                        .file(new MockMultipartFile("file", "front.jpg", "image/jpeg", ArcImages.jpeg(8 * 1024)))
+                        .file(new MockMultipartFile("front", "front.jpg", "image/jpeg", ArcImages.jpeg(8 * 1024)))
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isAccepted())).path("documentId").longValue();
     }

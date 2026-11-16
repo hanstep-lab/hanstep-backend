@@ -39,22 +39,26 @@ public class DocumentController {
         this.documentReviewService = documentReviewService;
     }
 
-    @Operation(summary = "외국인등록증 앞면 업로드(DOC-01)",
-            description = "multipart 파트 file 하나(image/jpeg·image/png, 10MB 이하). 형식·크기·파일 앞부분(매직 바이트)을 검사한 뒤 "
-                    + "비공개 버킷에 저장하고 OCR 작업을 등록한다. OCR 진행 상태는 응답·조회의 ocrJob 으로 본다. "
+    @Operation(summary = "외국인등록증 업로드(DOC-01, 앞면만)",
+            description = "multipart 파트 front(필수, image/jpeg·image/png, 10MB 이하)·back(선택, 아직 지원 안 함). "
+                    + "back 이 오면 400 BACK_NOT_SUPPORTED. 형식·크기·파일 앞부분(매직 바이트)을 검사한 뒤 비공개 버킷에 저장하고 "
+                    + "OCR 작업을 등록한다. OCR 진행 상태는 응답·조회의 status·ocrJob 으로 본다. "
                     + "같은 사진(같은 내용)을 다시 올리면 새로 저장하지 않고 기존 문서를 200 으로 준다.")
     @ApiResponse(responseCode = "202", description = "저장하고 OCR 작업 등록. ocrJob.publishStatus 가 PUBLISHED 가 아니면 발행 대기")
     @ApiResponse(responseCode = "200", description = "같은 사진으로 이미 올린 문서(새 업로드·새 작업 없음)")
-    @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: file 없음·빈 파일·형식(JPEG·PNG 아님)·10MB 초과·"
-            + "내용이 형식과 다름(details.fields[0].field=file)",
+    @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: front 없음·빈 파일·형식(JPEG·PNG 아님)·10MB 초과·"
+            + "내용이 형식과 다름(details.fields[0].field=front). BACK_NOT_SUPPORTED: back 파트가 옴(뒷면은 아직 지원하지 않음)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<DocumentResponse> upload(
             @Parameter(hidden = true) @AuthenticationPrincipal Long userId,
-            @Parameter(description = "등록증 앞면 이미지(JPEG·PNG, 10MB 이하)") @RequestPart("file") MultipartFile file) {
-        DocumentService.UploadResult result = documentService.upload(userId, file);
+            @Parameter(description = "등록증 앞면 이미지(필수, JPEG·PNG, 10MB 이하)")
+            @RequestPart(value = DocumentService.PART_FRONT, required = false) MultipartFile front,
+            @Parameter(description = "등록증 뒷면 이미지(아직 지원 안 함: 보내면 400 BACK_NOT_SUPPORTED)")
+            @RequestPart(value = DocumentService.PART_BACK, required = false) MultipartFile back) {
+        DocumentService.UploadResult result = documentService.upload(userId, front, back);
         return ResponseEntity.status(result.created() ? HttpStatus.ACCEPTED : HttpStatus.OK).body(result.body());
     }
 
