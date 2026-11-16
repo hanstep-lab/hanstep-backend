@@ -2,7 +2,11 @@ package com.hanstep.document;
 
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.AppenderBase;
 import com.hanstep.aijob.RabbitTestBroker;
+import com.hanstep.aijob.messaging.AiJobPublishListener;
 import com.hanstep.aijob.messaging.AiJobRoute;
 import com.hanstep.common.security.JwtTokenProvider;
 import com.hanstep.document.domain.DocumentSide;
@@ -49,6 +53,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.QueueInformation;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -147,8 +152,32 @@ class DocUploadApiPerfTest {
     private final String runId = UUID.randomUUID().toString().substring(0, 8);
     private final String userKey = USER_PREFIX + runId;
     private final List<String> csv = Collections.synchronizedList(new ArrayList<>());
+    /** AiJobPublishListener 의 "published but publish status was not recorded" ERROR 로그 수(발행은 됐는데 기록 실패). */
+    private final LogCounter unrecordedLog = new LogCounter("published but publish status was not recorded");
     private String bearer;
     private long userId;
+
+    /** 특정 로거의 ERROR 로그 중 문구가 들어간 것을 센다(Logback). 측정 동안만 붙인다. */
+    static class LogCounter extends AppenderBase<ILoggingEvent> {
+
+        final AtomicInteger count = new AtomicInteger();
+        private final String phrase;
+
+        LogCounter(String phrase) {
+            this.phrase = phrase;
+        }
+
+        @Override
+        protected void append(ILoggingEvent event) {
+            if (event.getLevel() == Level.ERROR && event.getMessage() != null && event.getMessage().contains(phrase)) {
+                count.incrementAndGet();
+            }
+        }
+    }
+
+    private static ch.qos.logback.classic.Logger listenerLogger() {
+        return (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(AiJobPublishListener.class);
+    }
 
     private record Upload(long elapsedMs, int status, String error, Long documentId) {
 
@@ -200,6 +229,8 @@ class DocUploadApiPerfTest {
 
     @AfterEach
     void tearDown() {
+        listenerLogger().detachAppender(unrecordedLog);
+        unrecordedLog.stop();
         if (missingVariables().isEmpty()) {
             int[] cleaned = cleanup(userKey);
             System.out.println("[DocUploadApiPerfTest] 끝 정리(tearDown): R2 객체 " + cleaned[0] + "건 지움, 사용자 "
@@ -221,6 +252,9 @@ class DocUploadApiPerfTest {
                 + leftover[1] + "명 삭제");
         userId = TestUsers.create(jdbc, userKey, "TEST PERF UPLOAD API USER");
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
+        unrecordedLog.setContext(listenerLogger().getLoggerContext());
+        unrecordedLog.start();
+        listenerLogger().addAppender(unrecordedLog);
         rabbitAdmin.initialize();
         rabbitAdmin.purgeQueue(AiJobRoute.OCR.routingKey(), false);
         PerfSupport.write(RAW, "phase,size_bytes,seq,elapsed_ms,status,error,document_id\n");
@@ -229,6 +263,7 @@ class DocUploadApiPerfTest {
 
         StringBuilder seqRows = new StringBuilder();
         StringBuilder concRows = new StringBuilder();
+        StringBuilder publishRows = new StringBuilder();
         Map<Integer, byte[]> bases = new TreeMap<>();
         for (int size : SIZES) {
             bases.put(size, DocUploadR2PerfTest.syntheticJpeg(size));
@@ -241,6 +276,8 @@ class DocUploadApiPerfTest {
             flushCsv();
 
             int putsBefore = storage.puts.get();
+            long seqQueueBefore = queueMessages(AiJobRoute.OCR.routingKey());
+            int seqLogBefore = unrecordedLog.count.get();
             List<Upload> uploads = new ArrayList<>();
             Sample seqSample = sampled(() -> {
                 for (int i = 0; i < RUNS; i++) {
@@ -266,12 +303,15 @@ class DocUploadApiPerfTest {
                     .append(" | 1 | ").append(String.format("%.2f", uploads.isEmpty() ? 0 : puts / (double) uploads.size()))
                     .append(" | ").append(seqSample.activePeak()).append(" / ").append(seqSample.pendingPeak())
                     .append(" |\n");
+            publishRows.append(publishRow("seq", size, uploads, seqSample, seqQueueBefore, seqLogBefore));
 
             // 동시: 본문 10개를 먼저 만들고(시작 전 힙에 포함) 같이 출발
             List<byte[]> bodies = new ArrayList<>();
             for (int i = 0; i < CONCURRENCY; i++) {
                 bodies.add(body(base));
             }
+            long concQueueBefore = queueMessages(AiJobRoute.OCR.routingKey());
+            int concLogBefore = unrecordedLog.count.get();
             List<Upload> conc = new ArrayList<>();
             long[] wall = new long[1];
             Sample concSample = sampled(() -> {
@@ -311,9 +351,11 @@ class DocUploadApiPerfTest {
                     .append(String.format("%.1f MiB", cp[2] / 10.0))
                     .append(" | ").append(concSample.activePeak()).append(" / ").append(concSample.pendingPeak())
                     .append(" |\n");
+            publishRows.append(publishRow("concurrent", size, conc, concSample, concQueueBefore, concLogBefore));
             System.out.println("[DocUploadApiPerfTest] " + mb(size) + " seq 성공 " + times.size() + "/" + RUNS
                     + ", concurrent 성공 " + concTimes.size() + "/" + CONCURRENCY + ", Hikari 동시 최대 활성/대기 "
-                    + concSample.activePeak() + "/" + concSample.pendingPeak());
+                    + concSample.activePeak() + "/" + concSample.pendingPeak() + ", 기록 안 된 발행 로그(누적) "
+                    + unrecordedLog.count.get());
         }
 
         String invalid = invalidInputs(bases.get(SIZES[0]));
@@ -330,8 +372,8 @@ class DocUploadApiPerfTest {
         int left = remainingObjects(runKeys);
         System.out.println("[DocUploadApiPerfTest] 끝 정리: R2 객체 " + cleaned[0] + "건 지움, 그중 남은 객체(HEAD) " + left);
 
-        writeReport(poolSize, seqRows, concRows, invalid, consistency, confirm, ocrMessages, jobs, leftover, cleaned,
-                left);
+        writeReport(poolSize, seqRows, concRows, publishRows, invalid, consistency, confirm, ocrMessages, jobs, leftover,
+                cleaned, left);
     }
 
     // ---------- 요청 ----------
@@ -479,7 +521,7 @@ class DocUploadApiPerfTest {
 
     /** 1건 확정 흐름: OCR 결과(합성) → stayExpiry 입력 → 확정 → 원본 삭제 확인. */
     private String confirmOne() throws Exception {
-        Long documentId = jdbc.queryForList("SELECT id FROM documents d JOIN users u ON u.id = d.user_id "
+        Long documentId = jdbc.queryForList("SELECT d.id FROM documents d JOIN users u ON u.id = d.user_id "
                 + "WHERE u.external_user_key = ? AND d.object_key IS NOT NULL ORDER BY d.id LIMIT 1", Long.class,
                 userKey).stream().findFirst().orElse(null);
         if (documentId == null) {
@@ -639,7 +681,34 @@ class DocUploadApiPerfTest {
         return String.format("%.1f MiB", bytes / 1024.0 / 1024.0);
     }
 
-    private void writeReport(int poolSize, StringBuilder seqRows, StringBuilder concRows, String invalid,
+    /**
+     * 단계 하나의 커밋 후 발행 기록. 큐 증가는 이 단계 동안 ocr.request 에 들어간 메시지 수(소비자 없음, 스케줄러 꺼짐)이고,
+     * 그중 ai_jobs 가 PUBLISHED 로 기록되지 않은 수 = 큐 증가 − PUBLISHED(이 단계 업로드의 작업).
+     */
+    private String publishRow(String phase, int size, List<Upload> uploads, Sample sample, long queueBefore,
+                              int logBefore) {
+        List<Long> documentIds = uploads.stream().map(Upload::documentId).filter(Objects::nonNull).toList();
+        Map<String, Long> byStatus = new TreeMap<>();
+        if (!documentIds.isEmpty()) {
+            String in = String.join(",", Collections.nCopies(documentIds.size(), "?"));
+            jdbc.query("SELECT publish_status, COUNT(*) FROM ai_jobs WHERE job_type = 'OCR' AND resource_type = 'DOCUMENT' "
+                    + "AND resource_id IN (" + in + ") GROUP BY publish_status", rs -> {
+                        byStatus.put(rs.getString(1), rs.getLong(2));
+                    }, documentIds.toArray());
+        }
+        long queueDelta = queueMessages(AiJobRoute.OCR.routingKey()) - queueBefore;
+        long published = byStatus.getOrDefault("PUBLISHED", 0L);
+        long maxAll = uploads.stream().mapToLong(Upload::elapsedMs).max().orElse(0);
+        return "| " + phase + " | " + mb(size) + " | " + uploads.size() + " | " + maxAll
+                + " | " + sample.activePeak() + " / " + sample.pendingPeak()
+                + " | " + queueDelta + " | " + published + " | " + byStatus.getOrDefault("NOT_PUBLISHED", 0L)
+                + " | " + byStatus.getOrDefault("PUBLISH_FAILED", 0L)
+                + " | " + (queueDelta - published)
+                + " | " + (unrecordedLog.count.get() - logBefore) + " |\n";
+    }
+
+    private void writeReport(int poolSize, StringBuilder seqRows, StringBuilder concRows, StringBuilder publishRows,
+                             String invalid,
                              String consistency, String confirm, long ocrMessages, Map<String, Long> jobs,
                              int[] leftover, int[] cleaned, int remaining) throws Exception {
         long maxHeap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getMax();
@@ -663,6 +732,12 @@ class DocUploadApiPerfTest {
                 .append("| 경로 | 크기 | 건수 | 성공 | 실패 | 실패 종류 | 성공 건 p50(ms) | 성공 건 최대(ms) | 전체 시간(ms) | 힙 증가 | "
                         + "시제품 p50 / 최대 / 힙 증가 | Hikari 활성 / 대기 최대 |\n")
                 .append("|---|---|---|---|---|---|---|---|---|---|---|---|\n").append(concRows);
+        md.append("\n## 커밋 후 발행 기록(단계별)\n\n")
+                .append("ocr.request 증가는 단계 동안 큐에 들어간 메시지 수(소비자 없음). 발행됐지만 기록 안 됨 = 큐 증가 − PUBLISHED. ")
+                .append("로그는 AiJobPublishListener 의 \"published but publish status was not recorded\" ERROR 건수.\n\n")
+                .append("| 단계 | 크기 | 요청 수 | 요청 최대(ms, 실패 포함) | Hikari 활성 / 대기 최대 | ocr.request 증가 | PUBLISHED | "
+                        + "NOT_PUBLISHED | PUBLISH_FAILED | 발행됐지만 기록 안 됨 | 기록 실패 로그 |\n")
+                .append("|---|---|---|---|---|---|---|---|---|---|---|\n").append(publishRows);
         md.append("\n## 잘못된 입력\n\n| 항목 | 값 |\n|---|---|\n").append(invalid);
         md.append("\n## 정합성(R2 객체 수 = documents.object_key 수)\n\n| 항목 | 값 |\n|---|---|\n").append(consistency);
         md.append("\n## 확정 1건\n\n| 항목 | 값 |\n|---|---|\n").append(confirm);
