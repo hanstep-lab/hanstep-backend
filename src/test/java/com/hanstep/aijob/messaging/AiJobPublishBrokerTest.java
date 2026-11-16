@@ -176,7 +176,8 @@ class AiJobPublishBrokerTest {
 
         JsonNode retry = RabbitTestBroker.queue(RETRY_QUEUE);
         assertThat(retry.path("durable").booleanValue()).isTrue();
-        assertThat(retry.path("arguments").path("x-message-ttl").intValue()).isEqualTo(10_000);
+        // 대기 시간은 worker 가 메시지 expiration 으로 정한다(큐 TTL 없음)
+        assertThat(retry.path("arguments").has("x-message-ttl")).isFalse();
         assertThat(retry.path("arguments").path("x-dead-letter-exchange").stringValue()).isEqualTo(AiJobRoute.EXCHANGE);
         assertThat(retry.path("arguments").path("x-dead-letter-routing-key").stringValue()).isEqualTo(WORK_QUEUE);
 
@@ -214,11 +215,13 @@ class AiJobPublishBrokerTest {
     }
 
     @Test
-    void retry_큐로_보내면_TTL_뒤_작업_큐로_돌아온다() {
-        rabbitTemplate.send(AiJobRoute.EXCHANGE, RETRY_QUEUE, testMessage());
+    void retry_큐로_보내면_메시지_expiration_뒤_작업_큐로_돌아온다() {
+        Message message = testMessage();
+        message.getMessageProperties().setExpiration("3000");
+        rabbitTemplate.send(AiJobRoute.EXCHANGE, RETRY_QUEUE, message);
         assertThat(rabbitTemplate.receive(WORK_QUEUE, 1_000)).isNull();
 
-        Message back = rabbitTemplate.receive(WORK_QUEUE, 15_000);
+        Message back = rabbitTemplate.receive(WORK_QUEUE, 10_000);
 
         assertThat(back).isNotNull();
         assertThat(new String(back.getBody())).isEqualTo("{\"test\":true}");
