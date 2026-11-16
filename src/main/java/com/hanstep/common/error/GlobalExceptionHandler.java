@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientException;
@@ -49,6 +50,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
         return build(ErrorCode.VALIDATION_ERROR, null,
                 Map.of("fields", List.of(Map.of("field", e.getName(), "reason", "invalid value"))));
+    }
+
+    // 필수 쿼리 값 누락 (예: 견적의 amount)
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParameter(MissingServletRequestParameterException e) {
+        return build(ErrorCode.VALIDATION_ERROR, null,
+                Map.of("fields", List.of(Map.of("field", e.getParameterName(), "reason", "required parameter"))));
     }
 
     // 필수 헤더 누락 (예: Idempotency-Key)
