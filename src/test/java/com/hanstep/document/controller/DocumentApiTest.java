@@ -5,7 +5,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.hanstep.aijob.dto.JobFailedRequest;
+import com.hanstep.aijob.service.AiJobStatusService;
 import com.hanstep.common.security.JwtTokenProvider;
+import com.hanstep.document.domain.DocumentSide;
+import com.hanstep.document.dto.OcrFieldResult;
+import com.hanstep.document.dto.OcrResultRequest;
+import com.hanstep.document.service.DocumentInternalService;
+import java.math.BigDecimal;
+import java.util.List;
 import com.hanstep.document.ArcImages;
 import com.hanstep.document.FakeArcStorageConfig;
 import com.hanstep.document.FakeArcStorageConfig.FakeArcImageStorage;
@@ -52,6 +60,12 @@ class DocumentApiTest {
 
     @Autowired
     private FakeArcImageStorage storage;
+
+    @Autowired
+    private AiJobStatusService aiJobStatusService;
+
+    @Autowired
+    private DocumentInternalService documentInternalService;
 
     private long userId;
     private String bearer;
@@ -116,6 +130,58 @@ class DocumentApiTest {
         assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?", userId)).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM ai_jobs WHERE job_type = 'OCR' AND resource_id = ?", first)).isEqualTo(1);
         assertThat(storage.puts.get()).isEqualTo(1);
+    }
+
+    @Test
+    void OCR이_실패한_문서와_같은_사진을_다시_올리면_실패_문서를_지우고_새_문서로_202() throws Exception {
+        byte[] image = ArcImages.jpeg(24 * 1024);
+        JsonNode first = json(upload("front.jpg", "image/jpeg", image).andExpect(status().isAccepted()));
+        long failedId = first.path("documentId").longValue();
+        long failedJobId = first.path("ocrJob").path("jobId").longValue();
+        String failedKey = objectKey(failedId);
+        aiJobStatusService.markFailed(failedJobId, new JobFailedRequest("OCR_FAILED", "image too blurry", false));
+
+        JsonNode again = json(upload("front.jpg", "image/jpeg", image)
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("UPLOADED"))
+                .andExpect(jsonPath("$.ocrJob.status").value("PENDING")));
+        long newId = again.path("documentId").longValue();
+
+        assertThat(newId).isNotEqualTo(failedId);
+        // 실패 문서는 지워지고(사용자당 같은 사진은 1건), 실패 작업 기록은 남는다
+        assertThat(count("SELECT COUNT(*) FROM documents WHERE id = ?", failedId)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?", userId)).isEqualTo(1);
+        Map<String, Object> failedJob = jdbcTemplate.queryForMap("SELECT * FROM ai_jobs WHERE id = ?", failedJobId);
+        assertThat(failedJob.get("status")).isEqualTo("FAILED");
+        assertThat(((Number) failedJob.get("resource_id")).longValue()).isEqualTo(failedId);
+        assertThat(jdbcTemplate.queryForObject("SELECT idempotency_key FROM ai_jobs WHERE job_type = 'OCR' "
+                + "AND resource_id = ?", String.class, newId)).isEqualTo("ocr:" + newId);
+        // 새 원본은 새 키. 옛 원본은 커밋 뒤에 지운다(이 테스트는 롤백이라 DocumentUploadCommitTest 에서 확인)
+        assertThat(objectKey(newId)).isNotEqualTo(failedKey).startsWith("arc/front/");
+        assertThat(storage.objects).containsKey(objectKey(newId));
+        assertThat(storage.puts.get()).isEqualTo(2);
+    }
+
+    @Test
+    void OCR_결과가_온_문서와_같은_사진은_기존처럼_같은_문서를_200으로_준다() throws Exception {
+        byte[] image = ArcImages.jpeg(24 * 1024);
+        long documentId = json(upload("front.jpg", "image/jpeg", image).andExpect(status().isAccepted()))
+                .path("documentId").longValue();
+        documentInternalService.recordOcrResult(documentId, new OcrResultRequest(documentId, "ppocrv5-ko-mobile-int8",
+                842, DocumentSide.FRONT, List.of(
+                new OcrFieldResult("nameEn", "MARK ANTHONY REYES", new BigDecimal("0.98"), false),
+                new OcrFieldResult("nationality", "PHL", new BigDecimal("0.97"), false),
+                new OcrFieldResult("birthDate", "1995-08-15", new BigDecimal("0.97"), false),
+                new OcrFieldResult("visaType", "E-9", new BigDecimal("0.95"), false),
+                new OcrFieldResult("stayExpiry", null, null, false),
+                new OcrFieldResult("registrationNo", "950815-5******", new BigDecimal("0.99"), true))));
+
+        upload("front.jpg", "image/jpeg", image)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documentId").value(documentId))
+                .andExpect(jsonPath("$.status").value("PENDING_CONFIRMATION"));
+        assertThat(storage.puts.get()).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM ai_jobs WHERE job_type = 'OCR' AND user_id = ?", userId)).isEqualTo(1);
     }
 
     @Test

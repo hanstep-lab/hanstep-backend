@@ -136,7 +136,7 @@ C·D 는 지금 발행 경로가 있는 유일한 작업이라 비교용으로 �
 | 업로드 파트 | multipart `front`(필수)·`back`(선택). `back` 이 오면 400 `BACK_NOT_SUPPORTED`. 확장 때 이 400 만 풀고 BACK 문서·작업을 추가한다(지수 합의 11/16 16:36) |
 | 엔티티·테이블 | #82 의 `Document`·`DocumentField`·`DocumentRepository` 를 쓴다. 새 엔티티·테이블 없음 |
 | 진행·실패 상태 | `ai_jobs`(OCR 작업)에서 읽는다. `documents.status` 는 `UPLOADED → PENDING_CONFIRMATION → CONFIRMED` 만 쓰고 `OCR_QUEUED`·`OCR_PROCESSING`·`FAILED` 는 쓰지 않는다. 응답(DOC-02)은 OCR 작업이 FAILED 면 `status=FAILED`·`failureCode`(작업의 error_code)를 준다(지수 합의) |
-| 같은 사진 다시 올림 | 같은 사용자·같은 sha256 이면 기존 문서를 돌려준다(새 업로드·새 작업 없음). OCR 실패 뒤 재업로드 허용은 별도 결정(검토 중) |
+| 같은 사진 다시 올림 | 같은 사용자·같은 sha256 이면 기존 문서를 돌려준다(200, 새 업로드·새 작업 없음). 단, OCR 결과 전이고 최신 OCR 작업이 FAILED 면 문서 행을 잠근 채 실패 문서를 지우고 새 문서·새 작업을 만든다(202, A안). 옛 R2 원본은 커밋 뒤 삭제, 옛 FAILED 작업 행은 실패 기록으로 남는다(`ai_jobs.resource_id` FK 없음). retryable 구분(화질 불량 등은 막기)은 후속 |
 | object_key | `arc/{side}/{UUID}.{ext}`(side=front, 사용자·문서 id 없음, UUID 는 R2 업로드 전에 생성. 지수 합의). 확장자는 실제 형식(jpg/png) |
 | OCR 작업 멱등 키 | `ocr:{documentId}` |
 | retention_until | 업로드 + 24시간. 기한 지난 원본 삭제는 후속 이슈(이번 범위 밖, PR 에 적음) |

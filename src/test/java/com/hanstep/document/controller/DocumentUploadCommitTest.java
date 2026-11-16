@@ -6,7 +6,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.hanstep.aijob.RabbitTestBroker;
+import com.hanstep.aijob.dto.JobFailedRequest;
 import com.hanstep.aijob.messaging.AiJobRoute;
+import com.hanstep.aijob.service.AiJobStatusService;
 import com.hanstep.common.security.JwtTokenProvider;
 import com.hanstep.document.ArcImages;
 import com.hanstep.document.FakeArcStorageConfig;
@@ -17,9 +19,15 @@ import com.hanstep.document.dto.OcrResultRequest;
 import com.hanstep.document.service.DocumentInternalService;
 import com.hanstep.support.TestUsers;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,6 +44,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -77,6 +86,9 @@ class DocumentUploadCommitTest {
 
     @Autowired
     private DocumentInternalService documentInternalService;
+
+    @Autowired
+    private AiJobStatusService aiJobStatusService;
 
     private final String userKey = "test-doc-commit-" + UUID.randomUUID();
     private long userId;
@@ -171,6 +183,50 @@ class DocumentUploadCommitTest {
         } finally {
             jdbcTemplate.update("DELETE FROM users WHERE id = ?", otherId);
         }
+    }
+
+    @Test
+    void OCR_실패_뒤_같은_사진이_동시에_2건_와도_새_문서는_1건이고_옛_원본은_커밋_뒤_지운다() throws Exception {
+        byte[] image = ArcImages.jpeg(20_000);
+        JsonNode first = json(upload(image).andExpect(status().isAccepted()));
+        long failedId = first.path("documentId").longValue();
+        String failedKey = objectKey(failedId);
+        aiJobStatusService.markFailed(first.path("ocrJob").path("jobId").longValue(),
+                new JobFailedRequest("OCR_FAILED", "image too blurry", false));
+        rabbitAdmin.purgeQueue(OCR_QUEUE, false);
+
+        CountDownLatch go = new CountDownLatch(1);
+        List<Future<MvcResult>> results = new ArrayList<>();
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            for (int i = 0; i < 2; i++) {
+                results.add(executor.submit(() -> {
+                    go.await();
+                    return upload(image).andReturn();
+                }));
+            }
+            go.countDown();
+        }
+        List<Integer> statuses = new ArrayList<>();
+        List<Long> documentIds = new ArrayList<>();
+        for (Future<MvcResult> f : results) {
+            MvcResult r = f.get();
+            statuses.add(r.getResponse().getStatus());
+            documentIds.add(JsonMapper.builder().build().readTree(r.getResponse().getContentAsString())
+                    .path("documentId").longValue());
+        }
+
+        // 하나는 실패 문서를 바꿔 202, 다른 하나는 바뀐 새 문서를 200 으로 받는다
+        assertThat(statuses).containsExactlyInAnyOrder(202, 200);
+        assertThat(documentIds.get(0)).isEqualTo(documentIds.get(1)).isNotEqualTo(failedId);
+        long newId = documentIds.getFirst();
+        assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?")).isEqualTo(1);
+        // OCR 작업: 옛 FAILED 1 + 새 1(중복 없음), 새 작업만 발행
+        assertThat(count("SELECT COUNT(*) FROM ai_jobs WHERE user_id = ? AND job_type = 'OCR'")).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("SELECT publish_status FROM ai_jobs WHERE job_type = 'OCR' "
+                + "AND resource_id = ?", String.class, newId)).isEqualTo("PUBLISHED");
+        assertThat(Objects.requireNonNull(rabbitAdmin.getQueueInfo(OCR_QUEUE)).getMessageCount()).isEqualTo(1);
+        // 옛 원본은 커밋 뒤 지워지고 새 원본만 남는다
+        assertThat(storage.objects).doesNotContainKey(failedKey).containsOnlyKeys(objectKey(newId));
     }
 
     @Test

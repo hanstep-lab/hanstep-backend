@@ -43,9 +43,12 @@ public class DocumentController {
             description = "multipart 파트 front(필수, image/jpeg·image/png, 10MB 이하)·back(선택, 아직 지원 안 함). "
                     + "back 이 오면 400 BACK_NOT_SUPPORTED. 형식·크기·파일 앞부분(매직 바이트)을 검사한 뒤 비공개 버킷에 저장하고 "
                     + "OCR 작업을 등록한다. OCR 진행 상태는 응답·조회의 status·ocrJob 으로 본다. "
-                    + "같은 사진(같은 내용)을 다시 올리면 새로 저장하지 않고 기존 문서를 200 으로 준다.")
-    @ApiResponse(responseCode = "202", description = "저장하고 OCR 작업 등록. ocrJob.publishStatus 가 PUBLISHED 가 아니면 발행 대기")
-    @ApiResponse(responseCode = "200", description = "같은 사진으로 이미 올린 문서(새 업로드·새 작업 없음)")
+                    + "같은 사진(같은 내용)을 다시 올리면 새로 저장하지 않고 기존 문서를 200 으로 준다. "
+                    + "단, 그 문서의 OCR 이 실패(status=FAILED)했으면 실패 문서를 지우고 새 문서·새 OCR 작업을 만들어 202 "
+                    + "(documentId 가 바뀐다).")
+    @ApiResponse(responseCode = "202", description = "저장하고 OCR 작업 등록(OCR 실패 문서를 같은 사진으로 다시 올린 경우 포함, "
+            + "새 documentId). ocrJob.publishStatus 가 PUBLISHED 가 아니면 발행 대기")
+    @ApiResponse(responseCode = "200", description = "같은 사진으로 이미 올린 문서(새 업로드·새 작업 없음). OCR 실패 문서는 해당 안 됨")
     @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: front 없음·빈 파일·형식(JPEG·PNG 아님)·10MB 초과·"
             + "내용이 형식과 다름(details.fields[0].field=front). BACK_NOT_SUPPORTED: back 파트가 옴(뒷면은 아직 지원하지 않음)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
