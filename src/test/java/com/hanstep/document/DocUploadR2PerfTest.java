@@ -20,7 +20,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -29,6 +31,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -90,7 +93,9 @@ import tools.jackson.databind.json.JsonMapper;
  * 시제품 컨트롤러({@link PrototypeUploadController})는 test 소스에만 있고 이 테스트만 @Import 한다.
  * R2 접속 정보는 Spring 이 .env 를 읽는 방식(spring.config.import) 그대로 R2_ENDPOINT_URL·R2_REGION·
  * 등록증 버킷 전용 키 R2_OCR_ACCESS_KEY_ID·R2_OCR_SECRET_ACCESS_KEY·R2_ARC_BUCKET 를 쓴다(정책·상품 키 R2_ACCESS_KEY_ID 는
- * 쓰지 않음). 하나라도 비면 비어 있는 변수 이름을 출력하고 건너뛴다. 객체는 perf/ 아래에만 올리고 끝나면 perf/ 를 모두 지운다.
+ * 쓰지 않음). 하나라도 비면 비어 있는 변수 이름을 출력하고 건너뛴다. 객체는 perf/ 아래에만 올린다. 시작 전에 이전 실행이 남긴
+ * perf/ 객체를 세고 지우며, 끝나면 perf/ 를 모두 지우고 남은 개수 0 을 확인한다(perf/ 밖은 건드리지 않음).
+ * 업로드 한 건이 실패해도 예외로 끝내지 않고 실패 건수·종류를 기록한다(재시도 없음). raw.csv 는 단계마다 덧붙여 쓴다.
  * 실행: .\gradlew.bat perfTest --tests "com.hanstep.document.DocUploadR2PerfTest"
  */
 @Tag("perf")
@@ -127,23 +132,35 @@ class DocUploadR2PerfTest {
 
     private final String runId = UUID.randomUUID().toString().substring(0, 8);
     private final String userKey = "test-perf-upload-" + runId;
+    /** 아직 raw.csv 에 쓰지 않은 줄. 단계가 끝날 때마다 flushCsv() 로 파일에 덧붙이고 비운다(중간에 죽어도 끝난 단계는 남게). */
     private final List<String> csv = Collections.synchronizedList(new ArrayList<>());
     private String bearer;
 
     private record Payload(int size, byte[] jpeg, String sha256, byte[] multipartBody) {
     }
 
-    private record Upload(long elapsedMs, int clientRoundTrips, long r2Calls, int status, String key) {
+    /** status 200 만 성공. 예외로 끝난 건은 status 0 이고 error 에 예외 종류를 남긴다(재시도하지 않음). */
+    private record Upload(long elapsedMs, int clientRoundTrips, long r2Calls, int status, String key, String error) {
+
+        boolean ok() {
+            return status == 200;
+        }
+
+        String failureKind() {
+            return error.isEmpty() ? "HTTP " + status : error;
+        }
     }
 
-    private record Concurrent(long wallMs, long heapBaseline, long heapPeak, int ok) {
+    private record Concurrent(long wallMs, long heapBaseline, long heapPeak, List<Upload> uploads) {
     }
 
     @AfterEach
     void tearDown() {
         jdbc.update("DELETE FROM users WHERE external_user_key = ?", userKey);
         if (controller.configured()) {
-            controller.deleteAllUnderPrefix();
+            int deleted = controller.deleteAllUnderPrefix();
+            int left = controller.listKeys(PREFIX).size();
+            System.out.println("[DocUploadR2PerfTest] 끝 정리(tearDown): perf/ 객체 " + deleted + "건 지움, 남은 " + left + "건");
         }
     }
 
@@ -155,7 +172,18 @@ class DocUploadR2PerfTest {
         }
         assumeTrue(missing.isEmpty(), "비어 있는 변수 " + missing + " 때문에 측정 건너뜀");
         bearer = "Bearer " + jwtTokenProvider.issue(TestUsers.create(jdbc, userKey, "TEST PERF UPLOAD USER"));
-        csv.add("method,size_bytes,phase,seq,elapsed_ms,client_round_trips,r2_calls,status");
+
+        // 이전 실행이 중간에 죽어 남긴 perf/ 객체(예: 15:35 실패 잔여물)를 먼저 지운다. perf/ 밖은 건드리지 않는다
+        int leftover = controller.listKeys(PREFIX).size();
+        int leftoverDeleted = controller.deleteAllUnderPrefix();
+        int leftoverAfter = controller.listKeys(PREFIX).size();
+        System.out.println("[DocUploadR2PerfTest] 시작 전 정리: perf/ 잔여 객체 " + leftover + "건, " + leftoverDeleted
+                + "건 지움, 남은 " + leftoverAfter + "건");
+        if (leftoverAfter != 0) {
+            throw new IllegalStateException("시작 전 perf/ 정리 후에도 " + leftoverAfter + "건 남음");
+        }
+
+        PerfSupport.write(RAW, "method,size_bytes,phase,seq,elapsed_ms,client_round_trips,r2_calls,status,error\n");
 
         List<Payload> payloads = new ArrayList<>();
         for (int size : SIZES) {
@@ -169,50 +197,84 @@ class DocUploadR2PerfTest {
                 for (int i = 0; i < WARMUP; i++) {
                     record(method, p, "warmup", i, upload(method, p, true));
                 }
-                List<Long> times = new ArrayList<>();
+                flushCsv();
+
                 List<Upload> uploads = new ArrayList<>();
                 for (int i = 0; i < RUNS; i++) {
                     Upload u = upload(method, p, true);
                     record(method, p, "seq", i, u);
-                    times.add(u.elapsedMs());
                     uploads.add(u);
                 }
-                long failed = uploads.stream().filter(u -> u.status() != 200).count();
+                flushCsv();
+                List<Long> times = successTimes(uploads);
+                Upload firstOk = uploads.stream().filter(Upload::ok).findFirst().orElse(null);
                 seqRows.append("| ").append(method).append(" | ").append(mb(p.size())).append(" | ").append(RUNS)
-                        .append(" | ").append(percentile(times, 50)).append(" | ").append(percentile(times, 95))
-                        .append(" | ").append(uploads.getFirst().clientRoundTrips())
-                        .append(" | ").append(uploads.getFirst().r2Calls())
-                        .append(" | ").append(failed).append(" |\n");
+                        .append(" | ").append(times.size()).append(" | ").append(RUNS - times.size())
+                        .append(" | ").append(failureKinds(uploads))
+                        .append(" | ").append(percentileOrDash(times, 50)).append(" | ").append(percentileOrDash(times, 95))
+                        .append(" | ").append(firstOk == null ? "-" : firstOk.clientRoundTrips())
+                        .append(" | ").append(firstOk == null ? "-" : firstOk.r2Calls()).append(" |\n");
+                printPhase(method, p, "seq", uploads);
 
                 Concurrent c = concurrent(method, p);
+                flushCsv();
+                List<Long> concTimes = successTimes(c.uploads());
                 concRows.append("| ").append(method).append(" | ").append(mb(p.size())).append(" | ").append(CONCURRENCY)
-                        .append(" | ").append(c.ok()).append(" | ").append(c.wallMs())
+                        .append(" | ").append(concTimes.size()).append(" | ").append(CONCURRENCY - concTimes.size())
+                        .append(" | ").append(failureKinds(c.uploads()))
+                        .append(" | ").append(percentileOrDash(concTimes, 50))
+                        .append(" | ").append(concTimes.isEmpty() ? "-" : PerfSupport.max(concTimes))
+                        .append(" | ").append(c.wallMs())
                         .append(" | ").append(mb(c.heapBaseline())).append(" | ").append(mb(c.heapPeak()))
                         .append(" | ").append(mb(c.heapPeak() - c.heapBaseline())).append(" |\n");
+                printPhase(method, p, "concurrent", c.uploads());
             }
         }
 
         // 완료 알림을 일부러 빠뜨린다: presign + PUT 만 하고 complete 를 부르지 않는다
         Payload small = payloads.getFirst();
+        List<Upload> orphanUploads = new ArrayList<>();
         for (int i = 0; i < ORPHANS; i++) {
-            record("presigned", small, "orphan", i, upload("presigned", small, false));
+            Upload u = upload("presigned", small, false);
+            record("presigned", small, "orphan", i, u);
+            orphanUploads.add(u);
         }
+        flushCsv();
+        printPhase("presigned", small, "orphan", orphanUploads);
         List<String> presignedObjects = controller.listKeys(PREFIX + runId + "/presigned/");
         long orphans = presignedObjects.stream().filter(k -> !controller.completedKeys().contains(k)).count();
         long totalBeforeCleanup = controller.listKeys(PREFIX).size();
         int deleted = controller.deleteAllUnderPrefix();
         long afterCleanup = controller.listKeys(PREFIX).size();
+        System.out.println("[DocUploadR2PerfTest] 끝 정리: perf/ 객체 " + totalBeforeCleanup + "건 중 " + deleted
+                + "건 지움, 남은 " + afterCleanup + "건");
 
-        PerfSupport.write(RAW, String.join("\n", csv) + "\n");
-        writeReport(payloads, seqRows, concRows, orphans, totalBeforeCleanup, deleted, afterCleanup);
+        writeReport(payloads, seqRows, concRows, orphans, leftover, totalBeforeCleanup, deleted, afterCleanup);
+        if (afterCleanup != 0) {
+            throw new IllegalStateException("끝 정리 후에도 perf/ 에 " + afterCleanup + "건 남음");
+        }
     }
 
     // ---------- 업로드 ----------
 
-    private Upload upload(String method, Payload p, boolean complete) throws Exception {
+    /** 예외를 밖으로 던지지 않는다. 실패도 한 건으로 기록하고 재시도하지 않는다. */
+    private Upload upload(String method, Payload p, boolean complete) {
         long r2Before = controller.r2Calls();
         long started = System.nanoTime();
-        int roundTrips = 0;
+        int[] roundTrips = {0};
+        try {
+            return attempt(method, p, complete, r2Before, started, roundTrips);
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            long elapsed = (System.nanoTime() - started) / 1_000_000;
+            return new Upload(elapsed, roundTrips[0], controller.r2Calls() - r2Before, 0, "", errorKind(e));
+        }
+    }
+
+    private Upload attempt(String method, Payload p, boolean complete, long r2Before, long started, int[] roundTrips)
+            throws Exception {
         int status;
         String key;
         if (method.equals("multipart")) {
@@ -223,13 +285,17 @@ class DocUploadR2PerfTest {
                     .header("Content-Type", "multipart/form-data; boundary=" + BOUNDARY)
                     .POST(HttpRequest.BodyPublishers.ofByteArray(p.multipartBody())).build(),
                     HttpResponse.BodyHandlers.ofString());
-            roundTrips++;
+            roundTrips[0]++;
             status = r.statusCode();
             key = status == 200 ? MAPPER.readTree(r.body()).path("key").asString() : "";
         } else {
             HttpResponse<String> presign = postJson("/perf/doc-upload/presign", Map.of(
                     "contentType", "image/jpeg", "size", p.size(), "sha256", p.sha256()));
-            roundTrips++;
+            roundTrips[0]++;
+            if (presign.statusCode() != 200) {
+                long elapsed = (System.nanoTime() - started) / 1_000_000;
+                return new Upload(elapsed, roundTrips[0], controller.r2Calls() - r2Before, presign.statusCode(), "", "");
+            }
             JsonNode body = MAPPER.readTree(presign.body());
             key = body.path("key").asString();
             HttpRequest.Builder put = HttpRequest.newBuilder(URI.create(body.path("url").asString()))
@@ -243,16 +309,34 @@ class DocUploadR2PerfTest {
                 }
             });
             HttpResponse<String> r2 = HTTP.send(put.build(), HttpResponse.BodyHandlers.ofString());
-            roundTrips++;
+            roundTrips[0]++;
             status = r2.statusCode();
             if (complete && status == 200) {
                 HttpResponse<String> done = postJson("/perf/doc-upload/complete", Map.of("key", key, "size", p.size()));
-                roundTrips++;
+                roundTrips[0]++;
                 status = done.statusCode();
             }
         }
         long elapsed = (System.nanoTime() - started) / 1_000_000;
-        return new Upload(elapsed, roundTrips, controller.r2Calls() - r2Before, status, key);
+        return new Upload(elapsed, roundTrips[0], controller.r2Calls() - r2Before, status, key, "");
+    }
+
+    /** 예외 종류만 남긴다(가장 안쪽 원인 클래스 + 짧은 메시지). URL·서명이 섞이지 않게 메시지는 80자로 자르고 쉼표·줄바꿈을 지운다. */
+    private static String errorKind(Throwable e) {
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String message = root.getMessage() == null ? "" : root.getMessage();
+        int query = message.indexOf('?');
+        if (query >= 0) {
+            message = message.substring(0, query);
+        }
+        message = message.replaceAll("[,\\r\\n;|]", " ").trim();
+        if (message.length() > 80) {
+            message = message.substring(0, 80);
+        }
+        return root.getClass().getSimpleName() + (message.isEmpty() ? "" : " " + message);
     }
 
     private Concurrent concurrent(String method, Payload p) throws Exception {
@@ -285,16 +369,19 @@ class DocUploadR2PerfTest {
             }
             started = System.nanoTime();
             go.countDown();
-            int seq = 0;
-            for (Future<Upload> f : futures) {
-                record(method, p, "concurrent", seq++, f.get());
-            }
         }
         long wall = (System.nanoTime() - started) / 1_000_000;
         sampling.set(false);
         sampler.join();
-        int ok = (int) futures.stream().filter(f -> f.resultNow().status() == 200).count();
-        return new Concurrent(wall, baseline, peak.get(), ok);
+        // upload() 는 예외를 던지지 않으므로 여기서 한 건 실패로 단계 전체가 끝나지 않는다
+        List<Upload> uploads = new ArrayList<>();
+        int seq = 0;
+        for (Future<Upload> f : futures) {
+            Upload u = f.get();
+            record(method, p, "concurrent", seq++, u);
+            uploads.add(u);
+        }
+        return new Concurrent(wall, baseline, peak.get(), uploads);
     }
 
     private HttpResponse<String> postJson(String path, Map<String, Object> body) throws Exception {
@@ -310,7 +397,41 @@ class DocUploadR2PerfTest {
 
     private void record(String method, Payload p, String phase, int seq, Upload u) {
         csv.add(method + "," + p.size() + "," + phase + "," + seq + "," + u.elapsedMs() + "," + u.clientRoundTrips()
-                + "," + u.r2Calls() + "," + u.status());
+                + "," + u.r2Calls() + "," + u.status() + "," + u.error());
+    }
+
+    /** 모아 둔 줄을 raw.csv 끝에 덧붙이고 비운다. */
+    private void flushCsv() throws IOException {
+        List<String> lines;
+        synchronized (csv) {
+            lines = new ArrayList<>(csv);
+            csv.clear();
+        }
+        if (!lines.isEmpty()) {
+            Files.writeString(RAW, String.join("\n", lines) + "\n", StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        }
+    }
+
+    private static List<Long> successTimes(List<Upload> uploads) {
+        return uploads.stream().filter(Upload::ok).map(Upload::elapsedMs).toList();
+    }
+
+    /** 실패 종류별 건수. 예: "SSLException (bad_record_mac) Received fatal alert: bad_record_mac ×2". 실패 없으면 "-". */
+    private static String failureKinds(List<Upload> uploads) {
+        Map<String, Long> kinds = new TreeMap<>();
+        uploads.stream().filter(u -> !u.ok()).forEach(u -> kinds.merge(u.failureKind(), 1L, Long::sum));
+        if (kinds.isEmpty()) {
+            return "-";
+        }
+        return kinds.entrySet().stream().map(e -> e.getKey() + " ×" + e.getValue())
+                .reduce((a, b) -> a + "<br>" + b).orElse("-");
+    }
+
+    private static void printPhase(String method, Payload p, String phase, List<Upload> uploads) {
+        long ok = uploads.stream().filter(Upload::ok).count();
+        System.out.println("[DocUploadR2PerfTest] " + method + " " + mb(p.size()) + " " + phase + ": 성공 " + ok
+                + ", 실패 " + (uploads.size() - ok) + ", 실패 종류 " + failureKinds(uploads).replace("<br>", "; "));
     }
 
     // ---------- 합성 JPEG ----------
@@ -388,12 +509,17 @@ class DocUploadR2PerfTest {
         return sorted.get(Math.max(0, rank - 1));
     }
 
+    /** 성공 건이 없으면 "-". */
+    private static String percentileOrDash(List<Long> values, int p) {
+        return values.isEmpty() ? "-" : String.valueOf(percentile(values, p));
+    }
+
     private static String mb(long bytes) {
         return String.format("%.1f MiB", bytes / 1024.0 / 1024.0);
     }
 
     private void writeReport(List<Payload> payloads, StringBuilder seqRows, StringBuilder concRows, long orphans,
-                             long totalBeforeCleanup, int deleted, long afterCleanup) throws Exception {
+                             int leftover, long totalBeforeCleanup, int deleted, long afterCleanup) throws Exception {
         long maxHeap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getMax();
         StringBuilder md = new StringBuilder(PerfSupport.header(jdbc, "기준선 2 등록증 업로드 경로(multipart vs presigned, R2)",
                 "합성 JPEG(\"SAMPLE\" 글자, COM 세그먼트로 크기 맞춤) " + payloads.stream().map(p -> mb(p.size())).toList()
@@ -402,14 +528,17 @@ class DocUploadR2PerfTest {
                 new String[] {"클라이언트·Spring", "같은 JVM(Spring RANDOM_PORT, java.net.http.HttpClient). 힙은 JVM 전체 값"},
                 new String[] {"JVM 최대 힙", mb(maxHeap)},
                 new String[] {"AWS SDK", "software.amazon.awssdk:s3 2.59.1, path-style, checksum WHEN_REQUIRED"}));
+        md.append("실패한 건은 재시도하지 않고 실패로 센다. 시간 통계(p50·p95·최대)는 성공한 건만으로 계산한다.\n\n");
         md.append("## 순차 업로드(끝까지 걸린 시간)\n\n")
-                .append("| 경로 | 크기 | 횟수 | p50(ms) | p95(ms) | 클라이언트 왕복 | Spring→R2 호출 | 실패 |\n")
-                .append("|---|---|---|---|---|---|---|---|\n").append(seqRows);
+                .append("| 경로 | 크기 | 횟수 | 성공 | 실패 | 실패 종류 | p50(ms) | p95(ms) | 클라이언트 왕복 | Spring→R2 호출 |\n")
+                .append("|---|---|---|---|---|---|---|---|---|---|\n").append(seqRows);
         md.append("\n## 동시 ").append(CONCURRENCY).append("건\n\n")
-                .append("| 경로 | 크기 | 건수 | 성공 | 전체 시간(ms) | 시작 전 힙 | 최대 힙 | 증가 |\n")
-                .append("|---|---|---|---|---|---|---|---|\n").append(concRows);
-        md.append("\n## 완료 알림을 빠뜨렸을 때\n\n")
+                .append("| 경로 | 크기 | 건수 | 성공 | 실패 | 실패 종류 | 성공 건 p50(ms) | 성공 건 최대(ms) | 전체 시간(ms)"
+                        + " | 시작 전 힙 | 최대 힙 | 증가 |\n")
+                .append("|---|---|---|---|---|---|---|---|---|---|---|---|\n").append(concRows);
+        md.append("\n## 완료 알림을 빠뜨렸을 때·정리\n\n")
                 .append("| 항목 | 값 |\n|---|---|\n")
+                .append("| 시작 전 perf/ 잔여 객체(이전 실행이 남긴 것, 시작 전에 지움) | ").append(leftover).append(" |\n")
                 .append("| complete 없이 PUT 만 한 건수 | ").append(ORPHANS).append(" |\n")
                 .append("| R2 에 남은 고아 객체(완료 알림 없는 presigned 객체) | ").append(orphans).append(" |\n")
                 .append("| 정리 전 perf/ 객체 수 | ").append(totalBeforeCleanup).append(" |\n")
