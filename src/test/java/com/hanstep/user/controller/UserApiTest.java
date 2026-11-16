@@ -6,7 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.hanstep.common.security.JwtTokenProvider;
-import com.hanstep.user.repository.UserRepository;
+import com.hanstep.support.TestUsers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,10 +14,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
-/** USR-02. 실제 DB(데모 사용자 demo-e9-ph-reyes), 테스트마다 롤백. */
+/** USR-02. 실제 DB(테스트 전용 사용자), 테스트마다 롤백. */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
@@ -30,13 +31,13 @@ class UserApiTest {
     private JwtTokenProvider jwtTokenProvider;
 
     @Autowired
-    private UserRepository userRepository;
+    private JdbcTemplate jdbcTemplate;
 
     private String bearer;
 
     @BeforeEach
     void setUp() {
-        Long userId = userRepository.findByExternalUserKey("demo-e9-ph-reyes").orElseThrow().getId();
+        long userId = TestUsers.create(jdbcTemplate, "test-usr-api", "TEST USR USER");
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
     }
 
