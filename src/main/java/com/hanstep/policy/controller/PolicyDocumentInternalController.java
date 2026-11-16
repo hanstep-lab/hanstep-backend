@@ -77,7 +77,9 @@ public class PolicyDocumentInternalController {
     @Operation(summary = "정책 문서 인덱싱 완료 (INT-13)",
             description = "AI 가 MongoDB 청크 저장·재조회 검증을 마친 뒤 보낸다. chunk_count·chroma_collection·"
                     + "embedding_model(embeddingModel@embeddingRevision)·ingested_at 을 기록하고 object_key 는 비어 있을 때만 채운다. "
-                    + "review_status 는 바꾸지 않는다(인덱싱 완료는 승인이 아님). 같은 보고를 다시 보내도 204.")
+                    + "review_status 는 바꾸지 않는다(인덱싱 완료는 승인이 아님). "
+                    + "같은 문서의 POLICY_INGEST 작업이 PENDING·QUEUED·PROCESSING 이면 COMPLETED·completed_at(Spring 수신 시각)으로 "
+                    + "바꾼다(COMPLETED·FAILED 는 그대로). 같은 보고를 다시 보내도 204.")
     @ApiResponse(responseCode = "204", description = "반영됨")
     @ApiResponse(responseCode = "400", description = "본문 형식 오류(details.fields)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

@@ -142,6 +142,19 @@ public class AiJob {
         this.startedAt = startedAt;
     }
 
+    /** 끝나지 않은 작업(PENDING·QUEUED·PROCESSING)만 완료할 수 있다. 실패한 작업은 완료로 바꾸지 않는다. */
+    public boolean canComplete() {
+        return status == AiJobStatus.PENDING || status == AiJobStatus.QUEUED || status == AiJobStatus.PROCESSING;
+    }
+
+    public void complete(Instant completedAt) {
+        if (!canComplete()) {
+            throw new IllegalStateException("job " + id + " cannot complete from " + status);
+        }
+        this.status = AiJobStatus.COMPLETED;
+        this.completedAt = completedAt;
+    }
+
     /** 이미 같은 오류로 실패 처리된 상태인가(재전송 판단). */
     public boolean isFailedWith(String errorCode, String errorMessage) {
         return status == AiJobStatus.FAILED

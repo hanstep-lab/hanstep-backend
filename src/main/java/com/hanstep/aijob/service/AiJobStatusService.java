@@ -1,7 +1,9 @@
 package com.hanstep.aijob.service;
 
 import com.hanstep.aijob.domain.AiJob;
+import com.hanstep.aijob.domain.AiJobResourceType;
 import com.hanstep.aijob.domain.AiJobStatus;
+import com.hanstep.aijob.domain.AiJobType;
 import com.hanstep.aijob.dto.JobFailedRequest;
 import com.hanstep.aijob.dto.JobStartedRequest;
 import com.hanstep.aijob.repository.AiJobRepository;
@@ -17,7 +19,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * ai_jobs 상태 전이는 여기서만 한다(INT-08, INT-10, 발행 결과). 시각은 모두 Spring 이 받은 시각(worker 시계와 섞지 않음).
+ * ai_jobs 상태 전이는 여기서만 한다(INT-08, INT-10, INT-13 적재 완료, 발행 결과). 시각은 모두 Spring 이 받은 시각(worker 시계와 섞지 않음).
  */
 @Service
 public class AiJobStatusService {
@@ -67,6 +69,24 @@ public class AiJobStatusService {
         }
         job.fail(request.errorCode(), request.message(), Instant.now());
         log.info("ai job {} failed: {} (retryable={})", jobId, request.errorCode(), request.retryable());
+    }
+
+    /**
+     * 정책 문서 적재 완료(INT-13) → 그 문서의 POLICY_INGEST 작업을 COMPLETED, completed_at 은 Spring 수신 시각.
+     * 이미 COMPLETED·FAILED 인 작업은 그대로 두고, 작업이 없는 문서(스크립트로 적재)는 할 일이 없다.
+     * INT-13 기록과 같은 트랜잭션에서 바꾼다.
+     */
+    @Transactional
+    public void markPolicyIngestCompleted(Long policyDocumentId) {
+        List<AiJob> jobs = aiJobRepository.findByResourceForUpdate(AiJobType.POLICY_INGEST,
+                AiJobResourceType.POLICY_DOCUMENT, policyDocumentId);
+        Instant now = Instant.now();
+        for (AiJob job : jobs) {
+            if (job.canComplete()) {
+                job.complete(now);
+                log.info("ai job {} completed by policy document {} ingestion", job.getId(), policyDocumentId);
+            }
+        }
     }
 
     /**
