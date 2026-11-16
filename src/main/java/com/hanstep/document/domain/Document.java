@@ -82,6 +82,31 @@ public class Document {
     private Instant updatedAt;
 
     /**
+     * 외국인등록증 앞면 업로드(#73). UPLOADED 로 시작하고 object_key 는 id 가 정해진 뒤 {@link #assignObjectKey} 로 넣는다.
+     * 진행·실패 상태는 OCR 작업(ai_jobs)에서 읽으므로 OCR_QUEUED·OCR_PROCESSING·FAILED 는 쓰지 않는다.
+     */
+    public static Document uploadedArcFront(Long userId, String contentType, int fileSizeBytes, String sha256,
+                                            Instant retentionUntil) {
+        Document doc = new Document();
+        doc.userId = userId;
+        doc.documentType = DocumentType.ARC;
+        doc.side = DocumentSide.FRONT;
+        doc.contentType = contentType;
+        doc.fileSizeBytes = fileSizeBytes;
+        doc.sha256 = sha256;
+        doc.status = DocumentStatus.UPLOADED;
+        doc.retentionUntil = retentionUntil;
+        return doc;
+    }
+
+    public void assignObjectKey(String objectKey) {
+        if (this.objectKey != null) {
+            throw new IllegalStateException("document " + id + " already has an object key");
+        }
+        this.objectKey = objectKey;
+    }
+
+    /**
      * OCR 결과를 받을 수 있는 상태인가. 업로드 직후(UPLOADED)도 받는다: 발행 confirm 기록보다 worker 결과가 먼저 올 수 있다.
      */
     public boolean canRecordOcrResult() {

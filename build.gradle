@@ -31,6 +31,9 @@ dependencies {
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.13.0'
     compileOnly 'org.projectlombok:lombok'
     runtimeOnly 'com.mysql:mysql-connector-j'
+    // 등록증 원본 R2(S3 호환) 업로드·삭제(#73). 기준선 시제품에서 쓰던 것을 main 으로 옮김
+    implementation platform('software.amazon.awssdk:bom:2.59.1')
+    implementation 'software.amazon.awssdk:s3'
     annotationProcessor 'org.projectlombok:lombok'
     testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
@@ -38,9 +41,6 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     // AI 작업 발행 테스트용 RabbitMQ(Docker 필요). compose 의 브로커에 테스트 메시지를 넣지 않으려고 따로 띄운다
     testImplementation 'org.testcontainers:testcontainers-rabbitmq'
-    // 등록증 업로드 경로 기준선(R2, S3 호환) 시제품용. 본 구현에서 main 으로 옮길지 정한다
-    testImplementation platform('software.amazon.awssdk:bom:2.59.1')
-    testImplementation 'software.amazon.awssdk:s3'
     testCompileOnly 'org.projectlombok:lombok'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testAnnotationProcessor 'org.projectlombok:lombok'

@@ -15,6 +15,9 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
@@ -64,6 +67,26 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException e) {
         return build(ErrorCode.VALIDATION_ERROR, null,
                 Map.of("fields", List.of(Map.of("field", e.getHeaderName(), "reason", "required header"))));
+    }
+
+    // 업로드 파일이 spring.servlet.multipart 크기 제한을 넘음(등록증 업로드 DOC-01)
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleUploadTooLarge(MaxUploadSizeExceededException e) {
+        return build(ErrorCode.VALIDATION_ERROR, null,
+                Map.of("fields", List.of(Map.of("field", "file", "reason", "file too large"))));
+    }
+
+    // multipart 필수 파트 누락 (예: DOC-01 의 file)
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ErrorResponse> handleMissingPart(MissingServletRequestPartException e) {
+        return build(ErrorCode.VALIDATION_ERROR, null,
+                Map.of("fields", List.of(Map.of("field", e.getRequestPartName(), "reason", "required part"))));
+    }
+
+    // multipart 가 아니거나 깨진 multipart 요청
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ErrorResponse> handleMultipart(MultipartException e) {
+        return build(ErrorCode.VALIDATION_ERROR, "malformed multipart request", null);
     }
 
     // 없는 주소

@@ -22,4 +22,9 @@ public interface AiJobRepository extends JpaRepository<AiJob, Long> {
     @Query("select j from AiJob j where j.jobType = :jobType and j.resourceType = :resourceType"
             + " and j.resourceId = :resourceId")
     List<AiJob> findByResourceForUpdate(AiJobType jobType, AiJobResourceType resourceType, Long resourceId);
+
+    /** 리소스의 가장 최근 작업(잠그지 않음). 등록증 문서의 OCR 진행 상태 조회용. */
+    Optional<AiJob> findFirstByJobTypeAndResourceTypeAndResourceIdOrderByIdDesc(AiJobType jobType,
+                                                                               AiJobResourceType resourceType,
+                                                                               Long resourceId);
 }
