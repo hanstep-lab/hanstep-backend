@@ -17,7 +17,7 @@ public interface AiJobRepository extends JpaRepository<AiJob, Long> {
     @Query("select j from AiJob j where j.id = :id")
     Optional<AiJob> findByIdForUpdate(Long id);
 
-    // 적재 완료(INT-13)와 started 가 같은 작업에 동시에 와도 순서대로 반영되게 같은 방식으로 잠근다
+    // 적재 완료(INT-13)·OCR 결과와 started 가 같은 작업에 동시에 와도 순서대로 반영되게 같은 방식으로 잠근다
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select j from AiJob j where j.jobType = :jobType and j.resourceType = :resourceType"
             + " and j.resourceId = :resourceId")
