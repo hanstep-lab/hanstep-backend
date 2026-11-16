@@ -5,6 +5,7 @@ import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
 import com.hanstep.common.time.KstDates;
 import com.hanstep.policy.domain.PolicyDocument;
+import com.hanstep.policy.dto.PolicyDocumentDetailResponse;
 import com.hanstep.policy.dto.PolicyDocumentStateItem;
 import com.hanstep.policy.dto.PolicyDocumentStateResponse;
 import com.hanstep.policy.dto.PolicyIngestedRequest;
@@ -23,7 +24,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** AI → Spring 정책 문서 내부 API(AI-R1, INT-13, 상태 목록). */
+/** AI → Spring 정책 문서 내부 API(AI-R1, INT-13, 상태 목록, 단건 조회). */
 @Service
 public class PolicyDocumentInternalService {
 
@@ -69,6 +70,15 @@ public class PolicyDocumentInternalService {
                 .map(doc -> PolicyDocumentStateItem.of(doc, today))
                 .toList();
         return new PolicyDocumentStateResponse(documents);
+    }
+
+    /** AI Worker 가 작업 메시지의 resourceId 로 적재할 문서를 다시 조회한다. */
+    @Transactional(readOnly = true)
+    public PolicyDocumentDetailResponse detail(Long policyDocumentId) {
+        return policyDocumentRepository.findById(policyDocumentId)
+                .map(PolicyDocumentDetailResponse::of)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND,
+                        Map.of("policyDocumentId", policyDocumentId)));
     }
 
     @Transactional

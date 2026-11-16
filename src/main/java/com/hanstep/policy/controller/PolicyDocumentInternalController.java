@@ -3,6 +3,7 @@ package com.hanstep.policy.controller;
 import com.hanstep.common.config.OpenApiConfig;
 import com.hanstep.common.error.ErrorResponse;
 import com.hanstep.policy.dto.LawDocumentRegisterRequest;
+import com.hanstep.policy.dto.PolicyDocumentDetailResponse;
 import com.hanstep.policy.dto.PolicyDocumentRef;
 import com.hanstep.policy.dto.PolicyDocumentStateResponse;
 import com.hanstep.policy.dto.PolicyIngestedRequest;
@@ -72,6 +73,20 @@ public class PolicyDocumentInternalController {
     @GetMapping("/internal/v1/ai-context/policy-documents")
     public PolicyDocumentStateResponse states() {
         return policyDocumentInternalService.states();
+    }
+
+    @Operation(summary = "정책 문서 단건 조회 (AI Worker 적재용)",
+            description = "AI Worker 가 POLICY_INGEST 메시지의 resourceId 로 적재할 문서를 다시 조회한다. "
+                    + "objectKey 는 R2 원본 키(없으면 null), contentHash 는 원본 바이트 SHA-256, "
+                    + "policyVersion 은 INT-13 documentVersion 으로 그대로 보낸다. 개인정보는 없다.")
+    @ApiResponse(responseCode = "200", description = "성공")
+    @ApiResponse(responseCode = "401", description = "X-Internal-Token 없음·틀림",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "404", description = "policy_documents 행 없음(RESOURCE_NOT_FOUND)",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @GetMapping("/internal/v1/ai-context/policy-documents/{policyDocumentId:\\d+}")
+    public PolicyDocumentDetailResponse detail(@PathVariable Long policyDocumentId) {
+        return policyDocumentInternalService.detail(policyDocumentId);
     }
 
     @Operation(summary = "정책 문서 인덱싱 완료 (INT-13)",
