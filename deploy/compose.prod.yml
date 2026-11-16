@@ -7,6 +7,25 @@
 # mem_limit: 서버 실측 후 정함. 로컬 실측은 deploy/README.md "측정 기록" 표 참고.
 name: hanstep
 
+# ai-server 와 ai-worker 가 같은 값으로 쓰는 환경 변수. 각 서비스는 <<: *x-ai-base-env 로 받고 자기 것만 더한다.
+x-ai-base-env: &x-ai-base-env
+  # 비밀번호는 URI 에 그대로 들어가므로 영문·숫자로 만든다(특수문자는 퍼센트 인코딩 필요)
+  MONGO_URI: mongodb://${MONGODB_USER}:${MONGODB_PASSWORD}@mongodb:27017/?authSource=admin&directConnection=true
+  RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/%2F
+  # 팀 공통 고정값(hanstep-AI ai/.env.example 과 같음). 바꾸면 저장된 청크를 전부 다시 임베딩해야 한다
+  EMBEDDING_MODEL_REVISION: 5617a9f61b028005a4858fdac845db406aefb181
+  # AI → Spring 내부 API. 키는 Spring 의 SPRING_INTERNAL_API_KEY 와 같은 값(같은 변수를 양쪽에 넣음)
+  SPRING_INTERNAL_API_URL: http://spring:8080
+  SPRING_INTERNAL_API_KEY: ${SPRING_INTERNAL_API_KEY}
+  R2_ENDPOINT_URL: ${R2_ENDPOINT_URL}
+  R2_REGION: ${R2_REGION:-auto}
+  R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+  R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+  R2_POLICY_BUCKET: ${R2_POLICY_BUCKET:-hanstep-visa-policies}
+  R2_POLICY_PREFIX: ${R2_POLICY_PREFIX:-policy-sources}
+  # 외국인등록증 버킷 이름(비밀 아님). 정책·상품 버킷이 이 버킷이면 AI 가 거부한다(빠지면 이 확인이 꺼짐)
+  R2_ARC_BUCKET: ${R2_ARC_BUCKET:-hanstep-arc-private}
+
 services:
   mysql:
     image: mysql:8.4
@@ -101,29 +120,15 @@ services:
     restart: unless-stopped
     init: true
     environment:
+      <<: *x-ai-base-env
       LOAD_MODEL_ON_STARTUP: "true"
-      # 비밀번호는 URI 에 그대로 들어가므로 영문·숫자로 만든다(특수문자는 퍼센트 인코딩 필요)
-      MONGO_URI: mongodb://${MONGODB_USER}:${MONGODB_PASSWORD}@mongodb:27017/?authSource=admin&directConnection=true
-      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/%2F
-      # 팀 공통 고정값(hanstep-AI ai/.env.example 과 같음). 바꾸면 저장된 청크를 전부 다시 임베딩해야 한다
-      EMBEDDING_MODEL_REVISION: 5617a9f61b028005a4858fdac845db406aefb181
-      # AI → Spring 내부 API. 키는 Spring 의 SPRING_INTERNAL_API_KEY 와 같은 값(같은 변수를 양쪽에 넣음)
-      SPRING_INTERNAL_API_URL: http://spring:8080
-      SPRING_INTERNAL_API_KEY: ${SPRING_INTERNAL_API_KEY}
       # Spring → AI 내부 API 토큰. Spring 의 AI_INTERNAL_API_TOKEN 과 같은 값(/health/ready 의 internal_auth 가 확인)
       AI_INTERNAL_API_TOKEN: ${AI_INTERNAL_API_TOKEN}
       # 챗봇 실제 모델 호출. AI 설정 기본값이 fake 라 빠지면 가짜 답변을 낸다
       CHAT_LLM_MODE: ${CHAT_LLM_MODE:-anthropic}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       # CHAT_PROMPT_VERSION 은 넣지 않는다(AI 코드 기본값을 따름)
-      R2_ENDPOINT_URL: ${R2_ENDPOINT_URL}
-      R2_REGION: ${R2_REGION:-auto}
-      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
-      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
-      R2_POLICY_BUCKET: ${R2_POLICY_BUCKET:-hanstep-visa-policies}
       R2_PRODUCT_BUCKET: ${R2_PRODUCT_BUCKET:-hanstep-financial-products}
-      R2_POLICY_PREFIX: ${R2_POLICY_PREFIX:-policy-sources}
-      R2_ARC_BUCKET: ${R2_ARC_BUCKET:-hanstep-arc-private}
       LAW_API_OC: ${LAW_API_OC}
       E74_INCLUDE_DRAFT_RULES: ${E74_INCLUDE_DRAFT_RULES:-false}
     volumes:
@@ -139,19 +144,40 @@ services:
     # healthcheck 는 이미지 기본값(/health/live) 사용
     # mem_limit: 서버 실측 후 정함
 
-  # ocr-worker: 이미지 미정. OCR 레포를 hanstep-backend 옆에 clone 하고 이미지가 정해지면 추가한다.
-  #   RabbitMQ 로 작업을 받고 결과는 Spring 내부 API(http://spring:8080/internal/v1)로 보낸다.
-  #   R2 는 외국인등록증 버킷(hanstep-arc-private) 전용 키를 따로 쓴다(R2_OCR_ACCESS_KEY_ID 등).
-  # ocr-worker:
-  #   build:
-  #     context: ../../<OCR 레포>
-  #   restart: unless-stopped
-  #   depends_on:
-  #     rabbitmq:
-  #       condition: service_healthy
-  #     spring:
-  #       condition: service_healthy
-  #   # mem_limit: 서버 실측 후 정함
+  # RabbitMQ policy.ingest 소비자(hanstep-AI #55). 정책 문서를 적재하고 INT-08·INT-10·INT-13 으로 Spring 에 보고한다.
+  # 1개만 띄운다: Worker 가 여럿이면 죽지 않고 느린 Worker 를 구분하지 못한다(hanstep-AI #55 PR 본문).
+  ai-worker:
+    # ai-server 가 빌드한 이미지를 그대로 쓴다(build 없음)
+    image: hanstep-ai:prod
+    command: ["python", "-m", "app.worker"]
+    restart: unless-stopped
+    # SIGTERM 을 받으면 RabbitMQ 연결을 닫고 종료한다
+    init: true
+    environment:
+      <<: *x-ai-base-env
+      # job_started 의 workerId. RETRY_DELAYS_MS 는 AI 기본값(5000,15000,45000)을 따른다
+      WORKER_ID: ai-worker-1
+    volumes:
+      # ai-server 와 같은 볼륨이라 모델을 다시 받지 않는다
+      - hf-cache:/models/huggingface
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      # 메시지를 받자마자 job_started 를 부른다
+      spring:
+        condition: service_healthy
+      # ai-server 다음에 띄운다. ai-server healthy(/health/live)는 모델 로드 전이라 첫 기동 때는 모델을 같이 받을 수 있다(hf-cache에 모델이 이미 있으면 다시 받지 않음)
+      ai-server:
+        condition: service_healthy
+    # 이미지 HEALTHCHECK 는 ai-server 의 8000 포트를 본다(Worker 는 HTTP 서버 없음)
+    healthcheck:
+      disable: true
+    # mem_limit: 서버 실측 후 정함
+
+  # ocr-worker: OCR 소비자는 ai-worker 안에 둔다(합의안 Q2). 별도 서비스는 만들지 않는다.
+  #   붙일 때 ai-worker 에만 ARC 버킷 전용 R2_OCR_* 키를 추가한다(ai-server 에는 넣지 않음).
 
   caddy:
     image: caddy:2

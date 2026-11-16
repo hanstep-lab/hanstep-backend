@@ -1,8 +1,9 @@
 # 운영 배포 (서버 1대 + Docker Compose)
 
-서버 1대(Ubuntu, x86, 16GB)에 MySQL·RabbitMQ·MongoDB·Spring·AI 서버·Caddy를 `deploy/compose.prod.yml` 하나로 띄운다.
+서버 1대(Ubuntu, x86, 16GB)에 MySQL·RabbitMQ·MongoDB·Spring·AI 서버·AI Worker·Caddy를 `deploy/compose.prod.yml` 하나로 띄운다.
 
 - 외부에 여는 포트는 Caddy의 80·443뿐이다. 나머지 서비스는 compose 내부 네트워크에서 서비스 이름(`mysql`, `rabbitmq`, `mongodb`, `spring`, `ai-server`)으로 통신한다.
+- `ai-worker`는 `ai-server`와 같은 이미지(`hanstep-ai:prod`)로 `python -m app.worker`를 실행한다. HTTP 포트 없이 RabbitMQ `policy.ingest` 큐를 소비해 정책 문서를 적재하고 Spring 내부 API로 상태를 보고한다. 1개만 띄운다.
 - Caddy는 `/api/v1/*`만 Spring으로 전달한다. `/internal/*`, `/swagger-ui*`, `/v3/api-docs*`는 외부에서 404로 막는다.
 - 비밀값은 `deploy/.env`에 둔다(커밋 금지). 키 목록과 설명은 `deploy/.env.example`.
 - 로컬 개발용 `docker-compose.yml`(루트)과는 별개다.
@@ -33,7 +34,7 @@ compose가 `../../hanstep-AI/ai`(AI 서버 빌드)와 `../../hanstep-AI/data/rag
 mkdir -p ~/hanstep && cd ~/hanstep
 git clone https://github.com/hanstep-lab/hanstep-backend.git
 git clone https://github.com/hanstep-lab/hanstep-AI.git
-git clone <OCR 레포 주소>      # ocr-worker 는 이미지 미정이라 compose 에 주석으로만 있음
+git clone <OCR 레포 주소>      # OCR 소비자는 합의안 Q2에 따라 ai-worker 안에 둔다. 엔진 코드 위치와 R2_OCR_* 키 추가는 #73에서 확정
 ```
 
 ```
@@ -106,6 +107,8 @@ alias dc='docker compose -f deploy/compose.prod.yml'
    dc exec ai-server python -c "import urllib.request as u; print(u.urlopen('http://127.0.0.1:8000/health/ready', timeout=5).status)"
    ```
 
+5. Worker 확인: `ai-worker`는 `ai-server`가 healthy가 된 뒤 뜬다. 2번 인덱스가 없으면 시작하다 종료하고 재시작을 반복하므로 인덱스를 만든 뒤 본다. `dc logs ai-worker`에 `embedding model BAAI/bge-m3 loaded=True`와 `consuming policy.ingest`가 찍히고, `dc exec rabbitmq rabbitmqctl list_queues name consumers`에서 `policy.ingest`의 consumers가 1이어야 한다.
+
 ## 6. 데모 데이터
 
 내 PC(Windows)의 `hanstep-backend`에서 실행한다.
@@ -140,5 +143,6 @@ powershell -ExecutionPolicy Bypass -File scripts\demo-setup.ps1 -BaseUrl https:/
 | MongoDB | 641 MiB | |
 | Spring | 사설 369 MB / 작업 집합 332 MB | |
 | AI 서버 | 사설 3,473 MB / 작업 집합 2,047 MB | |
+| AI Worker | 미측정 | 서버 실측 예정 |
 | OCR | 미측정 | |
 | Caddy | 미측정 | |
