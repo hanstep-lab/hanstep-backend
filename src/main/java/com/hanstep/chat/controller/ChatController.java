@@ -92,7 +92,7 @@ public class ChatController {
             새 대화방은 맥락 없이 시작한다. 대화방 보관·삭제 API 는 없어 만든 대화방은 목록(CHT-02)에 남는다.""")
     @ApiResponse(responseCode = "201", description = "생성됨", content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ChatSessionResponse.class),
-            examples = @ExampleObject(value = SESSION_EXAMPLE)))
+            examples = @ExampleObject(name = "성공", value = SESSION_EXAMPLE)))
     @ApiResponse(responseCode = "400", description = "제목 200자 초과(details.fields)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
@@ -126,7 +126,7 @@ public class ChatController {
                     + "FAILED(실패, 그때까지의 content). USER 는 항상 COMPLETED")
     @ApiResponse(responseCode = "200", description = "성공", content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ChatMessageListResponse.class),
-            examples = @ExampleObject(value = MESSAGES_EXAMPLE)))
+            examples = @ExampleObject(name = "성공", value = MESSAGES_EXAMPLE)))
     @ApiResponse(responseCode = "400", description = "size 가 1~100 밖이거나 cursor 형식 오류(details.fields)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
