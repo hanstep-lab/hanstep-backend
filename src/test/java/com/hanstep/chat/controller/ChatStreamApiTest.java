@@ -12,7 +12,10 @@ import com.hanstep.chat.support.SseTestClient.Result;
 import com.hanstep.common.security.JwtTokenProvider;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -311,6 +314,67 @@ class ChatStreamApiTest {
         assertThat(row(assistantMessageId).get("status")).isEqualTo("COMPLETED");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM chat_message_sources WHERE message_id = ?", Long.class,
                 assistantMessageId)).isZero();
+    }
+
+    @Test
+    void 상품_근거는_id_없이_chunkRef로_저장하고_전달한다() throws Exception {
+        AI.script((request, out) -> {
+            out.event("agent.delta", "{\"text\":\"ok\"}");
+            out.event("agent.sources", "{\"sources\":[{\"type\":\"PRODUCT_DOCUMENT\",\"id\":null,"
+                    + "\"chunkRef\":\"doc-7b32d0e385aa\",\"pageLabel\":\"p.1\"}]}");
+            out.event("agent.done", "{\"content\":\"ok\"}");
+        });
+        Result result = client.stream(bearer, sessionId, SseTestClient.body("c-product", "savings?"), null);
+
+        JsonNode sources = json(result.first("chat.sources")).path("sources");
+        assertThat(sources.size()).isEqualTo(1);
+        assertThat(sources.get(0).path("type").asString()).isEqualTo("PRODUCT_DOCUMENT");
+        assertThat(sources.get(0).path("id").isNull()).isTrue();
+        assertThat(sources.get(0).path("chunkRef").asString()).isEqualTo("doc-7b32d0e385aa");
+        assertThat(sources.get(0).path("pageLabel").asString()).isEqualTo("p.1");
+        long assistantMessageId = json(result.first("chat.started")).path("assistantMessageId").asLong();
+        Map<String, Object> source = jdbc.queryForMap("SELECT * FROM chat_message_sources WHERE message_id = ?",
+                assistantMessageId);
+        assertThat(source.get("source_type")).isEqualTo("PRODUCT_DOCUMENT");
+        assertThat(source.get("source_id")).isNull();
+        assertThat(source.get("chunk_ref")).isEqualTo("doc-7b32d0e385aa");
+
+        // 메시지 목록(CHT-03)에서도 id 가 0 이 아니라 null
+        HttpResponse<String> list = HttpClient.newHttpClient().send(HttpRequest.newBuilder(
+                        URI.create("http://127.0.0.1:" + port + "/api/v1/chat/sessions/" + sessionId + "/messages"))
+                .header("Authorization", bearer).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(list.statusCode()).isEqualTo(200);
+        JsonNode listed = null;
+        for (JsonNode m : MAPPER.readTree(list.body()).path("messages")) {
+            if (m.path("id").asLong() == assistantMessageId) {
+                listed = m.path("sources").get(0);
+            }
+        }
+        assertThat(listed).isNotNull();
+        assertThat(listed.path("id").isNull()).isTrue();
+        assertThat(listed.path("chunkRef").asString()).isEqualTo("doc-7b32d0e385aa");
+    }
+
+    @Test
+    void 상품_외_타입의_id_없음과_chunkRef_없는_상품_근거는_건너뛴다() throws Exception {
+        AI.script((request, out) -> {
+            out.event("agent.delta", "{\"text\":\"ok\"}");
+            out.event("agent.sources", "{\"sources\":["
+                    + "{\"type\":\"FINANCIAL_ANALYSIS\",\"id\":null,\"chunkRef\":\"x\"},"
+                    + "{\"type\":\"POLICY_DOCUMENT\",\"chunkRef\":\"chunk-1\"},"
+                    + "{\"type\":\"PRODUCT_DOCUMENT\",\"id\":null,\"chunkRef\":null},"
+                    + "{\"type\":\"PRODUCT_DOCUMENT\",\"id\":null,\"chunkRef\":\" \"},"
+                    + "{\"type\":\"E74_ASSESSMENT\",\"id\":3}]}");
+            out.event("agent.done", "{\"content\":\"ok\"}");
+        });
+        Result result = client.stream(bearer, sessionId, SseTestClient.body("c-skip", "hi"), null);
+
+        JsonNode sources = json(result.first("chat.sources")).path("sources");
+        assertThat(sources.size()).isEqualTo(1);
+        assertThat(sources.get(0).path("type").asString()).isEqualTo("E74_ASSESSMENT");
+        long assistantMessageId = json(result.first("chat.started")).path("assistantMessageId").asLong();
+        assertThat(jdbc.queryForList("SELECT source_type FROM chat_message_sources WHERE message_id = ?",
+                String.class, assistantMessageId)).containsExactly("E74_ASSESSMENT");
     }
 
     @Test
