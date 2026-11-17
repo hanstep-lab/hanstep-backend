@@ -117,7 +117,8 @@ public class GlobalExceptionHandler {
         return build(ErrorCode.NOT_ACCEPTABLE, null, null);
     }
 
-    // AI 호출 실패(연결 실패·타임아웃·AI 오류 응답). 외부 HTTP 호출은 지금 aiRestClient 뿐이다.
+    // AI 호출 실패(연결 실패·타임아웃·AI 오류 응답). 여기까지 올라오는 외부 HTTP 호출은 aiRestClient 뿐이다.
+    // 환율 수집기(fx.client)는 원천 오류를 직접 잡아 FxSourceException 으로 바꾸므로 여기로 오지 않는다.
     // 다른 외부 호출이 생기면 출처를 구분해야 한다
     @ExceptionHandler(RestClientException.class)
     public ResponseEntity<ErrorResponse> handleAiUpstream(RestClientException e) {
