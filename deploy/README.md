@@ -1,9 +1,10 @@
 # 운영 배포 (서버 1대 + Docker Compose)
 
-서버 1대(Ubuntu, x86, 16GB)에 MySQL·RabbitMQ·MongoDB·Spring·AI 서버·AI Worker·Caddy를 `deploy/compose.prod.yml` 하나로 띄운다.
+서버 1대(Ubuntu, x86, 16GB)에 MySQL·RabbitMQ·MongoDB·Spring·AI 서버·AI Worker·OCR Worker·Caddy를 `deploy/compose.prod.yml` 하나로 띄운다.
 
 - 외부에 여는 포트는 Caddy의 80·443뿐이다. 나머지 서비스는 compose 내부 네트워크에서 서비스 이름(`mysql`, `rabbitmq`, `mongodb`, `spring`, `ai-server`)으로 통신한다.
 - `ai-worker`는 `ai-server`와 같은 이미지(`hanstep-ai:prod`)로 `python -m app.worker`를 실행한다. HTTP 포트 없이 RabbitMQ `policy.ingest` 큐를 소비해 정책 문서를 적재하고 Spring 내부 API로 상태를 보고한다. 1개만 띄운다.
+- `ocr-worker`는 hanstep-AI `ocr/`로 만든 별도 이미지(`hanstep-ocr:prod`, Python 3.10 + paddle, 약 2.4GB)로 `python -m worker`를 실행한다. HTTP 포트 없이 `ocr.request` 큐를 소비해 등록증 원본을 R2에서 읽고, OCR 결과를 Spring 내부 API로 보고한다. 1개만 띄우고 CPU를 2개로 제한한다. 자세한 내용은 [OCR Worker](#ocr-worker).
 - Caddy는 `/api/v1/*`를 Spring으로 전달하고, `/internal/*`는 외부에서 404로 막는다.
 - Swagger UI(`/swagger-ui/*`, `/v3/api-docs*`)는 Caddy 기본 인증을 통과해야 열린다. 운영 문서에는 `/api/v1`만 나온다(Spring `prod` 프로필, `application-prod.yaml`). 설정은 [Swagger UI 기본 인증](#swagger-ui-기본-인증).
 - 비밀값은 `deploy/.env`에 둔다(커밋 금지). 키 목록과 설명은 `deploy/.env.example`.
@@ -27,22 +28,20 @@ sudo usermod -aG docker $USER   # 다시 로그인한 뒤부터 sudo 없이 dock
 
 방화벽(클라우드 보안 그룹 포함)은 22(SSH), 80, 443만 연다.
 
-## 2. 레포 3개를 나란히 clone
+## 2. 레포 2개를 나란히 clone
 
-compose가 `../../hanstep-AI/ai`(AI 서버 빌드)와 `../../hanstep-AI/data/rag_documents`(RAG 원문)를 상대 경로로 쓰므로 같은 폴더에 나란히 둔다.
+compose가 `../../hanstep-AI/ai`(AI 서버 빌드), `../../hanstep-AI/ocr`(OCR Worker 빌드), `../../hanstep-AI/data/rag_documents`(RAG 원문)를 상대 경로로 쓰므로 같은 폴더에 나란히 둔다. OCR Worker는 hanstep-AI 레포 안(`ocr/`)에 있어 따로 clone하지 않는다.
 
 ```bash
 mkdir -p ~/hanstep && cd ~/hanstep
 git clone https://github.com/hanstep-lab/hanstep-backend.git
 git clone https://github.com/hanstep-lab/hanstep-AI.git
-git clone <OCR 레포 주소>      # OCR 소비자는 hanstep-AI의 ocr-worker(ocr/worker)다(Spring 쪽 R2_OCR_* 는 #73에서 추가)
 ```
 
 ```
 ~/hanstep/
 ├── hanstep-backend/   ← 여기서 docker compose 실행
-├── hanstep-AI/
-└── <OCR 레포>/
+└── hanstep-AI/        ← ai/(AI 서버·AI Worker), ocr/(OCR Worker)
 ```
 
 ## 3. deploy/.env 작성
@@ -55,12 +54,13 @@ vi deploy/.env
 ```
 
 - 비밀번호는 `openssl rand -hex 24`처럼 영문·숫자로 만든다(MongoDB·RabbitMQ 비밀번호가 URI에 그대로 들어감).
-- `SPRING_INTERNAL_API_KEY`는 32자 이상이다. compose가 같은 값을 Spring과 AI 서버 양쪽에 넣는다.
+- `SPRING_INTERNAL_API_KEY`는 32자 이상이다. compose가 같은 값을 Spring, AI 서버·AI Worker, OCR Worker에 넣는다.
 - `AI_INTERNAL_API_TOKEN`은 32자 이상이며 `SPRING_INTERNAL_API_KEY`와 다른 값으로 한다.
 - `CHAT_LLM_MODE`를 비우면 `anthropic`(실제 호출, 유료)이라 `ANTHROPIC_API_KEY`가 필요하다. AI 코드 기본값은 `fake`(가짜 답변)다.
 - `E74_INCLUDE_DRAFT_RULES`는 비워 둔다(false). 2026 규칙(`E74-2026-v1`)은 승인(APPROVED) 상태라 그대로 계산된다(#95).
-- `R2_OCR_ACCESS_KEY_ID`·`R2_OCR_SECRET_ACCESS_KEY`는 외국인등록증 버킷(`R2_ARC_BUCKET`) 전용 키다. Spring이 등록증 앞면 업로드와 확정 시 원본 삭제에 쓴다(#73). 정책·상품 키(`R2_ACCESS_KEY_ID`)와 다른 키이고, 이 버킷의 읽기·쓰기·삭제 권한만 준다. 비어 있으면 업로드가 500으로 실패한다.
-- Spring이 처음 RabbitMQ에 연결할 때 `ocr.request`·`ocr.request.retry`·`ocr.request.dlq` 큐를 선언한다(#73). OCR 소비자(hanstep-AI `ocr-worker`)는 아직 이 compose에 없어서, 붙기 전에 올린 등록증의 OCR 작업은 `ocr.request`에 쌓인다.
+- `R2_OCR_ACCESS_KEY_ID`·`R2_OCR_SECRET_ACCESS_KEY`는 외국인등록증 버킷(`R2_ARC_BUCKET`) 전용 쓰기 키다. Spring이 등록증 앞면 업로드(PutObject)와 확정·재업로드 시 원본 삭제(DeleteObject)에 쓴다(#73). 정책·상품 키(`R2_ACCESS_KEY_ID`)와 다른 키이고, 이 버킷의 읽기·쓰기·삭제 권한만 준다. 비어 있으면 업로드가 500으로 실패한다.
+- `R2_OCR_WORKER_ACCESS_KEY_ID`·`R2_OCR_WORKER_SECRET_ACCESS_KEY`는 같은 버킷의 **읽기 전용** 키다. OCR Worker가 원본을 읽는 데(GetObject)만 쓰고, compose가 Worker에는 `R2_OCR_ACCESS_KEY_ID`·`R2_OCR_SECRET_ACCESS_KEY` 이름으로 넘긴다. 위 Spring 키와 다른 키로 만든다. 비어 있으면 OCR Worker만 종료하고(다른 서비스는 그대로 뜸), 올린 등록증은 확인 대기로 넘어가지 않는다.
+- Spring이 처음 RabbitMQ에 연결할 때 `ocr.request`·`ocr.request.retry`·`ocr.request.dlq` 큐를 선언한다(#73). `ocr-worker`가 이 큐를 소비한다. Worker가 떠 있지 않은 동안 올린 등록증의 OCR 작업은 `ocr.request`에 쌓였다가 Worker가 뜨면 처리된다.
 - 발행 대기 AI 작업(큐에 못 들어간 OCR·정책 적재 작업)은 Spring이 1분마다 다시 보낸다. 끄려면 `AI_JOB_REPUBLISH_ENABLED=false`를 spring 서비스 환경 변수에 넣는다.
 - MySQL·RabbitMQ·MongoDB 계정은 볼륨이 비어 있는 최초 기동 때만 적용된다.
 - `SWAGGER_BASIC_USER`·`SWAGGER_BASIC_HASH`는 필수다. 만드는 법은 [Swagger UI 기본 인증](#swagger-ui-기본-인증).
@@ -82,6 +82,7 @@ docker compose -f deploy/compose.prod.yml ps
 - **이미 떠 있는 DB**(볼륨 있음)에는 `db/init` 변경이 들어가지 않는다. 그런 변경은 `deploy/migrations/`에 날짜별 SQL로 두고, `git pull` 뒤 `up` 전에 순서대로 실행한다. 빠뜨리면 Spring이 스키마 검증(`ddl-auto: validate`)에서 기동에 실패할 수 있다. 여러 번 실행해도 결과가 같게 만든다.
   - `2026-11-17-bill-payments-e74-approved.sql`: 청구 납부 테이블·Reyes 납부 내역(#87), E-7-4 2026 규칙 승인(#95). 실행 명령과 확인 쿼리는 파일 맨 위·맨 아래에 있다.
 - AI 서버는 `LOAD_MODEL_ON_STARTUP=true`라 처음에 BGE-M3(~2.3GB)를 받아 `hf-cache` 볼륨에 저장한다. 처음에는 몇 분 걸린다.
+- OCR Worker 이미지는 첫 빌드가 오래 걸린다(paddle 설치·OCR 모델 다운로드). [OCR Worker](#ocr-worker)의 "첫 빌드"를 먼저 본다.
 - Caddy는 Spring이 healthy가 된 뒤 뜨고, `DOMAIN`의 인증서를 자동 발급한다. 확인: `curl https://<도메인>/api/v1/health`
 
 ## 자동 배포
@@ -114,6 +115,7 @@ rm ~/hanstep/AUTO_DEPLOY_OFF      # 켜기
 ### 주의
 
 - 배포할 때마다 Spring·AI가 다시 빌드되어 30초~1분 끊길 수 있다. 머지 직후 FE 테스트가 실패하면 이 때문일 수 있다.
+- Actions 제한 시간은 20분이다. OCR Worker 첫 빌드처럼 오래 걸리는 빌드는 머지 전에 서버에서 미리 해 둔다([OCR Worker](#ocr-worker)).
 - EC2가 꺼진 시간에 머지하면 Actions가 실패한다. 서버를 켠 뒤 해당 실행에서 Re-run을 누른다.
 - 마이그레이션 파일은 여러 번 실행해도 결과가 같게 작성한다.
 - `docker compose down -v`는 쓰지 않는다. DB 볼륨이 지워진다.
@@ -156,6 +158,54 @@ alias dc='docker compose -f deploy/compose.prod.yml'
    ```
 
 5. Worker 확인: `ai-worker`는 `ai-server`가 healthy가 된 뒤 뜬다. 2번 인덱스가 없으면 시작하다 종료하고 재시작을 반복하므로 인덱스를 만든 뒤 본다. `dc logs ai-worker`에 `embedding model BAAI/bge-m3 loaded=True`와 `consuming policy.ingest`가 찍히고, `dc exec rabbitmq rabbitmqctl list_queues name consumers`에서 `policy.ingest`의 consumers가 1이어야 한다.
+
+## OCR Worker
+
+`ocr-worker`(hanstep-AI `ocr/worker`, AI #80)는 등록증 OCR을 처리한다. 흐름: 등록증 업로드(Spring, 202) → `ocr.request` 큐 → Worker가 Spring 내부 API로 원본 위치를 받아 R2에서 원본을 읽음 → OCR → Spring에 결과 보고 → 문서가 확인 대기(`PENDING_CONFIRMATION`)로 바뀐다.
+
+### 필요한 .env 키
+
+| 키 | 용도 |
+|---|---|
+| `RABBITMQ_DEFAULT_USER`·`RABBITMQ_DEFAULT_PASS` | compose가 Worker의 `RABBITMQ_URL`(`rabbitmq:5672`)을 만든다 |
+| `SPRING_INTERNAL_API_KEY` | Worker → Spring 내부 API 인증(`X-Internal-Token`). Spring과 같은 값 |
+| `R2_ENDPOINT_URL`·`R2_REGION` | Spring·AI 서버와 같은 값 |
+| `R2_ARC_BUCKET` | 등록증 버킷 이름. 비우면 `hanstep-arc-private` |
+| `R2_OCR_WORKER_ACCESS_KEY_ID`·`R2_OCR_WORKER_SECRET_ACCESS_KEY` | 등록증 버킷 **읽기 전용** 키. compose가 Worker에는 `R2_OCR_ACCESS_KEY_ID`·`R2_OCR_SECRET_ACCESS_KEY` 이름으로 넘긴다. Spring의 `R2_OCR_*`(쓰기·삭제)와 다른 키 |
+
+- `SPRING_INTERNAL_API_URL`(`http://spring:8080`)과 `WORKER_ID`(`ocr-worker-1`)는 compose에 고정돼 있다.
+- Worker에는 정책·상품 버킷 키(`R2_ACCESS_KEY_ID`)와 MongoDB 주소를 넣지 않는다(`x-ai-base-env`를 상속하지 않음).
+- 필수 값이 비었거나 예시값이면 Worker가 모델을 올리기 전에 `worker not configured: ...`를 남기고 종료한다. 이때 다른 서비스는 그대로 뜬다. `.env`를 고친 뒤 `dc up -d ocr-worker`.
+
+### 첫 빌드
+
+- 이미지(약 2.4GB)를 빌드할 때 paddle을 설치하고 OCR 모델을 받아 넣으므로 첫 빌드가 오래 걸린다. 그다음부터는 `ocr/worker` 코드만 바뀌면 캐시를 써서 빠르다(Dockerfile이 모델 층 뒤에 Worker 코드를 둔다).
+- 자동 배포 Actions의 제한 시간은 20분(`timeout-minutes: 20`)이라 첫 빌드가 그 안에 끝나지 않을 수 있다. ocr-worker가 처음 들어가는 배포 **전에** 서버에서 한 번 빌드해 캐시를 만들어 둔다. 그러면 자동 배포의 `build`가 캐시를 쓴다.
+
+  ```bash
+  git -C ~/hanstep/hanstep-AI pull --ff-only origin develop
+  docker build -t hanstep-ocr:prod ~/hanstep/hanstep-AI/ocr
+  ```
+
+### 확인
+
+- `dc logs ocr-worker`에 `ocr model ppocrv5-ko-v0lite loaded in …s`와 `worker ocr-worker-1 consuming ocr.request`가 찍힌다.
+- `dc exec rabbitmq rabbitmqctl list_queues name consumers messages`에서 `ocr.request`의 consumers가 1이다.
+- 문서 1건 처리 시간과 단계별 시간은 `dc logs ocr-worker`의 `ocr reported modelVersion=… latencyMs=… timings=…` 줄에 나온다.
+
+### 시연 전 예열
+
+배포 직후(Worker 컨테이너가 새로 뜬 뒤) 첫 OCR은 느리다. 시연 전에 합성 견본 이미지(실제 등록증 아님)를 한 번 올려 확인 대기까지 가는지 보고 예열해 둔다.
+
+1. Swagger에서 `POST /api/v1/auth/entry`로 토큰을 받는다.
+2. `POST /api/v1/documents`(multipart `front`)에 견본 이미지를 올린다 → 202
+3. `GET /api/v1/documents/{id}`의 `status`가 `PENDING_CONFIRMATION`이 되는지 본다.
+4. 확정(`POST /api/v1/documents/{id}/confirm`)은 하지 않는다. 확정하면 그 사용자의 체류 프로필이 바뀐다.
+
+### CPU
+
+- `cpus: "2"`는 임시값이다. 로컬 측정에서 OCR 추론이 CPU 8코어를 모두 써서 같은 서버의 Spring·AI 서버(챗봇)가 느려질 수 있었다. 서버에서 `nproc`를 확인하고 OCR 처리 시간과 챗봇 응답 시간을 같이 재서 조정한다.
+- 값이 서버 코어 수보다 크면 컨테이너가 뜨지 않는다. 서버 코어가 2개면 Worker가 CPU를 전부 쓸 수 있으므로 1로 낮춘다.
 
 ## 6. 데모 데이터
 
