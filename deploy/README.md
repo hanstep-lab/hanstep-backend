@@ -84,6 +84,47 @@ docker compose -f deploy/compose.prod.yml ps
 - AI 서버는 `LOAD_MODEL_ON_STARTUP=true`라 처음에 BGE-M3(~2.3GB)를 받아 `hf-cache` 볼륨에 저장한다. 처음에는 몇 분 걸린다.
 - Caddy는 Spring이 healthy가 된 뒤 뜨고, `DOMAIN`의 인증서를 자동 발급한다. 확인: `curl https://<도메인>/api/v1/health`
 
+## 자동 배포
+
+develop에 머지(push)되면 GitHub Actions(`deploy-prod`)가 서버에 SSH로 접속해 `deploy/auto-deploy.sh`를 실행한다. BE·AI 어느 레포에 머지돼도 두 레포를 모두 최신으로 받아 함께 배포한다.
+
+### 순서
+
+1. `flock`으로 잠근다. BE·AI가 동시에 머지되면 하나씩 실행된다.
+2. `~/hanstep/AUTO_DEPLOY_OFF`가 있으면 `skipped`를 출력하고 끝낸다.
+3. 두 레포가 develop인지 확인하고 `git pull --ff-only`로 받는다.
+4. `deploy/migrations/*.sql`을 이름순으로 실행한다.
+5. `config --quiet` → `build` → `up -d` 순서로 실행한다.
+6. `https://hanstep-shinhan.duckdns.org/api/v1/health`가 2분 안에 `{"status":"UP"}`가 되는지 확인한다.
+
+3~5에서 실패하면 그 자리에서 멈추고 Actions가 빨간불이 된다. 빌드 단계에서 실패하면 기존 컨테이너는 그대로 동작한다. 6에서 실패하면 이미 새 컨테이너로 바뀐 상태이므로 서버에서 로그를 확인한다.
+
+### 자동 배포 끄기·켜기
+
+```bash
+touch ~/hanstep/AUTO_DEPLOY_OFF   # 끄기 (발표 당일·리허설)
+rm ~/hanstep/AUTO_DEPLOY_OFF      # 켜기
+```
+
+### 로그
+
+- 서버: `~/hanstep/deploy-logs/YYYYMMDD-HHMMSS.log` (서버 시간 UTC 기준). 첫 줄에 호출한 레포와 커밋이 남는다.
+- Actions: 각 레포 Actions 탭의 `deploy-prod` 실행 기록
+
+### 주의
+
+- 배포할 때마다 Spring·AI가 다시 빌드되어 30초~1분 끊길 수 있다. 머지 직후 FE 테스트가 실패하면 이 때문일 수 있다.
+- EC2가 꺼진 시간에 머지하면 Actions가 실패한다. 서버를 켠 뒤 해당 실행에서 Re-run을 누른다.
+- 마이그레이션 파일은 여러 번 실행해도 결과가 같게 작성한다.
+- `docker compose down -v`는 쓰지 않는다. DB 볼륨이 지워진다.
+- `docker compose config`는 `--quiet` 없이 실행하지 않는다. `.env` 값이 화면과 로그에 나온다.
+
+### 배포 키
+
+- Actions는 배포 전용 키로 접속한다. 서버 `~/.ssh/authorized_keys`에 `restrict,command=".../deploy/auto-deploy.sh"`로 등록되어 있어서, 이 키로는 셸이 열리지 않고 스크립트만 실행된다.
+- Secrets(BE·AI 레포 각각): `DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_KNOWN_HOSTS`
+- 키 값은 Secrets에만 둔다. 노션·단체방·코드에 올리지 않는다.
+
 ## 5. AI 준비
 
 ```bash
