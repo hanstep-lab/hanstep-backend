@@ -35,7 +35,8 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
     volumes:
-      # 볼륨이 비어 있는 최초 기동 때만 스키마 → 기준 시드 → 데모 시드 순으로 실행된다
+      # 볼륨이 비어 있는 최초 기동 때만 스키마 → 기준 시드 → 데모 시드 순으로 실행된다.
+      # 로컬 전용 시드(db/dev, Mock 환율)는 마운트하지 않는다(운영 환율은 실데이터만, #119)
       - ../db/init:/docker-entrypoint-initdb.d:ro
       - mysql-data:/var/lib/mysql
     # $$ 는 컨테이너 안 환경 변수(compose 설정에 비밀번호를 펼치지 않음)
@@ -109,6 +110,11 @@ services:
       R2_OCR_ACCESS_KEY_ID: ${R2_OCR_ACCESS_KEY_ID}
       R2_OCR_SECRET_ACCESS_KEY: ${R2_OCR_SECRET_ACCESS_KEY}
       R2_ARC_BUCKET: ${R2_ARC_BUCKET:-hanstep-arc-private}
+      # 환율 수집기(#119). 1시간 수집은 Mock 정리 SQL·백필을 끝낸 뒤 켠다(deploy/README.md "환율 수집기")
+      KOREAEXIM_API_KEY: ${KOREAEXIM_API_KEY:-}
+      FX_COLLECTOR_ENABLED: ${FX_COLLECTOR_ENABLED:-false}
+      FX_COLLECTOR_CURRENCIES: ${FX_COLLECTOR_CURRENCIES:-USD,PHP}
+      FRANKFURTER_BASE_URL: ${FRANKFURTER_BASE_URL:-https://api.frankfurter.dev/v2}
     depends_on:
       mysql:
         condition: service_healthy
