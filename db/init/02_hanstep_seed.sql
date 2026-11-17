@@ -36,10 +36,10 @@ INSERT INTO institutions (institution_code, name, name_ko, institution_type) VAL
  ('MOCK_NHIS',    'Mock National Health Insurance', NULL, 'PUBLIC'),
  ('MOCK_UTILITY', 'Mock Utility (City Gas)',        NULL, 'BILLER');
 
--- E-7-4 규칙: 10/22 회의록·지수 기능정의서에 옮겨진 농식품부 2026 점수표 값.
--- 법무부 공식 공고로 재확인하기 전까지 DRAFT. DRAFT 규칙은 계산 API가 사용하지 않음.
+-- E-7-4 규칙: 2026 숙련기능인력 선발계획 개선본(2026-06-01) 붙임1 점수표 값.
+-- 2026-11-17 팀이 원문과 대조해 APPROVED(hanstep-AI 규칙 파일 E74-2026-v1.json과 같은 상태). DRAFT 규칙은 계산 API가 사용하지 않음.
 INSERT INTO e74_rule_sets (rule_version, effective_from, required_total_score, approval_status, note) VALUES
- ('E74-2026-v1', '2026-01-01', NULL, 'DRAFT', '기준 총점·가점 세부는 법무부 2026 선발계획 확인 후 입력');
+ ('E74-2026-v1', '2026-01-01', 200, 'APPROVED', '2026 선발계획 개선본(2026-06-01) 점수표 대조 완료(2026-11-17)');
 
 INSERT INTO e74_rules (rule_set_id, rule_code, category, condition_json, points, exclusive_group, actor, description) VALUES
  (1, 'INCOME_25_30', 'BASE_INCOME', '{"avgIncome2y":{"gte":25000000,"lt":30000000}}', 50,  'INCOME', 'USER', '최근 2년 평균 연소득 2,500만~3,000만 미만'),
