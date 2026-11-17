@@ -35,7 +35,7 @@ compose가 `../../hanstep-AI/ai`(AI 서버 빌드)와 `../../hanstep-AI/data/rag
 mkdir -p ~/hanstep && cd ~/hanstep
 git clone https://github.com/hanstep-lab/hanstep-backend.git
 git clone https://github.com/hanstep-lab/hanstep-AI.git
-git clone <OCR 레포 주소>      # OCR 소비자는 합의안 Q2에 따라 ai-worker 안에 둔다. 엔진 코드 위치는 미정(Spring 쪽 R2_OCR_* 는 #73에서 추가)
+git clone <OCR 레포 주소>      # OCR 소비자는 hanstep-AI의 ocr-worker(ocr/worker)다(Spring 쪽 R2_OCR_* 는 #73에서 추가)
 ```
 
 ```
@@ -60,7 +60,7 @@ vi deploy/.env
 - `CHAT_LLM_MODE`를 비우면 `anthropic`(실제 호출, 유료)이라 `ANTHROPIC_API_KEY`가 필요하다. AI 코드 기본값은 `fake`(가짜 답변)다.
 - 시연하려면 `E74_INCLUDE_DRAFT_RULES=true`(2026 규칙이 아직 DRAFT).
 - `R2_OCR_ACCESS_KEY_ID`·`R2_OCR_SECRET_ACCESS_KEY`는 외국인등록증 버킷(`R2_ARC_BUCKET`) 전용 키다. Spring이 등록증 앞면 업로드와 확정 시 원본 삭제에 쓴다(#73). 정책·상품 키(`R2_ACCESS_KEY_ID`)와 다른 키이고, 이 버킷의 읽기·쓰기·삭제 권한만 준다. 비어 있으면 업로드가 500으로 실패한다.
-- Spring이 처음 RabbitMQ에 연결할 때 `ocr.request`·`ocr.request.retry`·`ocr.request.dlq` 큐를 선언한다(#73). OCR 소비자가 붙기 전에 올린 등록증의 OCR 작업은 `ocr.request`에 쌓인다.
+- Spring이 처음 RabbitMQ에 연결할 때 `ocr.request`·`ocr.request.retry`·`ocr.request.dlq` 큐를 선언한다(#73). OCR 소비자(hanstep-AI `ocr-worker`)는 아직 이 compose에 없어서, 붙기 전에 올린 등록증의 OCR 작업은 `ocr.request`에 쌓인다.
 - 발행 대기 AI 작업(큐에 못 들어간 OCR·정책 적재 작업)은 Spring이 1분마다 다시 보낸다. 끄려면 `AI_JOB_REPUBLISH_ENABLED=false`를 spring 서비스 환경 변수에 넣는다.
 - MySQL·RabbitMQ·MongoDB 계정은 볼륨이 비어 있는 최초 기동 때만 적용된다.
 - `SWAGGER_BASIC_USER`·`SWAGGER_BASIC_HASH`는 필수다. 만드는 법은 [Swagger UI 기본 인증](#swagger-ui-기본-인증).
