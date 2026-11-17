@@ -7,11 +7,11 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * PRD-01 금융상품 추천 화면 응답. AI 내부 API(products/recommend, 계약 hanstep-AI ai/specs/products/recommend_api_v1.md)의
+ * PRD-02 금융상품 추천 화면 응답. AI 내부 API(products/recommend, 계약 hanstep-AI ai/specs/products/recommend_api_v1.md)의
  * 응답을 이름·값 그대로 옮기고 isMock 만 더한다. 금리·특징은 받은 값만 옮긴다(더하거나 계산하거나 null 을 채우지 않는다).
  * 화면에서 키가 늘 같도록 null 도 키를 둔다.
  */
-@Schema(description = "금융상품 추천 결과(PRD-01). 금리·특징은 상품설명서 원문 값만, 근거가 없으면 null")
+@Schema(description = "금융상품 추천 결과(PRD-02). 금리·특징은 상품설명서 원문 값만, 근거가 없으면 null")
 public record ProductRecommendResponse(
         @Schema(description = "판정 기준일(Asia/Seoul)", example = "2026-11-17")
         LocalDate asOf,

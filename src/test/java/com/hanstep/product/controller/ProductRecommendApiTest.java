@@ -40,7 +40,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * PRD-01 금융상품 추천 API. 테스트 사용자를 직접 넣고 AI 추천 호출은 가짜로 바꿔 끼운다. 테스트마다 롤백.
+ * PRD-02 금융상품 추천 API. 테스트 사용자를 직접 넣고 AI 추천 호출은 가짜로 바꿔 끼운다. 테스트마다 롤백.
  * 매핑 규칙 자체는 ProductRecommendServiceTest, AI 요청·응답 형식은 AiProductRecommendClientTest.
  */
 @SpringBootTest

@@ -15,7 +15,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * PRD-01 금융상품 추천 POST /internal/v1/products/recommend 호출. 형식은 AI 레포 ai/specs/products/recommend_api_v1.md
+ * PRD-02 금융상품 추천 POST /internal/v1/products/recommend 호출. 형식은 AI 레포 ai/specs/products/recommend_api_v1.md
  * (app/products/screen.py) 기준. AI 는 모르는 필드가 있으면 400 이다.
  * 실패(연결·타임아웃·오류 상태·형식 오류)는 모두 AiCallException 으로 던진다. 테스트에서는 이 빈을 바꿔 끼운다.
  */

@@ -13,7 +13,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
-/** PRD-01 문서에 이름 있는 응답 예시(성공·기권·금리 null)와 maxRate 표시 규칙이 나온다. */
+/** PRD-02 문서에 이름 있는 응답 예시(성공·기권·금리 null)와 maxRate 표시 규칙이 나온다. */
 @SpringBootTest
 @AutoConfigureMockMvc
 class ProductRecommendOpenApiDocsTest {

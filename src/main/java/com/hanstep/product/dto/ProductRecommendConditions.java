@@ -1,7 +1,7 @@
 package com.hanstep.product.dto;
 
 /**
- * PRD-01 화면에서 고른 조건(쿼리 파라미터). AI 계약 conditions 와 같은 이름·범위이며 모두 선택이다(null 이면 그 조건 없음).
+ * PRD-02 화면에서 고른 조건(쿼리 파라미터). AI 계약 conditions 와 같은 이름·범위이며 모두 선택이다(null 이면 그 조건 없음).
  *
  * @param productType              적금 / 정기예금
  * @param maxTermMonths            받아들이는 가장 긴 계약 기간(개월), 1~120

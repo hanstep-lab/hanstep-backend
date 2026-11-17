@@ -22,7 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * PRD-01 금융상품 추천. 프로필(INT-19 product-profile)과 최신 분석의 월 여유자금을 모아 AI 추천기(LLM 아님, 챗봇 상품 추천과
+ * PRD-02 금융상품 추천. 프로필(INT-19 product-profile)과 최신 분석의 월 여유자금을 모아 AI 추천기(LLM 아님, 챗봇 상품 추천과
  * 같은 추천기)를 부르고 응답을 그대로 옮긴다. 금리·특징은 받은 값만 옮기고, 기권(products 빈 목록 + abstainReason)도 200 으로
  * 그대로 준다. 저장하지 않는다.
  */
