@@ -21,7 +21,8 @@ import org.springframework.stereotype.Service;
 
 /**
  * 대안신용 모의 사전진단(실제 대출 승인이나 신용점수가 아님). 계산은 AI(모델 V9, LLM 아님)가 하고, 여기서는 입력을 모아 보내고
- * 응답에 보낸 입력(inputs)과 Mock·임시값 입력 이름(mockFields)을 붙여 돌려준다. 저장하지 않는다.
+ * 응답에 보낸 입력(inputs)과 Mock·임시값 입력 이름(mockFields), 표시용 필드(AltCreditDisplayRules)를 붙여 돌려준다.
+ * 저장하지 않는다.
  * AI 오류 처리는 E-7-4 평가와 같다: 입력 거부(400)는 422 INSUFFICIENT_DATA, 그 밖의 실패(타임아웃 포함)는 502.
  */
 @Service
@@ -65,7 +66,9 @@ public class AltCreditAssessmentService {
         return new AltCreditAssessmentResponse(response.modelVersion(), response.isMock(), response.pd(),
                 response.score(), response.rateBreakdown(), response.rateBaseDate(), response.loanTermMonths(),
                 response.minLimit(), response.maxLimit(), response.maxLimitBinding(), response.decision(),
-                response.reasonCode(), response.inputWarnings(), response.disclaimer(), inputs, MOCK_FIELDS);
+                response.reasonCode(), response.inputWarnings(), response.disclaimer(), inputs, MOCK_FIELDS,
+                AltCreditDisplayRules.scoreBand(response.score()), AltCreditDisplayRules.factors(inputs),
+                AltCreditDisplayRules.eligibilityChecks(inputs));
     }
 
     private static AssessRequest request(AltCreditInputs inputs) {

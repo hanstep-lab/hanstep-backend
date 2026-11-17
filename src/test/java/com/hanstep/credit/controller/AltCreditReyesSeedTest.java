@@ -1,6 +1,7 @@
 package com.hanstep.credit.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -70,7 +71,7 @@ class AltCreditReyesSeedTest {
     void setUp() {
         reyesId = jdbc.queryForObject("SELECT id FROM users WHERE external_user_key = 'demo-e9-ph-reyes'", Long.class);
         bearer = "Bearer " + jwtTokenProvider.issue(reyesId);
-        when(aiAltCreditClient.assess(any())).thenReturn(new AssessResponse("alt-credit-v9", true, 0.01, 900, null,
+        when(aiAltCreditClient.assess(any())).thenReturn(new AssessResponse("alt-credit-v9", true, 0.01, 814, null,
                 LocalDate.of(2026, 11, 11), 0, 0L, 0L, null, AltCreditDecision.NOT_ELIGIBLE, "NO_INCOME", List.of(),
                 "모의 사전진단이며 실제 대출 승인이나 신용점수가 아닙니다"));
     }
@@ -136,7 +137,15 @@ class AltCreditReyesSeedTest {
                 .andExpect(jsonPath("$.inputs.remitMonths6m").value(6))
                 .andExpect(jsonPath("$.inputs.periodFrom").value("2025-11-01"))
                 .andExpect(jsonPath("$.inputs.periodTo").value("2026-10-31"))
-                .andExpect(jsonPath("$.inputs.recentFrom").value("2026-05-01"));
+                .andExpect(jsonPath("$.inputs.recentFrom").value("2026-05-01"))
+                // 표시용: 814점 → 5구간, 요인 모두 GOOD, 점검 모두 충족(만료 점검은 날짜가 지나면 바뀌어 계산값과 비교)
+                .andExpect(jsonPath("$.scoreBand.index").value(5))
+                .andExpect(jsonPath("$.scoreBand.min").value(801))
+                .andExpect(jsonPath("$.scoreBand.max").value(1000))
+                .andExpect(jsonPath("$.factors[*].level").value(contains("GOOD", "GOOD", "GOOD", "GOOD", "GOOD")))
+                .andExpect(jsonPath("$.factors[*].value").value(contains(0, 0, 6, 0.2979, stayMonths)))
+                .andExpect(jsonPath("$.eligibilityChecks[*].met").value(contains(true, true, toExpiry > 6)))
+                .andExpect(jsonPath("$.eligibilityChecks[*].value").value(contains(true, 12, toExpiry)));
 
         ArgumentCaptor<AssessRequest> captor = ArgumentCaptor.forClass(AssessRequest.class);
         verify(aiAltCreditClient).assess(captor.capture());
