@@ -108,7 +108,7 @@ public class ChatRepository {
                         + "WHERE message_id IN (" + in + ") ORDER BY id",
                 rs -> {
                     result.computeIfAbsent(rs.getLong("message_id"), k -> new ArrayList<>())
-                            .add(new SourceRow(rs.getString("source_type"), rs.getLong("source_id"),
+                            .add(new SourceRow(rs.getString("source_type"), rs.getObject("source_id", Long.class),
                                     rs.getString("chunk_ref"), rs.getString("page_label")));
                 }, messageIds.toArray());
         return result;

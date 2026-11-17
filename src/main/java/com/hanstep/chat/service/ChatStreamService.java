@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -294,11 +295,12 @@ public class ChatStreamService {
             for (JsonNode s : data.path("sources")) {
                 String type = text(s, "type");
                 Long id = longOrNull(s, "id");
-                if (ChatSourceType.find(type).isEmpty() || id == null) {
+                String chunkRef = cut(text(s, "chunkRef"), 100);
+                if (!validSource(type, id, chunkRef)) {
                     log.warn("chat source skipped runId={} type={}", runId, type);
                     continue;
                 }
-                rows.add(new SourceRow(type, id, cut(text(s, "chunkRef"), 100), cut(text(s, "pageLabel"), 50)));
+                rows.add(new SourceRow(type, id, chunkRef, cut(text(s, "pageLabel"), 50)));
             }
             try {
                 chatRepository.insertSources(assistantMessageId, rows);
@@ -418,6 +420,18 @@ public class ChatStreamService {
         } catch (JacksonException e) {
             return MAPPER.createObjectNode();
         }
+    }
+
+    /** PRODUCT_DOCUMENT 는 chunkRef(상품 문서 ID) 필수, id 는 없어도 된다. 그 밖의 타입은 id 필수. */
+    private static boolean validSource(String type, Long id, String chunkRef) {
+        Optional<ChatSourceType> sourceType = ChatSourceType.find(type);
+        if (sourceType.isEmpty()) {
+            return false;
+        }
+        if (sourceType.get() == ChatSourceType.PRODUCT_DOCUMENT) {
+            return chunkRef != null && !chunkRef.isBlank();
+        }
+        return id != null;
     }
 
     private static String text(JsonNode node, String field) {
