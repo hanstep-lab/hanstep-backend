@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -64,5 +65,36 @@ public class DocumentField {
         field.masked = masked;
         field.status = value == null ? DocumentFieldStatus.MISSING : DocumentFieldStatus.EXTRACTED;
         return field;
+    }
+
+    /** 지금 값: 사용자가 고친 값, 없으면 OCR 값. */
+    public String currentValue() {
+        return confirmedValue != null ? confirmedValue : extractedValue;
+    }
+
+    /** 사용자 확인·수정(DOC-03). OCR 값과 같으면 CONFIRMED, 다르면 CORRECTED. 마스킹 항목(등록번호)은 고칠 수 없다. */
+    public void correct(String value, Instant at) {
+        if (masked) {
+            throw new IllegalStateException("masked field " + fieldKey + " cannot be corrected");
+        }
+        this.confirmedValue = value;
+        this.status = Objects.equals(value, extractedValue) ? DocumentFieldStatus.CONFIRMED
+                : DocumentFieldStatus.CORRECTED;
+        this.confirmedAt = at;
+    }
+
+    /**
+     * 문서 확정(DOC-04). 고치지 않은 OCR 값은 그대로 확정(CONFIRMED)으로 보고, 값은 모두 지운다(status·confidence 만 남김).
+     * 끝까지 값이 없던 항목은 MISSING 그대로.
+     */
+    public void confirmAndClear(Instant at) {
+        if (status == DocumentFieldStatus.EXTRACTED) {
+            this.status = DocumentFieldStatus.CONFIRMED;
+        }
+        if (status != DocumentFieldStatus.MISSING && confirmedAt == null) {
+            this.confirmedAt = at;
+        }
+        this.extractedValue = null;
+        this.confirmedValue = null;
     }
 }

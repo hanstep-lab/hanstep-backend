@@ -13,7 +13,8 @@ import org.springframework.transaction.event.TransactionalEventListener;
  *
  * <p>여기서 난 예외는 모두 잡아 로그와 publish_status 로만 남긴다. 요청의 저장은 이미 커밋됐으므로
  * 발행·상태 기록 실패가 그 요청의 응답을 실패로 바꾸면 안 된다.
- * 커밋 직후 프로세스가 죽으면 작업이 NOT_PUBLISHED 로 남는다(미발행 재발행은 아직 없음).
+ * 커밋 직후 프로세스가 죽으면 작업이 NOT_PUBLISHED 로 남는다. 발행 대기 작업은 AiJobRepublishService(U2)가 다시 보낸다
+ * (1분 주기 스캔·사용자 다시 시도).
  */
 @Component
 public class AiJobPublishListener {

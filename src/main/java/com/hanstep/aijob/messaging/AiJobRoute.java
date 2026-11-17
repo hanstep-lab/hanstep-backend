@@ -3,9 +3,11 @@ package com.hanstep.aijob.messaging;
 import com.hanstep.aijob.domain.AiJobType;
 import java.util.Arrays;
 
-/** 큐 선언과 발행에서 같은 경로를 쓴다. OCR 연결 시 여기에 경로를 추가한다. */
+/** 큐 선언과 발행에서 같은 경로를 쓴다. 경로가 없는 작업 종류(DOCUMENT_ANALYSIS)는 발행하지 않는다. */
 public enum AiJobRoute {
-    POLICY_INGEST(AiJobType.POLICY_INGEST, "policy.ingest");
+    POLICY_INGEST(AiJobType.POLICY_INGEST, "policy.ingest"),
+    // 등록증 OCR(#73). 소비자는 hanstep-AI ocr-worker(ocr/worker)
+    OCR(AiJobType.OCR, "ocr.request");
 
     public static final String EXCHANGE = "hanstep.ai";
     private final AiJobType jobType;
@@ -16,9 +18,14 @@ public enum AiJobRoute {
         this.routingKey = routingKey;
     }
 
+    public AiJobType jobType() { return jobType; }
     public String routingKey() { return routingKey; }
     public String retryQueue() { return routingKey + ".retry"; }
     public String deadLetterQueue() { return routingKey + ".dlq"; }
+
+    public static boolean supports(AiJobType type) {
+        return Arrays.stream(values()).anyMatch(route -> route.jobType == type);
+    }
 
     public static AiJobRoute forType(AiJobType type) {
         return Arrays.stream(values()).filter(route -> route.jobType == type).findFirst()

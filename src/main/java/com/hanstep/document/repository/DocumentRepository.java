@@ -13,4 +13,10 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from Document d where d.id = :id")
     Optional<Document> findByIdForUpdate(Long id);
+
+    /** 같은 사진 다시 올림 판별(uq_documents_user_hash). */
+    Optional<Document> findByUserIdAndSha256(Long userId, String sha256);
+
+    /** 본인 문서만. 남의 문서는 없는 것으로 본다(404). */
+    Optional<Document> findByIdAndUserId(Long id, Long userId);
 }

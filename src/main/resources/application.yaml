@@ -26,13 +26,36 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
+  servlet:
+    multipart:
+      # 등록증 앞면 업로드(DOC-01). FE 가 4000px 이하로 줄여 올린다. DocumentService.MAX_BYTES 와 같은 값
+      max-file-size: 10MB
+      max-request-size: 10MB
 
 server:
   port: 8080
+  tomcat:
+    # 업로드 크기 제한(10MB)으로 거절한 요청의 남은 본문을 이만큼까지 읽어 버리고 400 을 보낸다. 기본 2MB 면 10MB 를 조금
+    # 넘는 본문도 응답 전에 연결을 끊어 클라이언트가 400 대신 네트워크 오류를 받는다(#73 업로드 측정). 이보다 큰 본문은 끊는다
+    max-swallow-size: 20MB
 
 hanstep:
   ai-jobs:
     confirm-timeout: 5s
+    # 발행 대기 작업(PENDING·NOT_PUBLISHED/PUBLISH_FAILED) 주기 재발행(U2). 테스트는 build.gradle 에서 끈다
+    republish:
+      enabled: ${AI_JOB_REPUBLISH_ENABLED:true}
+      interval-ms: 60000
+      initial-delay-ms: 60000
+      min-idle-seconds: 30
+      batch-size: 100
+  # 외국인등록증 원본(R2 hanstep-arc-private). 등록증 버킷 전용 키(R2_OCR_*)를 쓴다(정책·상품 키 R2_ACCESS_KEY_ID 아님)
+  arc-storage:
+    endpoint: ${R2_ENDPOINT_URL:}
+    region: ${R2_REGION:auto}
+    access-key-id: ${R2_OCR_ACCESS_KEY_ID:}
+    secret-access-key: ${R2_OCR_SECRET_ACCESS_KEY:}
+    bucket: ${R2_ARC_BUCKET:}
   jwt:
     secret: ${JWT_SECRET}
     expires-in-seconds: ${JWT_EXPIRES_IN_SECONDS:3600}

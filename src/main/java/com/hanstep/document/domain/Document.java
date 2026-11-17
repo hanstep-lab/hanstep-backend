@@ -82,6 +82,42 @@ public class Document {
     private Instant updatedAt;
 
     /**
+     * 외국인등록증 업로드(#73). 면 하나 = 문서 1건이고 UPLOADED 로 시작한다. object_key 는 R2 업로드 전에 만든
+     * arc/{side}/{UUID}.{ext}(사용자·문서 id 를 넣지 않음, 지수 합의 11/16).
+     * 진행·실패 상태는 OCR 작업(ai_jobs)에서 읽으므로 OCR_QUEUED·OCR_PROCESSING·FAILED 는 쓰지 않는다.
+     */
+    public static Document uploadedArc(Long userId, DocumentSide side, String objectKey, String contentType,
+                                       int fileSizeBytes, String sha256, Instant retentionUntil) {
+        Document doc = new Document();
+        doc.userId = userId;
+        doc.documentType = DocumentType.ARC;
+        doc.side = side;
+        doc.objectKey = objectKey;
+        doc.contentType = contentType;
+        doc.fileSizeBytes = fileSizeBytes;
+        doc.sha256 = sha256;
+        doc.status = DocumentStatus.UPLOADED;
+        doc.retentionUntil = retentionUntil;
+        return doc;
+    }
+
+    /**
+     * 사용자 확정(DOC-04). PENDING_CONFIRMATION → CONFIRMED. 원본 키를 지우고(object_key NULL, original_deleted_at)
+     * 지울 R2 키를 돌려준다(이미 지워졌으면 null).
+     */
+    public String confirm(Instant at) {
+        if (status != DocumentStatus.PENDING_CONFIRMATION) {
+            throw new IllegalStateException("document " + id + " cannot be confirmed from " + status);
+        }
+        String original = objectKey;
+        this.status = DocumentStatus.CONFIRMED;
+        this.confirmedAt = at;
+        this.objectKey = null;
+        this.originalDeletedAt = at;
+        return original;
+    }
+
+    /**
      * OCR 결과를 받을 수 있는 상태인가. 업로드 직후(UPLOADED)도 받는다: 발행 confirm 기록보다 worker 결과가 먼저 올 수 있다.
      */
     public boolean canRecordOcrResult() {
