@@ -1,12 +1,12 @@
 SET NAMES utf8mb4;
 
 -- 신한걸음 환율 시드 — ⚠️ Mock·임시값 (실제 고시·시세 아님, 시연·개발용)
--- 01_hanstep_schema.sql 실행 후 실행. 기간: 2025-11-07 ~ 2026-11-06 영업일(주말·주요 공휴일 제외, 공휴일은 대략값)
+-- 01_hanstep_schema.sql 실행 후 실행(로컬 compose 가 db/dev 를 마운트할 때만). 기간: 2025-11-07 ~ 2026-11-06 영업일(주말·주요 공휴일 제외, 공휴일은 대략값)
 -- - USD: 수출입은행 고시 형식(KOREAEXIM). 매매기준율 + 송금 보낼 때(TTS, +1%) + 받을 때(TTB, -1%). rate_at = 기준일 00:00 KST
 -- - PHP: USD와 같은 형식(매매기준율 + TTS +1% + TTB -1%, rate_at = 기준일 00:00 KST). 고시 형식만 빌린 데모 값이라 source = MOCK
 --   매매기준율 = 위 USD Mock 매매기준율 ÷ ECB 기준환율 USD/PHP(같은 날, ECB 휴일은 직전 발표일). 원/달러가 Mock이라 실제 원/페소와 다름
 -- - VND: 시장 환율 참고값(MARKET_REF, 100 VND 단위). 송금 환율 없음(ck_exchange_rates_tt). 매 영업일 16:00 KST 1건
--- - 모든 행 is_mock = TRUE. 실제 수집기가 붙으면 이 파일은 지우거나 개발 전용으로 둠
+-- - 모든 행 is_mock = TRUE. 로컬 개발 전용(#119): db/init/04_dev_seeds.sh 가 로컬 compose 에서만 실행한다. 운영 DB 에는 넣지 않는다
 -- - 시각 칸(rate_at, fetched_at)은 UTC
 -- 행 수: USD 246 + PHP 246 + VND 246 = 738
 

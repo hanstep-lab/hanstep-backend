@@ -10,6 +10,8 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}
     volumes:
       - ./db/init:/docker-entrypoint-initdb.d:ro
+      # 로컬 전용 시드(Mock 환율 04). db/init/04_dev_seeds.sh 가 01~03 뒤에 실행한다. 운영 compose 에는 없다
+      - ./db/dev:/docker-entrypoint-dev.d:ro
       - mysql-data:/var/lib/mysql
     # 최초 기동 땐 db/init 실행이 끝나야 TCP 접속이 열린다. $$ 는 컨테이너 안 환경 변수(compose 설정에 비밀번호를 펼치지 않음)
     healthcheck:
