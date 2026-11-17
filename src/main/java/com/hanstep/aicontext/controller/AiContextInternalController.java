@@ -1,6 +1,7 @@
 package com.hanstep.aicontext.controller;
 
 import com.hanstep.aicontext.dto.AiFinanceContextResponse;
+import com.hanstep.aicontext.dto.AiProductProfileResponse;
 import com.hanstep.aicontext.service.AiContextService;
 import com.hanstep.common.config.OpenApiConfig;
 import com.hanstep.common.error.ErrorResponse;
@@ -38,5 +39,18 @@ public class AiContextInternalController {
     @GetMapping("/finance")
     public AiFinanceContextResponse finance(@PathVariable Long userId) {
         return aiContextService.finance(userId);
+    }
+
+    @Operation(summary = "AI 용 상품 추천 프로필 (INT-19)",
+            description = "챗봇 도구 recommend_savings_products 가 부른다. 비자 종류 코드, 체류 만료일, asOf(Asia/Seoul 오늘) 기준 "
+                    + "만 나이를 준다. 생년월일은 내보내지 않는다. 여유자금은 INT-06 latestAnalysis.spare 를 쓴다.")
+    @ApiResponse(responseCode = "200", description = "성공. 비자 프로필이 없으면 visaTypeCode·stayExpiresOn·age 가 null")
+    @ApiResponse(responseCode = "401", description = "X-Internal-Token 없음·틀림",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "404", description = "없는 사용자(USER_NOT_FOUND)",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @GetMapping("/product-profile")
+    public AiProductProfileResponse productProfile(@PathVariable Long userId) {
+        return aiContextService.productProfile(userId);
     }
 }

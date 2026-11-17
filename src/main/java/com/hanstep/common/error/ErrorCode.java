@@ -11,6 +11,7 @@ public enum ErrorCode {
     FORBIDDEN(HttpStatus.FORBIDDEN, "permission required"),
     CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "consent required"),
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "resource not found"),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "user not found"),
     RECIPIENT_NOT_FOUND(HttpStatus.NOT_FOUND, "recipient not found"),
     FX_RATE_NOT_FOUND(HttpStatus.NOT_FOUND, "exchange rate not found"),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "method not allowed"),
