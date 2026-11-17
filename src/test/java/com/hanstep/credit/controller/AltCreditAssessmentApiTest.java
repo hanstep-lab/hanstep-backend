@@ -1,6 +1,8 @@
 package com.hanstep.credit.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -113,7 +115,19 @@ class AltCreditAssessmentApiTest {
                 .andExpect(jsonPath("$.inputs.periodTo").value("2026-09-30"))
                 .andExpect(jsonPath("$.inputs.recentFrom").value("2026-04-01"))
                 .andExpect(jsonPath("$.mockFields.length()").value(8))
-                .andExpect(jsonPath("$.mockFields[0]").value("monthlyIncome"));
+                .andExpect(jsonPath("$.mockFields[0]").value("monthlyIncome"))
+                // 표시용: 850점 → 5구간. 통신비 연체 2·공과금 1·송금 3개월은 FAIR, 송금 비율 0.0625·체류 42개월은 GOOD
+                .andExpect(jsonPath("$.scoreBand.index").value(5))
+                .andExpect(jsonPath("$.scoreBand.min").value(801))
+                .andExpect(jsonPath("$.scoreBand.max").value(1000))
+                .andExpect(jsonPath("$.factors[*].key").value(contains("TEL_LATE", "UTIL_LATE", "REMIT_REGULARITY",
+                        "REMIT_RATIO", "STAY_DURATION")))
+                .andExpect(jsonPath("$.factors[*].level").value(contains("FAIR", "FAIR", "FAIR", "GOOD", "GOOD")))
+                .andExpect(jsonPath("$.factors[*].value").value(contains(2, 1, 3, 0.0625, 42)))
+                .andExpect(jsonPath("$.eligibilityChecks[*].key").value(contains("WORK_PERMITTED", "SALARY_3M",
+                        "EXPIRY_OVER_6M")))
+                .andExpect(jsonPath("$.eligibilityChecks[*].met").value(contains(true, true, true)))
+                .andExpect(jsonPath("$.eligibilityChecks[*].value").value(contains(true, 4, 20)));
 
         assertThat(sentRequest()).isEqualTo(new AssessRequest(true, 42, 20, 1_800_000, true, 4, true, true, false,
                 2, 1, new BigDecimal("0.0625"), 3));
@@ -152,11 +166,41 @@ class AltCreditAssessmentApiTest {
                 .andExpect(jsonPath("$.inputs.hasSubscription").value(false))
                 .andExpect(jsonPath("$.inputs.remitRatio").value(0))
                 .andExpect(jsonPath("$.inputs.remitMonths6m").doesNotExist())
-                .andExpect(jsonPath("$.inputs.telLate6m").value(0));
+                .andExpect(jsonPath("$.inputs.telLate6m").value(0))
+                // 송금이 없으면 REMIT_REGULARITY 는 NO_RECORD·value null, 만료일이 없으면 만료 점검 met·value null
+                .andExpect(jsonPath("$.factors[2].key").value("REMIT_REGULARITY"))
+                .andExpect(jsonPath("$.factors[2].level").value("NO_RECORD"))
+                .andExpect(jsonPath("$.factors[2].value").value(nullValue()))
+                .andExpect(jsonPath("$.factors[3].level").value("GOOD"))
+                .andExpect(jsonPath("$.factors[4].level").value("NEEDS_IMPROVEMENT"))
+                .andExpect(jsonPath("$.eligibilityChecks[0].met").value(false))
+                .andExpect(jsonPath("$.eligibilityChecks[1].met").value(false))
+                .andExpect(jsonPath("$.eligibilityChecks[1].value").value(0))
+                .andExpect(jsonPath("$.eligibilityChecks[2].key").value("EXPIRY_OVER_6M"))
+                .andExpect(jsonPath("$.eligibilityChecks[2].met").value(nullValue()))
+                .andExpect(jsonPath("$.eligibilityChecks[2].value").value(nullValue()));
 
         AssessRequest sent = sentRequest();
         assertThat(sent.monthsToExpiry()).isNull();
         assertThat(sent.remitMonths6m()).isNull();
+    }
+
+    @Test
+    void 소득이_없으면_송금_비율은_NO_RECORD() throws Exception {
+        grant("CREDIT_EVALUATION");
+        visaProfile("E-9", today.minusMonths(30), 0, today.plusMonths(20));
+        long[] ids = batch("2026-09-01", "2026-10-31");
+        txn(ids, "remit-09", "2026-09-10", "EXPENSE", 300_000, "REMITTANCE", "NORMAL");
+
+        assess("")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.inputs.monthlyIncome").value(0))
+                .andExpect(jsonPath("$.inputs.remitRatio").value(0))
+                .andExpect(jsonPath("$.factors[3].key").value("REMIT_RATIO"))
+                .andExpect(jsonPath("$.factors[3].level").value("NO_RECORD"))
+                .andExpect(jsonPath("$.factors[3].value").value(0))
+                .andExpect(jsonPath("$.factors[2].level").value("NEEDS_IMPROVEMENT"))
+                .andExpect(jsonPath("$.factors[2].value").value(1));
     }
 
     @Test
