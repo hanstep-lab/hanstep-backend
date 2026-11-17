@@ -85,10 +85,13 @@ public class DocumentService {
     }
 
     /**
-     * multipart 파트 front(필수)·back(선택). 뒷면은 아직 받지 않는다: back 이 와도 검사·저장하지 않고 무시한다(리뷰 11/17).
-     * 뒷면을 열 때는 같은 {@link #uploadSide} 로 BACK 문서·작업을 하나 더 만든다.
+     * multipart 파트 front(필수)·back(선택). 뒷면은 아직 받지 않는다: back 이 와도 검사·저장하지 않고 로그만 남긴다
+     * (지연 의견, 리뷰 11/17). 뒷면을 열 때는 같은 {@link #uploadSide} 로 BACK 문서·작업을 하나 더 만든다.
      */
     public UploadResult upload(Long userId, MultipartFile front, MultipartFile back) {
+        if (back != null) {
+            log.info("ARC back part ignored (not supported yet): userId={}, size={}", userId, back.getSize());
+        }
         if (front == null) {
             throw invalidPart(PART_FRONT, "required part");
         }
