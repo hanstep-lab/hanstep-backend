@@ -34,7 +34,11 @@ public class AltCreditAssessmentController {
                     + "저장하지 않는다(부를 때마다 다시 계산). "
                     + "decision: ELIGIBLE(모의 기준상 대상·조건 충족, 대출기간·한도 계산) / NOT_ELIGIBLE(대상 아님: 소득 없음·"
                     + "근로 가능 자격 미확인·급여 입금 3개월 미만) / CONDITION_NOT_MET(대상이지만 조건 미충족: 체류 만료 6개월 "
-                    + "이내·산출 금리가 법정 최고금리 초과). 사유는 reasonCode.")
+                    + "이내·산출 금리가 법정 최고금리 초과). 사유는 reasonCode. "
+                    + "표시용 필드(CR-001 v2, 금리·한도 계산과 무관): scoreBand(점수 200점 단위 구간 1~5), factors(요인 5개의 "
+                    + "등급 GOOD·FAIR·NEEDS_IMPROVEMENT·NO_RECORD와 inputs 원값), eligibilityChecks(근로 가능·급여 3개월·"
+                    + "만료 6개월 초과 충족 여부). 문구는 내려주지 않는다(FE 언어별 문구표). eligibilityChecks 는 표시용이며 "
+                    + "최종 판정은 decision·reasonCode 가 기준이다.")
     @ApiResponse(responseCode = "200", description = "계산 결과(모의)")
     @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: isRefinance 가 true/false 가 아님",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
