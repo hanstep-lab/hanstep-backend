@@ -1,6 +1,7 @@
 ﻿# 데모 사용자(demo-e9-ph-reyes) 금융 데이터 준비.
-# bootRun 중인 로컬 Spring(기본 http://localhost:8080)에 진입 → 마이데이터 동의 → 기관 연결·Mock 적재 → 필수 확보액 → 목표 → 금융 분석 순서로 호출한다.
-# 마지막 금융 분석은 Spring 이 AI 서버(INT-01)를 호출하므로 AI 서버도 떠 있어야 한다.
+# bootRun 중인 로컬 Spring(기본 http://localhost:8080)에 진입 → 마이데이터·대안신용 동의 → 기관 연결·Mock 적재 → 필수 확보액 → 목표
+# → 금융 분석 → 대안신용 사전진단 순서로 호출한다.
+# 금융 분석·대안신용 사전진단은 Spring 이 AI 서버를 호출하므로 AI 서버도 떠 있어야 한다.
 # 이미 동의·연결돼 있어도 다시 실행할 수 있다(409 는 건너뛰고 다음 단계로). 토큰·키 값은 출력하지 않는다.
 # 사용: powershell -ExecutionPolicy Bypass -File scripts\demo-setup.ps1 [-BaseUrl http://localhost:8080]
 param(
@@ -67,14 +68,16 @@ Assert-Step '진입' $entry
 $userId = $entry.Data.user.id
 $auth = @{ Authorization = "Bearer $($entry.Data.accessToken)" }
 
-# 2. 마이데이터 동의(CNS-02)
+# 2. 마이데이터·대안신용 동의(CNS-02). CREDIT_EVALUATION 은 7단계 대안신용 사전진단에 필요.
+# policyVersion 은 서버가 값을 검사하지 않는다(공백 아님·40자 이하만). CREDIT_EVALUATION 전용 버전이 정해지기 전까지 같은 값을 쓴다.
 $consent = Invoke-Api -Method Post -Path '/api/v1/consents' -Headers $auth -Body @{
     consents = @(
         @{ consentType = 'MYDATA'; policyVersion = 'mydata-2026-11'; granted = $true },
-        @{ consentType = 'MYDATA_TERMS'; policyVersion = 'mydata-2026-11'; granted = $true }
+        @{ consentType = 'MYDATA_TERMS'; policyVersion = 'mydata-2026-11'; granted = $true },
+        @{ consentType = 'CREDIT_EVALUATION'; policyVersion = 'mydata-2026-11'; granted = $true }
     )
 }
-Assert-Step '마이데이터 동의' $consent
+Assert-Step '마이데이터·대안신용 동의' $consent
 
 # 3. 기관 연결·Mock 적재(MYD-02). 기관 ID 는 MYD-01 응답의 SHINHAN_BANK·SHINHAN_CARD, 못 찾으면 [1, 2]
 $institutionIds = @(1, 2)
@@ -109,6 +112,14 @@ $analysisHeaders = $auth.Clone()
 $analysisHeaders['Idempotency-Key'] = [guid]::NewGuid().ToString()
 $analysis = Invoke-Api -Method Post -Path '/api/v1/finance/analyses' -Headers $analysisHeaders
 Assert-Step '금융 분석' $analysis
+
+# 7. 대안신용 모의 사전진단(200 확인). Spring 이 AI 서버를 호출한다. 409 로 건너뛸 단계가 아니므로 200 이 아니면 중단.
+$altCredit = Invoke-Api -Method Get -Path '/api/v1/credit/alt-assessment' -Headers $auth
+if (-not $altCredit.Ok) {
+    Write-Host "[FAIL] 대안신용 사전진단 (HTTP $($altCredit.Status))"
+    exit 1
+}
+Write-Host "[OK]   대안신용 사전진단 (decision: $($altCredit.Data.decision))"
 
 Write-Host ''
 Write-Host "사용자 id: $userId"
