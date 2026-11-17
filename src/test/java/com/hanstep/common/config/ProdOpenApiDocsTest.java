@@ -38,5 +38,7 @@ class ProdOpenApiDocsTest {
         assertThat(schemes.has(OpenApiConfig.INTERNAL_TOKEN)).isFalse();
         assertThat(schemes.has(OpenApiConfig.BEARER_AUTH)).isTrue();
         assertThat(root.path("info").path("description").stringValue()).doesNotContain("/internal", "X-Internal-Token");
+        // 챗봇 스트림 이벤트 형식은 운영 문서에도 나온다(ChatOpenApiCustomizer)
+        assertThat(root.path("components").path("schemas").has("ChatErrorEvent")).isTrue();
     }
 }

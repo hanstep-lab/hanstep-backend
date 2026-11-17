@@ -9,6 +9,13 @@ import com.hanstep.chat.domain.ChatRole;
 import com.hanstep.chat.domain.ChatSessionStatus;
 import com.hanstep.chat.domain.ChatSourceType;
 import com.hanstep.chat.dto.ChatSource;
+import com.hanstep.chat.dto.ChatStreamEvents.Delta;
+import com.hanstep.chat.dto.ChatStreamEvents.Done;
+import com.hanstep.chat.dto.ChatStreamEvents.ErrorEvent;
+import com.hanstep.chat.dto.ChatStreamEvents.ResultRef;
+import com.hanstep.chat.dto.ChatStreamEvents.Sources;
+import com.hanstep.chat.dto.ChatStreamEvents.Started;
+import com.hanstep.chat.dto.ChatStreamEvents.ToolCall;
 import com.hanstep.chat.dto.ChatStreamRequest;
 import com.hanstep.chat.repository.ChatRepository;
 import com.hanstep.chat.repository.ChatRepository.SessionRow;
@@ -85,28 +92,6 @@ public class ChatStreamService {
         this.transactionTemplate = transactionTemplate;
         this.executor = executor;
         this.emitterTimeoutMs = ai.streamReadTimeout().toMillis() + EMITTER_MARGIN_MS;
-    }
-
-    // 앱으로 보내는 이벤트(data 는 JSON 한 줄)
-    record Started(String runId, long userMessageId, long assistantMessageId) {
-    }
-
-    record ToolCall(String runId, int order, String toolName, String status, ResultRef resultRef, Integer latencyMs) {
-    }
-
-    record ResultRef(String type, Long id) {
-    }
-
-    record Delta(String runId, String text) {
-    }
-
-    record Sources(String runId, List<ChatSource> sources) {
-    }
-
-    record Done(String runId, long assistantMessageId, JsonNode blocks, int latencyMs) {
-    }
-
-    record ErrorEvent(String runId, String code, String message) {
     }
 
     /**
