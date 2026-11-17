@@ -9,6 +9,13 @@ import com.hanstep.chat.domain.ChatRole;
 import com.hanstep.chat.domain.ChatSessionStatus;
 import com.hanstep.chat.domain.ChatSourceType;
 import com.hanstep.chat.dto.ChatSource;
+import com.hanstep.chat.dto.ChatStreamEvents.Delta;
+import com.hanstep.chat.dto.ChatStreamEvents.Done;
+import com.hanstep.chat.dto.ChatStreamEvents.ErrorEvent;
+import com.hanstep.chat.dto.ChatStreamEvents.ResultRef;
+import com.hanstep.chat.dto.ChatStreamEvents.Sources;
+import com.hanstep.chat.dto.ChatStreamEvents.Started;
+import com.hanstep.chat.dto.ChatStreamEvents.ToolCall;
 import com.hanstep.chat.dto.ChatStreamRequest;
 import com.hanstep.chat.repository.ChatRepository;
 import com.hanstep.chat.repository.ChatRepository.SessionRow;
@@ -60,7 +67,12 @@ public class ChatStreamService {
     static final String UPSTREAM_ERROR = ErrorCode.AI_UPSTREAM_ERROR.name();
     private static final long EMITTER_MARGIN_MS = 10_000;
     private static final Set<String> TOOL_STATUSES = Set.of("SUCCEEDED", "FAILED", "TIMEOUT", "REJECTED");
-    private static final String ERROR_MESSAGE = "Could not finish the reply. Please try again.";
+    /** chat.error 의 message. 사용자 서비스 언어(users.preferred_language)로 주고, 모르는 언어는 영어. */
+    private static final Map<String, String> ERROR_MESSAGES = Map.of(
+            "en", "Could not finish the reply. Please try again.",
+            "ko", "답변을 끝까지 만들지 못했어요. 다시 시도해 주세요.",
+            "vi", "Không thể hoàn tất câu trả lời. Vui lòng thử lại.",
+            "zh", "无法完成回复，请重试。");
     private static final ObjectMapper MAPPER = JsonMapper.builder().build();
     private static final Logger log = LoggerFactory.getLogger(ChatStreamService.class);
 
@@ -80,28 +92,6 @@ public class ChatStreamService {
         this.transactionTemplate = transactionTemplate;
         this.executor = executor;
         this.emitterTimeoutMs = ai.streamReadTimeout().toMillis() + EMITTER_MARGIN_MS;
-    }
-
-    // 앱으로 보내는 이벤트(data 는 JSON 한 줄)
-    record Started(String runId, long userMessageId, long assistantMessageId) {
-    }
-
-    record ToolCall(String runId, int order, String toolName, String status, ResultRef resultRef, Integer latencyMs) {
-    }
-
-    record ResultRef(String type, Long id) {
-    }
-
-    record Delta(String runId, String text) {
-    }
-
-    record Sources(String runId, List<ChatSource> sources) {
-    }
-
-    record Done(String runId, long assistantMessageId, JsonNode blocks, int latencyMs) {
-    }
-
-    record ErrorEvent(String runId, String code, String message) {
     }
 
     /**
@@ -350,7 +340,7 @@ public class ChatStreamService {
         /** FAILED 저장 + chat.error. content 는 그때까지 받은 조각. appCode 는 앱에, storedCode 는 error_code 에. */
         private void fail(String appCode, String storedCode) {
             if (finish(ChatMessageStatus.FAILED, buffer.toString(), null, null, null, null, storedCode)) {
-                send("chat.error", new ErrorEvent(runId, appCode, ERROR_MESSAGE));
+                send("chat.error", new ErrorEvent(runId, appCode, errorMessage(request.language())));
                 complete();
             }
         }
@@ -416,6 +406,10 @@ public class ChatStreamService {
                     longOrNull(aiUsage, "cacheReadInputTokens"), longOrNull(aiUsage, "cacheCreationInputTokens"),
                     longOrNull(aiUsage, "llmCalls"));
         }
+    }
+
+    static String errorMessage(String language) {
+        return ERROR_MESSAGES.getOrDefault(language, ERROR_MESSAGES.get("en"));
     }
 
     private static JsonNode parse(SseLineParser.Event event) {

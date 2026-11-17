@@ -276,12 +276,24 @@ class ChatStreamApiTest {
         // AI 코드는 앱에 내보내지 않고 error_code·로그에만 남긴다
         assertThat(error.path("code").asString()).isEqualTo("AI_UPSTREAM_ERROR");
         assertThat(error.path("message").asString()).doesNotContain("internal detail");
+        // 사용자 서비스 언어(vi)로 준다
+        assertThat(error.path("message").asString()).isEqualTo("Không thể hoàn tất câu trả lời. Vui lòng thử lại.");
         Map<String, Object> assistant = row(json(result.first("chat.started")).path("assistantMessageId").asLong());
         assertThat(assistant.get("status")).isEqualTo("FAILED");
         assertThat(assistant.get("error_code")).isEqualTo("AGENT_TIMEOUT");
         assertThat(assistant.get("content")).isEqualTo("Partial ");
         assertThat(waitForLine(output, "chat run finished runId=" + error.path("runId").asString()))
                 .contains("status=FAILED", "errorCode=AGENT_TIMEOUT");
+    }
+
+    @Test
+    void chat_error_메시지는_사용자_언어로_준다() throws Exception {
+        jdbc.update("UPDATE users SET preferred_language = 'ko' WHERE id = ?", userId);
+        AI.script((request, out) -> out.event("agent.error", "{\"code\":\"AGENT_TIMEOUT\"}"));
+        Result result = client.stream(bearer, sessionId, SseTestClient.body("c-err-ko", "hi"), null);
+
+        assertThat(json(result.first("chat.error")).path("message").asString())
+                .isEqualTo("답변을 끝까지 만들지 못했어요. 다시 시도해 주세요.");
     }
 
     @Test
