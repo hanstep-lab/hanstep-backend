@@ -210,19 +210,26 @@ class DocumentApiTest {
     }
 
     @Test
-    void back_파트가_오면_400_BACK_NOT_SUPPORTED이고_아무것도_저장하지_않는다() throws Exception {
-        mockMvc.perform(multipart(URL)
+    void back_파트가_와도_무시하고_앞면만_저장한다() throws Exception {
+        long documentId = json(mockMvc.perform(multipart(URL)
                         .file(new MockMultipartFile("front", "f.jpg", "image/jpeg", ArcImages.jpeg(4096)))
-                        .file(new MockMultipartFile("back", "b.jpg", "image/jpeg", ArcImages.jpeg(4096)))
+                        .file(new MockMultipartFile("back", "b.jpg", "image/jpeg", ArcImages.jpeg(8192)))
                         .header(HttpHeaders.AUTHORIZATION, bearer))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("BACK_NOT_SUPPORTED"))
-                .andExpect(jsonPath("$.details.fields[0].field").value("back"));
-        // back 만 와도 같은 400
+                .andExpect(status().isAccepted())).path("documentId").longValue();
+
+        assertThat(storage.puts.get()).isEqualTo(1);
+        assertThat(objectKey(documentId)).startsWith("arc/front/");
+        assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?", userId)).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ? AND side = 'BACK'", userId)).isZero();
+    }
+
+    @Test
+    void back_만_오면_front_없음_400이고_아무것도_저장하지_않는다() throws Exception {
         mockMvc.perform(multipart(URL).file(new MockMultipartFile("back", "b.jpg", "image/jpeg", ArcImages.jpeg(4096)))
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("BACK_NOT_SUPPORTED"));
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.details.fields[0].field").value("front"));
 
         assertThat(storage.puts.get()).isZero();
         assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?", userId)).isZero();

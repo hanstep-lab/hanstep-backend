@@ -7,8 +7,6 @@ import org.springframework.http.HttpStatus;
 public enum ErrorCode {
 
     VALIDATION_ERROR(HttpStatus.BAD_REQUEST, "invalid request"),
-    // 등록증 업로드(DOC-01)에 back 파트가 옴. 뒷면은 아직 지원하지 않는다(지수 합의 11/16, 확장 때 이 400 만 푼다)
-    BACK_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "back side is not supported yet"),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "authentication required"),
     FORBIDDEN(HttpStatus.FORBIDDEN, "permission required"),
     CONSENT_REQUIRED(HttpStatus.FORBIDDEN, "consent required"),
