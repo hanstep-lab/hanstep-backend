@@ -55,7 +55,7 @@ class E74AssessmentInternalApiTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        // 시드 규칙 E74-2026-v1 은 아직 DRAFT 라 테스트 안에서만 승인해 둔다(롤백)
+        // 시드가 바뀌기 전(DRAFT)에 만든 로컬 DB에서도 같게 돌도록 테스트 안에서 승인해 둔다(롤백)
         jdbc.update("UPDATE e74_rule_sets SET approval_status = 'APPROVED' WHERE rule_version = 'E74-2026-v1'");
         jdbc.update("INSERT INTO users (external_user_key, display_name) VALUES ('test-e74-internal', 'TEST')");
         userId = jdbc.queryForObject("SELECT id FROM users WHERE external_user_key = 'test-e74-internal'", Long.class);
