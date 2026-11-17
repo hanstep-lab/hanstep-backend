@@ -550,6 +550,29 @@ CREATE TABLE financial_transactions (
   CONSTRAINT ck_financial_transactions_amount CHECK (amount > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P0] Mock 거래내역 + 분류';
 
+-- 통신비·건강보험료·공과금 청구·납부 내역 저장용 테이블 (대안신용 모의 사전진단의 연체 횟수 입력) --
+CREATE TABLE mydata_bill_payments (
+  id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  user_id             BIGINT UNSIGNED NOT NULL COMMENT '사용자',
+  institution_id      BIGINT UNSIGNED NOT NULL COMMENT '청구기관(통신사·건강보험공단·공과금 기관)',
+  bill_type           ENUM('TELECOM','HEALTH_INSURANCE','UTILITY') NOT NULL COMMENT '통신비/건강보험료/공과금',
+  billing_month       DATE            NOT NULL COMMENT '청구 월(그 달 1일)',
+  due_on              DATE            NOT NULL COMMENT '납부 기한',
+  paid_on             DATE            NULL COMMENT '납부일(NULL=미납). 연체 = 납부일이 기한보다 늦음 또는 기한이 지난 미납(임시 기준)',
+  amount              DECIMAL(18,2)   NOT NULL COMMENT '청구 금액(KRW)',
+  ingestion_batch_id  BIGINT UNSIGNED NOT NULL COMMENT '적재 배치(Mock 여부·출처)',
+  created_at          DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '적재',
+  updated_at          DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
+  PRIMARY KEY (id),
+  CONSTRAINT uq_mydata_bill_payments UNIQUE (user_id, institution_id, bill_type, billing_month),
+  KEY ix_mydata_bill_payments_user (user_id, bill_type, billing_month),
+  CONSTRAINT fk_mydata_bill_payments_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_mydata_bill_payments_inst FOREIGN KEY (institution_id) REFERENCES institutions (id),
+  CONSTRAINT fk_mydata_bill_payments_batch FOREIGN KEY (ingestion_batch_id) REFERENCES ingestion_batches (id) ON DELETE CASCADE,
+  CONSTRAINT ck_mydata_bill_payments_month CHECK (DAYOFMONTH(billing_month) = 1),
+  CONSTRAINT ck_mydata_bill_payments_amount CHECK (amount >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='[P1] Mock 청구 납부 내역(통신·건보·공과금 연체 집계)';
+
 -- 대출 정보 저장용 테이블 (후순위 가능: 데모 페르소나 대출 없음, 사용 화면 FN-001은 P1) --
 CREATE TABLE loans (
   id                         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '대출 ID',

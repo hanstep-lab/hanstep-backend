@@ -85,6 +85,8 @@ services:
     environment:
       # 임시값, 서버 실측 후 조정
       JAVA_OPTS: ${SPRING_JAVA_OPTS:--Xmx768m}
+      # application-prod.yaml: 프록시 헤더(https) 인식, API 문서는 /api/v1 만
+      SPRING_PROFILES_ACTIVE: prod
       MYSQL_HOST: mysql
       MYSQL_PORT: "3306"
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -194,6 +196,9 @@ services:
       - "443:443"
     environment:
       DOMAIN: ${DOMAIN}
+      # Swagger UI 기본 인증. 비어 있으면 Caddyfile 을 읽지 못해 Caddy 전체(/api/v1 포함)가 멈추므로, 그 전에 compose 가 오류를 낸다
+      SWAGGER_BASIC_USER: ${SWAGGER_BASIC_USER:?deploy/.env 에 SWAGGER_BASIC_USER 를 넣어야 한다}
+      SWAGGER_BASIC_HASH: ${SWAGGER_BASIC_HASH:?deploy/.env 에 SWAGGER_BASIC_HASH 를 넣어야 한다}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # 발급받은 인증서를 보관(지우면 재발급, 발급 횟수 제한에 걸릴 수 있음)

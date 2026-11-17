@@ -1,5 +1,7 @@
 package com.hanstep.consent.service;
 
+import com.hanstep.common.error.BusinessException;
+import com.hanstep.common.error.ErrorCode;
 import com.hanstep.consent.domain.ConsentStatus;
 import com.hanstep.consent.domain.ConsentType;
 import com.hanstep.consent.domain.UserConsent;
@@ -48,6 +50,14 @@ public class ConsentService {
                 .map(ConsentSaveRequest.Item::consentType)
                 .collect(Collectors.toSet());
         return toResponse(userId, saved);
+    }
+
+    /** 그 종류의 최신 행이 GRANTED 가 아니면(없음·철회) 403 CONSENT_REQUIRED(details.consentType). */
+    public UserConsent requireGranted(Long userId, ConsentType type) {
+        return consentRepository.findFirstByUserIdAndConsentTypeOrderByIdDesc(userId, type)
+                .filter(consent -> consent.getStatus() == ConsentStatus.GRANTED)
+                .orElseThrow(() -> new BusinessException(ErrorCode.CONSENT_REQUIRED,
+                        Map.of("consentType", type.name())));
     }
 
     private ConsentListResponse toResponse(Long userId, Set<ConsentType> types) {
