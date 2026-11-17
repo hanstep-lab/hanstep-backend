@@ -4,6 +4,8 @@ SET NAMES utf8mb4;
 -- 시연용 테스트 사용자 1명(Mark Anthony Reyes, 필리핀 E-9 제조업, 가상 인물·합성 데이터)과 해외송금 받는 분 2명만 넣음.
 --   E-7-4 점수 계산(비자 프로필·근무·소득·증빙), 금융 Mock·해외송금 데모를 이 한 명으로 한다.
 -- 계좌·거래내역 12개월 Mock은 resources/mock/mydata/demo-e9-ph-reyes 를 MYD-02 로 적재한다(이 파일에 넣지 않음).
+--   청약 계좌(INSTALLMENT)는 없다(대안신용 hasSubscription=false).
+-- 통신비·건강보험료·공과금 납부 내역(대안신용 연체 입력)은 이 파일에 넣는다(맨 아래, Mock).
 
 -- 데모 사용자: /api/v1/auth/entry 의 entryToken = external_user_key. 고용기업 추천서만 아직 내지 않았다.
 -- 입국(현재 체류 시작) 2022-12-05, 근무 시작 2022-12-12. 체류 4년(48개월)은 2026-12-05 에 채운다.
@@ -47,3 +49,29 @@ INSERT INTO remittance_recipients
  (user_id, external_recipient_key, name_en, relationship, country_code, currency, bank_name, swift_code, account_no_masked, source, is_mock, relationship_confirmed_at)
 SELECT u.id, 'mock-recipient-self-bpi', 'MARK ANTHONY REYES', 'SELF', 'PH', 'PHP', 'BPI', 'BOPIPHMM', '****7788', 'MOCK', TRUE, '2026-11-01 00:00:00.000'
 FROM users u WHERE u.external_user_key = 'demo-e9-ph-reyes';
+
+-- 청구 납부 내역(대안신용 연체 입력): 통신비·건강보험료·공과금(도시가스) 3종 × 2026-05~10 = 18행, Mock 수집 배치 1건에 묶음.
+-- 임시값: 모두 납부 기한 당일 자동이체로 냈다(연체 0회). 금액도 임시값이고, 도시가스만 bank-shinhan.json 의
+--   25일 70,000원 출금과 같다(2026-03 의 늦은 출금은 이 6개월 밖).
+INSERT INTO ingestion_batches
+ (user_id, source_type, is_mock, request_key, status, coverage_from, coverage_to, record_count, started_at, finished_at)
+SELECT u.id, 'MOCK', TRUE, 'seed-bill-payments', 'SUCCEEDED', '2026-05-01', '2026-10-31', 18,
+       '2026-11-01 00:00:00.000', '2026-11-01 00:00:00.000'
+FROM users u WHERE u.external_user_key = 'demo-e9-ph-reyes';
+
+INSERT INTO mydata_bill_payments
+ (user_id, institution_id, bill_type, billing_month, due_on, paid_on, amount, ingestion_batch_id)
+SELECT u.id, i.id, b.bill_type, m.billing_month,
+       DATE_ADD(m.billing_month, INTERVAL b.due_day - 1 DAY),
+       DATE_ADD(m.billing_month, INTERVAL b.due_day - 1 DAY),
+       b.amount, ib.id
+FROM users u
+JOIN ingestion_batches ib ON ib.user_id = u.id AND ib.request_key = 'seed-bill-payments'
+CROSS JOIN (SELECT 'MOCK_TELECOM' AS institution_code, 'TELECOM' AS bill_type, 21 AS due_day, 45000 AS amount
+            UNION ALL SELECT 'MOCK_NHIS', 'HEALTH_INSURANCE', 10, 95000
+            UNION ALL SELECT 'MOCK_UTILITY', 'UTILITY', 25, 70000) b
+JOIN institutions i ON i.institution_code = b.institution_code
+CROSS JOIN (SELECT DATE '2026-05-01' AS billing_month UNION ALL SELECT DATE '2026-06-01'
+            UNION ALL SELECT DATE '2026-07-01' UNION ALL SELECT DATE '2026-08-01'
+            UNION ALL SELECT DATE '2026-09-01' UNION ALL SELECT DATE '2026-10-01') m
+WHERE u.external_user_key = 'demo-e9-ph-reyes';

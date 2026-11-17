@@ -32,7 +32,9 @@ INSERT INTO visa_types (code, name_ko, name_en, is_supported_path) VALUES
 INSERT INTO institutions (institution_code, name, name_ko, institution_type) VALUES
  ('SHINHAN_BANK', 'Shinhan Bank (Mock)', '신한은행', 'BANK'),
  ('SHINHAN_CARD', 'Shinhan Card (Mock)', '신한카드', 'CARD'),
- ('MOCK_TELECOM', 'Mock Telecom',        NULL,       'TELECOM');
+ ('MOCK_TELECOM', 'Mock Telecom',        NULL,       'TELECOM'),
+ ('MOCK_NHIS',    'Mock National Health Insurance', NULL, 'PUBLIC'),
+ ('MOCK_UTILITY', 'Mock Utility (City Gas)',        NULL, 'BILLER');
 
 -- E-7-4 규칙: 10/22 회의록·지수 기능정의서에 옮겨진 농식품부 2026 점수표 값.
 -- 법무부 공식 공고로 재확인하기 전까지 DRAFT. DRAFT 규칙은 계산 API가 사용하지 않음.
