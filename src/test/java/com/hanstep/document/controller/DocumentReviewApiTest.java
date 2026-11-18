@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.hanstep.aijob.dto.JobFailedRequest;
 import com.hanstep.aijob.service.AiJobStatusService;
 import com.hanstep.common.security.JwtTokenProvider;
+import com.hanstep.common.time.KstDates;
 import com.hanstep.document.ArcImages;
 import com.hanstep.document.FakeArcStorageConfig;
 import com.hanstep.document.FakeArcStorageConfig.FakeArcImageStorage;
@@ -20,6 +21,8 @@ import com.hanstep.document.dto.OcrResultRequest;
 import com.hanstep.document.service.DocumentInternalService;
 import com.hanstep.support.TestUsers;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -159,6 +162,50 @@ class DocumentReviewApiTest {
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
         mockMvc.perform(get(URL, Long.MAX_VALUE).header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isNotFound());
+    }
+
+    // ---------- daysRemaining(#131) ----------
+
+    @Test
+    void 체류_만료일_값이_없으면_daysRemaining은_null() throws Exception {
+        long id = upload();
+        mockMvc.perform(get(URL, id).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(jsonPath("$.daysRemaining").value(org.hamcrest.Matchers.nullValue()));
+
+        recordOcr(id, new BigDecimal("0.95"));
+        mockMvc.perform(get(URL, id).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING_CONFIRMATION"))
+                .andExpect(jsonPath("$.daysRemaining").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    void OCR_값의_형식이_틀리면_daysRemaining은_null() throws Exception {
+        long id = upload();
+        recordOcr(id, new BigDecimal("0.95"), "01/03/2027");
+
+        mockMvc.perform(get(URL, id).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.daysRemaining").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    void daysRemaining은_stayExpiry_지금_값으로_오늘_KST부터_계산하고_확정_후에는_null() throws Exception {
+        long id = upload();
+        recordOcr(id, new BigDecimal("0.95"), "2027-01-01");
+        LocalDate today = LocalDate.now(KstDates.KST);
+
+        mockMvc.perform(get(URL, id).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(jsonPath("$.daysRemaining")
+                        .value(ChronoUnit.DAYS.between(today, LocalDate.parse("2027-01-01"))));
+        // 사용자가 고친 값 기준
+        patchFields(id, "{\"fields\": [{\"fieldKey\": \"stayExpiry\", \"value\": \"2027-03-01\"}]}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.daysRemaining")
+                        .value(ChronoUnit.DAYS.between(today, LocalDate.parse("2027-03-01"))));
+
+        confirm(id).andExpect(status().isOk())
+                .andExpect(jsonPath("$.daysRemaining").value(org.hamcrest.Matchers.nullValue()));
     }
 
     // ---------- DOC-03 수정 ----------
@@ -363,13 +410,19 @@ class DocumentReviewApiTest {
 
     /** worker 의 OCR 결과 보고(합성 데이터). visaType 신뢰도만 바꿔 넣는다. */
     void recordOcr(long documentId, BigDecimal visaTypeConfidence) {
+        recordOcr(documentId, visaTypeConfidence, null);
+    }
+
+    /** stayExpiry 를 OCR 이 읽은 경우(앞면에는 보통 없음). */
+    void recordOcr(long documentId, BigDecimal visaTypeConfidence, String stayExpiry) {
         documentInternalService.recordOcrResult(documentId, new OcrResultRequest(documentId, "ppocrv5-ko-mobile-int8",
                 842, DocumentSide.FRONT, List.of(
                 new OcrFieldResult("nameEn", "MARK ANTHONY REYES", new BigDecimal("0.9812"), false),
                 new OcrFieldResult("nationality", "PHL", new BigDecimal("0.9655"), false),
                 new OcrFieldResult("birthDate", "1995-08-15", new BigDecimal("0.9734"), false),
                 new OcrFieldResult("visaType", "E-9", visaTypeConfidence, false),
-                new OcrFieldResult("stayExpiry", null, null, false),
+                new OcrFieldResult("stayExpiry", stayExpiry, stayExpiry == null ? null : new BigDecimal("0.9"),
+                        false),
                 new OcrFieldResult("registrationNo", "950815-5******", new BigDecimal("0.9907"), true))));
     }
 

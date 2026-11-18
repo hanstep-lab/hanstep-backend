@@ -2,7 +2,6 @@ package com.hanstep.document.service;
 
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
-import com.hanstep.common.time.KstDates;
 import com.hanstep.document.domain.ArcFieldKey;
 import com.hanstep.document.domain.Document;
 import com.hanstep.document.domain.DocumentField;
@@ -14,14 +13,10 @@ import com.hanstep.document.repository.DocumentRepository;
 import com.hanstep.document.storage.ArcImageStorage;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Function;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,24 +32,21 @@ import org.springframework.transaction.annotation.Transactional;
 public class DocumentReviewService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentReviewService.class);
-    private static final Pattern ALPHA3 = Pattern.compile("^[A-Z]{3}$");
-    /** visa_profiles 에 넣는 항목. 확정할 때 모두 값이 있어야 한다. */
-    private static final List<ArcFieldKey> PROFILE_KEYS = List.of(ArcFieldKey.NATIONALITY, ArcFieldKey.BIRTH_DATE,
-            ArcFieldKey.VISA_TYPE, ArcFieldKey.STAY_EXPIRY);
-
     private final DocumentService documentService;
     private final DocumentRepository documentRepository;
     private final DocumentFieldRepository documentFieldRepository;
     private final ArcImageStorage storage;
+    private final ArcFieldValidator validator;
     private final JdbcTemplate jdbc;
 
     public DocumentReviewService(DocumentService documentService, DocumentRepository documentRepository,
                                  DocumentFieldRepository documentFieldRepository, ArcImageStorage storage,
-                                 JdbcTemplate jdbc) {
+                                 ArcFieldValidator validator, JdbcTemplate jdbc) {
         this.documentService = documentService;
         this.documentRepository = documentRepository;
         this.documentFieldRepository = documentFieldRepository;
         this.storage = storage;
+        this.validator = validator;
         this.jdbc = jdbc;
     }
 
@@ -68,25 +60,8 @@ public class DocumentReviewService {
         requirePendingConfirmation(doc);
         Map<String, DocumentField> byKey = fieldsByKey(doc);
 
-        List<Map<String, String>> errors = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (int i = 0; i < request.fields().size(); i++) {
-            DocumentFieldsUpdateRequest.Item item = request.fields().get(i);
-            String path = "fields[" + i + "]";
-            ArcFieldKey key = ArcFieldKey.fromKey(item.fieldKey());
-            if (key == null) {
-                errors.add(error(path + ".fieldKey", "unknown fieldKey"));
-            } else if (key == ArcFieldKey.REGISTRATION_NO) {
-                errors.add(error(path + ".fieldKey", "registrationNo cannot be edited"));
-            } else if (!seen.add(key.key())) {
-                errors.add(error(path + ".fieldKey", "duplicate fieldKey"));
-            } else {
-                String reason = invalidReason(key, item.value().trim());
-                if (reason != null) {
-                    errors.add(error(path + ".value", reason));
-                }
-            }
-        }
+        List<Map<String, String>> errors = validator.checkItems(request.fields(),
+                key -> key == ArcFieldKey.REGISTRATION_NO ? "registrationNo cannot be edited" : null);
         if (!errors.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, Map.of("fields", errors));
         }
@@ -120,13 +95,13 @@ public class DocumentReviewService {
         Map<String, DocumentField> byKey = fieldsByKey(doc);
 
         List<Map<String, String>> errors = new ArrayList<>();
-        for (ArcFieldKey key : PROFILE_KEYS) {
+        for (ArcFieldKey key : ArcFieldValidator.PROFILE_KEYS) {
             DocumentField field = byKey.get(key.key());
             String value = field == null ? null : field.currentValue();
             if (value == null || value.isBlank()) {
-                errors.add(error(key.key(), "required"));
-            } else if (invalidReason(key, value) != null) {
-                errors.add(error(key.key(), invalidReason(key, value)));
+                errors.add(ArcFieldValidator.error(key.key(), "required"));
+            } else if (validator.invalidReason(key, value) != null) {
+                errors.add(ArcFieldValidator.error(key.key(), validator.invalidReason(key, value)));
             }
         }
         if (!errors.isEmpty()) {
@@ -135,7 +110,7 @@ public class DocumentReviewService {
         }
 
         upsertVisaProfile(userId, doc.getId(),
-                visaTypeId(byKey.get(ArcFieldKey.VISA_TYPE.key()).currentValue()),
+                validator.visaTypeIdOrNull(byKey.get(ArcFieldKey.VISA_TYPE.key()).currentValue()),
                 LocalDate.parse(byKey.get(ArcFieldKey.STAY_EXPIRY.key()).currentValue()),
                 byKey.get(ArcFieldKey.NATIONALITY.key()).currentValue(),
                 LocalDate.parse(byKey.get(ArcFieldKey.BIRTH_DATE.key()).currentValue()));
@@ -170,38 +145,6 @@ public class DocumentReviewService {
                 .collect(Collectors.toMap(DocumentField::getFieldKey, Function.identity()));
     }
 
-    /** 형식 검사. 맞으면 null. 이유에 값은 넣지 않는다. */
-    private String invalidReason(ArcFieldKey key, String value) {
-        return switch (key) {
-            case NATIONALITY -> ALPHA3.matcher(value).matches() ? null : "must be ISO 3166-1 alpha-3 (e.g. PHL)";
-            case BIRTH_DATE -> {
-                LocalDate date = parseDate(value);
-                yield date == null ? "must be YYYY-MM-DD"
-                        : date.isAfter(LocalDate.now(KstDates.KST)) ? "must not be in the future" : null;
-            }
-            case STAY_EXPIRY -> parseDate(value) == null ? "must be YYYY-MM-DD" : null;
-            case VISA_TYPE -> visaTypeIdOrNull(value) == null ? "unknown visa type" : null;
-            case NAME_EN, REGISTRATION_NO -> null;
-        };
-    }
-
-    private static LocalDate parseDate(String value) {
-        try {
-            return LocalDate.parse(value);
-        } catch (DateTimeParseException e) {
-            return null;
-        }
-    }
-
-    private Long visaTypeIdOrNull(String code) {
-        List<Long> ids = jdbc.queryForList("SELECT id FROM visa_types WHERE code = ?", Long.class, code);
-        return ids.isEmpty() ? null : ids.getFirst();
-    }
-
-    private long visaTypeId(String code) {
-        return visaTypeIdOrNull(code);
-    }
-
     // 사용자당 1행(uq_visa_profiles_user). 입국일·이전 체류 개월·증빙 상태는 OCR 항목이 아니라 그대로 둔다
     private void upsertVisaProfile(Long userId, Long documentId, long visaTypeId, LocalDate stayExpiresOn,
                                    String nationalityCode, LocalDate birthDate) {
@@ -213,9 +156,5 @@ public class DocumentReviewService {
                   nationality_code = new.nationality_code, birth_date = new.birth_date,
                   source_document_id = new.source_document_id
                 """, userId, visaTypeId, stayExpiresOn, nationalityCode, birthDate, documentId);
-    }
-
-    private static Map<String, String> error(String field, String reason) {
-        return Map.of("field", field, "reason", reason);
     }
 }

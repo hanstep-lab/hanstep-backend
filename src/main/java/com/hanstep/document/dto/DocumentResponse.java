@@ -3,6 +3,7 @@ package com.hanstep.document.dto;
 import com.hanstep.aijob.domain.AiJob;
 import com.hanstep.aijob.domain.AiJobStatus;
 import com.hanstep.aijob.domain.PublishStatus;
+import com.hanstep.common.time.KstDates;
 import com.hanstep.document.domain.ArcFieldKey;
 import com.hanstep.document.domain.Document;
 import com.hanstep.document.domain.DocumentField;
@@ -10,11 +11,14 @@ import com.hanstep.document.domain.DocumentFieldStatus;
 import com.hanstep.document.domain.DocumentSide;
 import com.hanstep.document.domain.DocumentStatus;
 import com.hanstep.document.domain.DocumentType;
+import com.hanstep.document.service.ArcFieldValidator;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +45,10 @@ public record DocumentResponse(
         OcrJob ocrJob,
         @Schema(description = "OCR 항목. OCR 결과가 오기 전에는 빈 배열. 확정 후에는 value 가 null 이고 status·confidence 만 남는다")
         List<Field> fields,
+        @Schema(description = "체류 만료일(stayExpiry 지금 값)까지 남은 일수(오늘 KST 기준, 지났으면 음수). 값이 없거나 "
+                + "YYYY-MM-DD 가 아니면 null. 확정 후에는 null(ONB-04 의 visa.daysRemaining 을 쓴다)",
+                nullable = true, example = "103")
+        Long daysRemaining,
         @Schema(description = "업로드 시각", example = "2026-11-16T16:40:00+09:00")
         OffsetDateTime uploadedAt,
         @Schema(description = "확정 시각", nullable = true, example = "2026-11-16T16:42:10+09:00")
@@ -114,7 +122,14 @@ public record DocumentResponse(
         }
         return new DocumentResponse(doc.getId(), doc.getDocumentType(), doc.getSide(), status,
                 status == DocumentStatus.FAILED ? failureCode : null, OcrJob.of(ocrJob), ordered,
+                confirmed ? null : daysRemaining(byKey.get(ArcFieldKey.STAY_EXPIRY.key())),
                 kst(doc.getCreatedAt()), kst(doc.getConfirmedAt()));
+    }
+
+    // ONB-04 와 같은 계산(오늘 KST, ChronoUnit.DAYS). 값이 없거나 형식이 틀리면 null
+    private static Long daysRemaining(DocumentField stayExpiry) {
+        LocalDate date = stayExpiry == null ? null : ArcFieldValidator.parseDate(stayExpiry.currentValue());
+        return date == null ? null : ChronoUnit.DAYS.between(LocalDate.now(KstDates.KST), date);
     }
 
     private static Field field(DocumentField f, boolean confirmed) {
