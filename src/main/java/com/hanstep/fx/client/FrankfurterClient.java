@@ -34,6 +34,7 @@ public class FrankfurterClient {
 
     // 응답에 시각이 없어 rate_at 은 그 날짜의 ECB 기준환율 고시 시각(프랑크푸르트 16:00, 서머타임 반영)을 UTC 로 바꾼 값이다.
     // ECB 는 영업일 16:00 CET 무렵 기준환율을 발표한다. 화면은 날짜(rate_date)만 쓴다
+    // rate_date 는 원천 날짜(ECB 기준일) 그대로다. 16:00 CET 를 KST 로 바꾸면 겨울에는 다음 날 00:00 이 되어 KST 날짜를 쓰지 않는다
     static final LocalTime ECB_PUBLISH_TIME = LocalTime.of(16, 0);
     static final ZoneId ECB_ZONE = ZoneId.of("Europe/Berlin");
 

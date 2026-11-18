@@ -271,6 +271,26 @@ alias dc='docker compose -f deploy/compose.prod.yml'
 - 저장: `fx collect saved: source=MARKET_REF backfill=false rows=1`. 같은 값만 받았으면 로그가 없다.
 - 저장하지 않은 값(숫자 아님·0 이하·소수 5자리 이상): `fx rate rejected: ...`
 
+### 로컬을 운영과 같게 만들기
+
+로컬 DB에는 04 Mock 환율(`db/dev`)이 있다. 수집기는 같은 키의 Mock 행을 덮어쓰지 않으므로, 그대로 수집하면 11/06 이전 USD는 Mock 행(`source=KOREAEXIM`, `is_mock=1`)으로 남아 실데이터와 섞인다. 실데이터만 두려면 아래를 순서대로 한다(레포 루트, Git Bash).
+
+1. 정리 SQL(Mock 738행 삭제. VND 는 수집 대상이 아니라 이후 `FX_RATE_NOT_FOUND`):
+
+   ```bash
+   docker exec -i hanstep-mysql sh -c 'mysql --default-character-set=utf8mb4 -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < deploy/migrations/manual/2026-11-17-delete-mock-exchange-rates.sql
+   ```
+
+2. 로컬 Spring 을 띄우고 백필:
+
+   ```bash
+   K=$(grep '^SPRING_INTERNAL_API_KEY=' .env | cut -d= -f2-)
+   curl -fsS -X POST -H "X-Internal-Token: $K" http://localhost:8080/internal/v1/fx/backfill
+   ```
+
+- 백필은 하루 1번만 돌린다. 12개월이면 수출입은행을 약 260번 부른다(일일 한도 1000회로 알려져 있으나 미확인. 같은 키를 쓰는 다른 환경과 한도를 나눠 쓴다).
+- 테스트는 04 시드에 기대지 않아(환율 행을 테스트 안에서 넣음) 정리한 뒤에도 그대로 통과한다.
+
 ## 6. 데모 데이터
 
 내 PC(Windows)의 `hanstep-backend`에서 실행한다.
