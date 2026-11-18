@@ -43,7 +43,11 @@ public record FxAlertResponse(
         OffsetDateTime triggeredAt,
 
         @Schema(description = "도달 판정에 쓴 환율(rateType 의 값, 끝자리 0 제거). TRIGGERED 가 아니면 null", nullable = true)
-        BigDecimal triggeredRate
+        BigDecimal triggeredRate,
+
+        @Schema(description = "앱이 도달을 알렸다고 보낸 시각(+09:00, POST /{alertId}/notified). 아직이면 null",
+                nullable = true)
+        OffsetDateTime notifiedAt
 ) {
 
     private static final ZoneOffset KST = ZoneOffset.ofHours(9);
@@ -51,11 +55,11 @@ public record FxAlertResponse(
     public static FxAlertResponse from(AlertRow row) {
         return new FxAlertResponse(row.id(), row.currency(), row.rateType(), row.comparator(), plain(row.targetRate()),
                 row.unitAmount(), row.status(), kst(row.createdAt()), kst(row.triggeredAt()),
-                plain(row.triggeredRate()));
+                plain(row.triggeredRate()), kst(row.notifiedAt()));
     }
 
     /** 송금 견적 환율(AppliedRate.rate)과 같은 표기. 22.1000 → 22.1, 1350.0000 → 1350(1.35E+3 이 되지 않게). */
-    private static BigDecimal plain(BigDecimal value) {
+    static BigDecimal plain(BigDecimal value) {
         if (value == null) {
             return null;
         }
@@ -63,7 +67,7 @@ public record FxAlertResponse(
         return stripped.scale() < 0 ? stripped.setScale(0) : stripped;
     }
 
-    private static OffsetDateTime kst(Instant at) {
+    static OffsetDateTime kst(Instant at) {
         return at == null ? null : at.atOffset(KST).truncatedTo(ChronoUnit.SECONDS);
     }
 }
