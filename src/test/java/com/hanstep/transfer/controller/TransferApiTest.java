@@ -261,7 +261,7 @@ class TransferApiTest {
 
     @Test
     void USD_매매기준율_실데이터가_없으면_404_Mock_행은_쓰지_않는다() throws Exception {
-        jdbc.update("DELETE FROM exchange_rates WHERE currency = 'USD' AND source = 'KOREAEXIM' AND NOT is_mock");
+        deleteRates("currency = 'USD' AND source = 'KOREAEXIM' AND NOT is_mock");
         jdbc.update("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, send_rate, "
                 + "receive_rate, source, is_mock, fetched_at) VALUES ('USD', 1, '2099-01-03', '2099-01-02 15:00:00', "
                 + "1400.0000, 1414.0000, 1386.0000, 'KOREAEXIM', TRUE, '2099-01-03 02:05:00')");
@@ -289,7 +289,7 @@ class TransferApiTest {
 
     @Test
     void PHP_참고_환율이_없어도_USD_견적은_나온다() throws Exception {
-        jdbc.update("DELETE FROM exchange_rates WHERE currency = 'PHP' AND source = 'MARKET_REF' AND NOT is_mock");
+        deleteRates("currency = 'PHP' AND source = 'MARKET_REF' AND NOT is_mock");
 
         quote(700_000, "KRW", motherId)
                 .andExpect(status().isOk())
@@ -505,6 +505,16 @@ class TransferApiTest {
         return mockMvc.perform(get("/api/v1/transfers/quote").param("amount", String.valueOf(amount))
                 .param("currency", currency).param("recipientId", String.valueOf(recipientId))
                 .header(HttpHeaders.AUTHORIZATION, bearer));
+    }
+
+    /**
+     * 환율 행을 지운다(테스트 끝나면 롤백). 로컬 DB 에 도달한 알림(#125)이 그 행을 가리키면 FK(fk_fx_alerts_rate)에 걸리므로
+     * 먼저 그 참조만 떼어 낸다.
+     */
+    private void deleteRates(String where) {
+        jdbc.update("UPDATE fx_alerts SET triggered_rate_id = NULL WHERE triggered_rate_id IN "
+                + "(SELECT id FROM exchange_rates WHERE " + where + ")");
+        jdbc.update("DELETE FROM exchange_rates WHERE " + where);
     }
 
     private ResultActions internal(org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request)
