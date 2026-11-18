@@ -103,6 +103,8 @@ services:
       AI_INTERNAL_API_URL: http://ai-server:8000
       AI_INTERNAL_API_TOKEN: ${AI_INTERNAL_API_TOKEN}
       E74_INCLUDE_DRAFT_RULES: ${E74_INCLUDE_DRAFT_RULES:-false}
+      # 데모 계정 초기화(POST /api/v1/demo/reset, #131). 시연 리허설 동안만 true, 발표 뒤 false
+      DEMO_RESET_ENABLED: ${DEMO_RESET_ENABLED:-false}
       # 외국인등록증 원본 업로드·확정 시 삭제(#73). 등록증 버킷 전용 쓰기·삭제 키만 준다(정책·상품 키 R2_ACCESS_KEY_ID 는 넣지 않음).
       # ocr-worker 는 이 키가 아니라 읽기 전용 키(R2_OCR_WORKER_*)를 받는다
       R2_ENDPOINT_URL: ${R2_ENDPOINT_URL}
@@ -143,7 +145,13 @@ services:
       # 챗봇 실제 모델 호출. AI 설정 기본값이 fake 라 빠지면 가짜 답변을 낸다
       CHAT_LLM_MODE: ${CHAT_LLM_MODE:-anthropic}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      # CHAT_PROMPT_VERSION 은 넣지 않는다(AI 코드 기본값을 따름)
+      # 챗봇 프롬프트 버전. AI 설정이 허용 값 목록(Literal)으로 검사해 빈 값이면 기동에 실패하므로 기본값을 꼭 둔다.
+      # 금융 정책 RAG(search_finance_policy)는 v4.2 이상에서만 쓴다
+      CHAT_PROMPT_VERSION: ${CHAT_PROMPT_VERSION:-v4.1}
+      # 금융 정책 문서 폴더(컨테이너 안 경로, 아래 볼륨). 비우면 금융 정책 검색이 SEARCH_NOT_CONFIGURED
+      FINANCE_POLICY_CORPUS_DIR: ${FINANCE_POLICY_CORPUS_DIR:-}
+      # 금융 정책 검색 결과에 항 단위 라벨(발행처 등)을 붙인다(AI #88 스펙 가드 ②)
+      FINANCE_POLICY_LABELS: ${FINANCE_POLICY_LABELS:-false}
       R2_PRODUCT_BUCKET: ${R2_PRODUCT_BUCKET:-hanstep-financial-products}
       LAW_API_OC: ${LAW_API_OC}
       E74_INCLUDE_DRAFT_RULES: ${E74_INCLUDE_DRAFT_RULES:-false}
@@ -152,6 +160,9 @@ services:
       - hf-cache:/models/huggingface
       # RAG 적재 원문(ingest_rag_documents.py 의 manifest data_root 가 /data/rag_documents 로 풀림)
       - ../../hanstep-AI/data/rag_documents:/data/rag_documents:ro
+      # 금융 정책 문서(레포 밖, 서버 ~/hanstep/rag-data/finance-policy 에 수동 배치). 컨테이너 사용자(uid 10001)가 읽을 수 있어야 한다.
+      # 호스트 폴더가 없으면 Docker 가 root 소유 빈 폴더를 만들어 검색 구축이 실패하므로 먼저 만들어 둔다
+      - ../../rag-data/finance-policy:/data/finance-policy:ro
     depends_on:
       mongodb:
         condition: service_healthy
