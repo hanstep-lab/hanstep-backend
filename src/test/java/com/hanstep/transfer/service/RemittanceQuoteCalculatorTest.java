@@ -18,8 +18,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 /**
- * 송금 견적 계산(#121). 공시값은 application.yaml 그대로(빈 주입) 쓰고, 기대값은 손 계산표
- * (resources/remittance/quote_cases_v1.csv, Java 구현과 별개로 계산)와 비교한다.
+ * 송금 견적 계산(#121). 공시값은 application.yaml 그대로(빈 주입) 쓰고, 기대값은 손 계산표(Java 구현과 별개로 계산)와 비교한다.
+ * - quote_cases_usd_targets.csv: 두 상품 × 송금 USD 20·520·5,000.00·5,000.01 × 과거 0·1·3·6·9회 = 40건(원화는 역산)
+ * - quote_cases_v1.csv: 두 상품에 같은 원화(화면 입력)를 넣은 40건
  * USD 매매기준율 1331.50(신한 고시표와 같게 둬서 우대 없는 적용 환율이 1344.20), PHP 참고 20.984.
  */
 @SpringBootTest
@@ -35,31 +36,47 @@ class RemittanceQuoteCalculatorTest {
     @Autowired
     private RemittanceProperties properties;
 
+    @ParameterizedTest(name = "USD {0} 과거 {2}회 {3}")
+    @CsvFileSource(resources = "/remittance/quote_cases_usd_targets.csv")
+    void USD_지점_손_계산표_40건과_같다(ArgumentsAccessor row) {
+        ProductQuote quote = assertRow(row, 1);
+        if (quote.available()) {
+            assertThat(quote.sendAmountUsd()).isEqualByComparingTo(row.getString(0));
+        }
+    }
+
     @ParameterizedTest(name = "{0}원 과거 {1}회 {2}")
     @CsvFileSource(resources = "/remittance/quote_cases_v1.csv")
-    void 손_계산표_40건과_같다(ArgumentsAccessor row) {
-        long amount = row.getLong(0);
-        int past = row.getInteger(1);
-        ProductQuote quote = product(calculator.calculate(new Input(1, amount, USD, PHP, past, TODAY)),
-                row.getString(2));
+    void 원화_입력_손_계산표_40건과_같다(ArgumentsAccessor row) {
+        assertRow(row, 0);
+    }
 
-        assertThat(quote.available()).isEqualTo(row.getBoolean(3));
-        assertThat(quote.unavailableReason()).isEqualTo(row.getString(4));
-        assertThat(quote.preferentialPct()).isEqualByComparingTo(row.getString(5));
-        assertThat(quote.remittanceCount1y()).isEqualTo(row.getInteger(6));
-        assertThat(quote.usdAppliedRate()).isEqualByComparingTo(row.getString(7));
-        assertDecimal(quote.sendAmountUsd(), row.getString(8));
-        assertThat(quote.krwPrincipal()).isEqualTo(row.getLong(9));
-        assertThat(quote.fxMarginKrw()).isEqualTo(row.getLong(10));
-        assertThat(quote.sendFeeKrw()).isEqualTo(row.getLong(11));
-        assertThat(quote.telegraphicFeeKrw()).isEqualTo(row.getLong(12));
-        assertDecimal(quote.feeUsd(), row.getString(13));
-        assertThat(quote.totalWithdrawKrw()).isEqualTo(row.getLong(14));
-        assertDecimal(quote.recipientAmountPhpRef(), row.getString(15));
-        assertDecimal(quote.recipientAmountUsd(), row.getString(8));
+    /** offset 부터 amountKrw, pastRemittances, product, ... recipientAmountPhpRef 순(CSV 머리글). */
+    private ProductQuote assertRow(ArgumentsAccessor row, int offset) {
+        long amount = row.getLong(offset);
+        int past = row.getInteger(offset + 1);
+        ProductQuote quote = product(calculator.calculate(new Input(1, amount, USD, PHP, past, TODAY)),
+                row.getString(offset + 2));
+
+        assertThat(quote.available()).isEqualTo(row.getBoolean(offset + 3));
+        assertThat(quote.unavailableReason()).isEqualTo(row.getString(offset + 4));
+        assertThat(quote.preferentialPct()).isEqualByComparingTo(row.getString(offset + 5));
+        assertThat(quote.remittanceCount1y()).isEqualTo(row.getInteger(offset + 6));
+        assertThat(quote.usdAppliedRate()).isEqualByComparingTo(row.getString(offset + 7));
+        assertDecimal(quote.sendAmountUsd(), row.getString(offset + 8));
+        assertThat(quote.krwPrincipal()).isEqualTo(row.getLong(offset + 9));
+        assertThat(quote.fxMarginKrw()).isEqualTo(row.getLong(offset + 10));
+        assertThat(quote.sendFeeKrw()).isEqualTo(row.getLong(offset + 11));
+        assertThat(quote.telegraphicFeeKrw()).isEqualTo(row.getLong(offset + 12));
+        assertDecimal(quote.feeUsd(), row.getString(offset + 13));
+        assertThat(quote.totalWithdrawKrw()).isEqualTo(row.getLong(offset + 14));
+        assertThat(quote.unusedKrw()).isEqualTo(row.getLong(offset + 15));
+        assertDecimal(quote.recipientAmountPhpRef(), row.getString(offset + 16));
+        assertDecimal(quote.recipientAmountUsd(), row.getString(offset + 8));
         if (quote.available()) {
             assertThat(quote.totalWithdrawKrw()).isLessThanOrEqualTo(amount);
         }
+        return quote;
     }
 
     @Test
@@ -111,6 +128,8 @@ class RemittanceQuoteCalculatorTest {
 
         assertThat(easy.notices()).containsExactly("INTERMEDIARY_FEE_MAY_APPLY", "LOCAL_PAYOUT_RATE_DIFFERS",
                 "FOREIGN_EXCHANGE_BANK_DESIGNATION_REQUIRED");
+        assertThat(easy.unusedKrw()).isNull();
+        assertThat(fast.unusedKrw()).isNull();
         assertThat(fast.notices()).containsExactly("LOCAL_PAYOUT_RATE_BY_AGENT", "LOCAL_PAYOUT_RATE_DIFFERS",
                 "FOREIGN_EXCHANGE_BANK_DESIGNATION_REQUIRED");
         assertThat(easy.deliveryType()).isEqualTo("SWIFT_ACCOUNT");
@@ -153,6 +172,9 @@ class RemittanceQuoteCalculatorTest {
         assertThat(easy.sendFeeKrw()).isZero();
         assertThat(easy.krwPrincipal()).isEqualTo(6_689_250); // 5,000 × 1,337.85
         assertThat(easy.totalWithdrawKrw()).isEqualTo(6_694_250);
+        // 남는 원화를 알리고 안내 코드를 붙인다
+        assertThat(easy.unusedKrw()).isEqualTo(5_750);
+        assertThat(easy.notices()).startsWith("AMOUNT_CAPPED_AT_FEE_BOUNDARY");
     }
 
     @Test
