@@ -393,16 +393,40 @@ class TransferApiTest {
 
         // 1350.00 은 1.35E+3 이 아니라 1350
         jdbc.update("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, source, "
-                + "is_mock, fetched_at) VALUES ('XTS', 1, '2026-11-06', '2026-11-05 15:00:00', 1350.00, 'MOCK', TRUE, "
-                + "'2026-11-06 02:05:00')");
+                + "is_mock, fetched_at) VALUES ('XTS', 1, '2026-11-06', '2026-11-05 15:00:00', 1350.00, 'KOREAEXIM', "
+                + "FALSE, '2026-11-06 02:05:00')");
         String xts = internal(get(INTERNAL + "/fx-rates").param("currency", "XTS"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceLabel").value("수출입은행 고시 매매기준율"))
                 .andReturn().getResponse().getContentAsString();
         assertThat(xts).contains("\"rate\":1350,").doesNotContain("E+");
 
         internal(get(INTERNAL + "/fx-rates").param("currency", "XXX"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("FX_RATE_NOT_FOUND"));
+    }
+
+    @Test
+    void 내부_환율은_환율_화면과_같은_조회로_Mock을_읽지_않고_우선_원천을_쓴다() throws Exception {
+        // #123: 통화별 최신 값 조회를 ExchangeRateReader 하나로 모았다. Mock 만 있으면 404(운영은 실데이터만)
+        jdbc.update("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, source, "
+                + "is_mock, fetched_at) VALUES ('XXX', 1, '2099-01-03', '2099-01-02 15:00:00', 9.9000, 'MOCK', TRUE, "
+                + "'2099-01-03 02:05:00')");
+        internal(get(INTERNAL + "/fx-rates").param("currency", "XXX"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("FX_RATE_NOT_FOUND"));
+
+        // 더 늦은 MARKET_REF 가 있어도 KOREAEXIM 이 우선(이전에는 날짜가 늦은 행이었음)
+        jdbc.update("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, send_rate, "
+                + "receive_rate, source, is_mock, fetched_at) VALUES ('XTS', 1, '2099-01-02', '2099-01-01 15:00:00', "
+                + "1300.0000, 1313.0000, 1287.0000, 'KOREAEXIM', FALSE, '2099-01-02 02:05:00')");
+        jdbc.update("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, source, provider, "
+                + "is_mock, fetched_at) VALUES ('XTS', 1, '2099-01-05', '2099-01-05 15:00:00', 9999.0000, 'MARKET_REF', "
+                + "'frankfurter-ecb', FALSE, '2099-01-05 15:05:00')");
+        internal(get(INTERNAL + "/fx-rates").param("currency", "XTS"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rate").value(1300))
+                .andExpect(jsonPath("$.asOf").value("2099-01-02"));
     }
 
     @Test

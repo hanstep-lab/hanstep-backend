@@ -216,7 +216,8 @@ public class FxCollectService {
         private void save(LocalDate date, FxFetch result) {
             Instant fetchedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
             for (FxRate rate : result.rates()) {
-                Saved s = repository.upsert(source, provider, rate, fetchedAt);
+                // 1시간 수집이면 같은 값도 확인 시각(fetched_at)을 고친다. 백필은 아무것도 쓰지 않는다
+                Saved s = repository.upsert(source, provider, rate, fetchedAt, !backfill);
                 Tally tally = tallies.computeIfAbsent(rate.currency(), c -> new Tally());
                 switch (s.outcome()) {
                     case INSERTED -> tally.inserted++;

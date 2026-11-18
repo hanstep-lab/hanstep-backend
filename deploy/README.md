@@ -249,7 +249,7 @@ alias dc='docker compose -f deploy/compose.prod.yml'
 
    - 수출입은행은 평일마다 1번(12개월이면 약 260번), Frankfurter는 1번 부른다. 수출입은행 호출 사이에 300ms를 쉰다.
    - 응답의 `sources[].status`가 `OK`이고 `failures`가 비었는지 본다. `nextFrom`이 있으면 그 날짜를 `from`으로 다시 부른다(1회 호출 상한 400, 인증키 오류 `result=3`, 일일 한도 `result=4`에서 멈춤).
-   - 다시 실행해도 같은 값은 새 행을 만들지 않는다(`unchanged`로 센다).
+   - 다시 실행해도 같은 값은 새 행을 만들지 않고 `fetched_at`도 고치지 않는다(`unchanged`로 센다).
    - 나눠 돌리기: `?from=2025-11-17&to=2026-05-17`, 한 원천만 `&source=KOREAEXIM`(또는 `MARKET_REF`), 호출 상한 `&maxCalls=200`. 수출입은행 일일 한도는 1000회로 알려져 있으나 확인되지 않았다.
 
 4. 확인: `is_mock`이 모두 0이고 USD는 `KOREAEXIM`, PHP는 `MARKET_REF`다.
@@ -269,6 +269,25 @@ alias dc='docker compose -f deploy/compose.prod.yml'
 
 - 실패: `fx collect failed: source=KOREAEXIM currencies=[USD] date=2026-11-17 reason=HTTP 503`처럼 원천마다 WARN 한 줄. 한 원천이 실패해도 다른 원천은 저장한다.
 - 저장: `fx collect saved: source=MARKET_REF backfill=false rows=1`. 같은 값만 받았으면 로그가 없다.
+
+### fetched_at(마지막 확인 시각)
+
+`exchange_rates.fetched_at`은 그 값을 원천에서 마지막으로 확인한 시각이다. 환율 화면의 "업데이트 확인" 시각과 PHP(MARKET_REF)의 stale 판정(3시간)에 쓴다(#123).
+
+- 1시간 수집에서 같은 `rate_date`·같은 값을 다시 받으면, 새 행 없이 그 최신 행의 `fetched_at`만 지금 시각으로 고친다(USD·PHP 같음).
+- 값이 바뀌었으면 값과 `fetched_at`을 고친다. 같은 키의 Mock 행은 건드리지 않는다.
+- 백필은 같은 값이면 아무것도 쓰지 않는다(새 행 0, `fetched_at` 변경 0).
+- 확인: 수집기가 켜져 있으면 1시간마다 두 통화 최신 행의 `fetched_at`이 바뀐다. 1시간 넘게 지나서 다시 보면 `fetched_at`이 앞의 결과보다 늦어야 한다.
+
+  ```bash
+  dc exec -T mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' <<'SQL'
+  SELECT e.currency, e.source, e.rate_date, e.fetched_at, UTC_TIMESTAMP(3) AS now_utc
+  FROM exchange_rates e
+  JOIN (SELECT currency, source, MAX(rate_at) AS rate_at FROM exchange_rates WHERE NOT is_mock GROUP BY currency, source) l
+    ON l.currency = e.currency AND l.source = e.source AND l.rate_at = e.rate_at
+  ORDER BY e.currency;
+  SQL
+  ```
 - 저장하지 않은 값(숫자 아님·0 이하·소수 5자리 이상): `fx rate rejected: ...`
 
 ### 로컬을 운영과 같게 만들기

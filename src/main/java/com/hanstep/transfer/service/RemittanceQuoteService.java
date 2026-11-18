@@ -1,9 +1,11 @@
 package com.hanstep.transfer.service;
 
+import com.hanstep.common.dto.Decimals;
 import com.hanstep.common.dto.Money;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
 import com.hanstep.common.time.KstDates;
+import com.hanstep.fx.repository.ExchangeRateReader;
 import com.hanstep.transfer.config.RemittanceProperties;
 import com.hanstep.transfer.dto.AppliedRate;
 import com.hanstep.transfer.dto.RemittanceQuoteResponse;
@@ -11,7 +13,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,18 +25,17 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class RemittanceQuoteService {
 
-    private static final String LABEL_KOREAEXIM = "수출입은행 고시 매매기준율";
-    private static final String LABEL_REFERENCE = "ECB 기준환율 기반 참고값";
-
     private final JdbcTemplate jdbcTemplate;
     private final RemittanceQuoteCalculator calculator;
     private final RemittanceProperties properties;
+    private final ExchangeRateReader rateReader;
 
     public RemittanceQuoteService(JdbcTemplate jdbcTemplate, RemittanceQuoteCalculator calculator,
-                                  RemittanceProperties properties) {
+                                  RemittanceProperties properties, ExchangeRateReader rateReader) {
         this.jdbcTemplate = jdbcTemplate;
         this.calculator = calculator;
         this.properties = properties;
+        this.rateReader = rateReader;
     }
 
     /** 관계를 확인한 본인의 활성 받는 분. MOTHER 먼저, 그다음 id 순. */
@@ -59,20 +59,14 @@ public class RemittanceQuoteService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.RECIPIENT_NOT_FOUND));
     }
 
-    /** 그 통화의 가장 최근 기준일(같은 날이면 마지막 시각) 매매기준율. 없으면 404 FX_RATE_NOT_FOUND. */
+    /**
+     * 그 통화의 최신 매매기준율(챗봇 INT-14). 환율 화면과 같은 조회(ExchangeRateReader): 우선 원천 하나의 최신 행,
+     * 운영은 실데이터만. 없으면 404 FX_RATE_NOT_FOUND.
+     */
     public AppliedRate latestRate(String currency) {
-        return jdbcTemplate.query("""
-                        SELECT currency, unit_amount, base_rate, source, rate_date, is_mock
-                        FROM exchange_rates
-                        WHERE currency = ?
-                        ORDER BY rate_date DESC, rate_at DESC
-                        LIMIT 1""",
-                (rs, i) -> new AppliedRate(rs.getString("currency"), rs.getInt("unit_amount"),
-                        plain(rs.getBigDecimal("base_rate")), sourceLabel(rs.getString("source")),
-                        rs.getObject("rate_date", LocalDate.class), rs.getBoolean("is_mock")),
-                currency)
-                .stream()
-                .findFirst()
+        return rateReader.latest(currency)
+                .map(r -> new AppliedRate(r.currency(), r.unitAmount(), plain(r.baseRate()), r.sourceLabel(),
+                        r.rateDate(), r.mock()))
                 .orElseThrow(() -> new BusinessException(ErrorCode.FX_RATE_NOT_FOUND));
     }
 
@@ -80,8 +74,9 @@ public class RemittanceQuoteService {
      * 송금 견적(#121). amount 는 내 계좌에서 나갈 원화 총액(수수료 포함)이고 currency 는 KRW 만 받는다.
      * 송금 통화는 USD 이며 계산은 RemittanceQuoteCalculator 하나로 화면·챗봇이 같이 쓴다. 잔액은 보지 않는다(화면 API 만 확인).
      * - recipientId 가 없으면 첫 받는 분(어머니 먼저, TRF-01 과 같음). 받는 분이 없으면 404 RESOURCE_NOT_FOUND
-     * - USD 매매기준율 실데이터(KOREAEXIM, is_mock = FALSE)가 없으면 404 FX_RATE_NOT_FOUND
-     * - 국적이 PHP 참고 대상(필리핀)이 아니거나 PHP 참고 환율 실데이터가 없으면 PHP 참고값만 null
+     * - 환율은 환율 화면과 같은 조회(ExchangeRateReader, 운영은 실데이터만). USD 최신 값이 KOREAEXIM 이 아니거나 없으면
+     *   404 FX_RATE_NOT_FOUND(스프레드가 신한 매매기준율 기준이라 수출입은행 고시만 쓴다)
+     * - 국적이 PHP 참고 대상(필리핀)이 아니거나 PHP 환율이 없으면 PHP 참고값만 null
      */
     public RemittanceQuoteResponse quote(long userId, Long recipientId, long amount, String currency) {
         if (amount < 1) {
@@ -92,16 +87,13 @@ public class RemittanceQuoteService {
         }
         long resolved = recipientId == null ? firstRecipient(userId).recipientId()
                 : recipient(userId, recipientId).recipientId();
-        RemittanceQuoteCalculator.Rate usd = latestRealRate("""
-                        SELECT base_rate, rate_date FROM exchange_rates
-                        WHERE currency = 'USD' AND source = 'KOREAEXIM' AND NOT is_mock
-                        ORDER BY rate_date DESC, rate_at DESC LIMIT 1""")
+        RemittanceQuoteCalculator.Rate usd = rateReader.latest("USD")
+                .filter(r -> "KOREAEXIM".equals(r.source()))
+                .map(RemittanceQuoteService::quoteRate)
                 .orElseThrow(() -> new BusinessException(ErrorCode.FX_RATE_NOT_FOUND));
-        RemittanceQuoteCalculator.Rate php = phpReference(userId) ? latestRealRate("""
-                        SELECT base_rate, rate_date FROM exchange_rates
-                        WHERE currency = 'PHP' AND source = 'MARKET_REF' AND provider = ? AND NOT is_mock
-                        ORDER BY rate_date DESC, rate_at DESC LIMIT 1""", RemittanceQuoteCalculator.PHP_SOURCE)
-                .orElse(null) : null;
+        RemittanceQuoteCalculator.Rate php = phpReference(userId)
+                ? rateReader.latest(RemittanceQuoteCalculator.PHP).map(RemittanceQuoteService::quoteRate).orElse(null)
+                : null;
         LocalDate today = LocalDate.now(KstDates.KST);
         try {
             return calculator.calculate(new RemittanceQuoteCalculator.Input(resolved, amount, usd, php,
@@ -116,9 +108,10 @@ public class RemittanceQuoteService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
     }
 
-    private Optional<RemittanceQuoteCalculator.Rate> latestRealRate(String sql, Object... args) {
-        return jdbcTemplate.query(sql, (rs, i) -> new RemittanceQuoteCalculator.Rate(rs.getBigDecimal("base_rate"),
-                rs.getObject("rate_date", LocalDate.class)), args).stream().findFirst();
+    /** 출처 이름은 MARKET_REF 면 원천 이름(frankfurter-ecb), 그 밖에는 source. */
+    private static RemittanceQuoteCalculator.Rate quoteRate(ExchangeRateReader.DailyRate r) {
+        return new RemittanceQuoteCalculator.Rate(r.baseRate(), r.rateDate(),
+                r.provider() != null ? r.provider() : r.source(), r.mock());
     }
 
     /** 수취 국가는 사용자 국적(visa_profiles.nationality_code)으로 정한다. PHP 참고 대상 국적이면 true. */
@@ -139,19 +132,14 @@ public class RemittanceQuoteService {
         return count == null ? 0 : count;
     }
 
-    /** 끝자리 0 제거. 1350.00 → 1350 처럼 정수가 되면 지수 표기(1.35E+3)가 되지 않게 scale 을 0 으로 맞춘다. */
+    /** 끝자리 0 제거(Decimals.plain). 1350.00 → 1350 처럼 정수가 되면 지수 표기(1.35E+3)가 되지 않는다. */
     static BigDecimal plain(BigDecimal value) {
-        BigDecimal stripped = value.stripTrailingZeros();
-        return stripped.scale() < 0 ? stripped.setScale(0) : stripped;
+        return Decimals.plain(value);
     }
 
     static String last4(String masked) {
         String digits = masked == null ? "" : masked.replaceAll("\\D", "");
         return digits.length() <= 4 ? digits : digits.substring(digits.length() - 4);
-    }
-
-    private static String sourceLabel(String source) {
-        return "KOREAEXIM".equals(source) ? LABEL_KOREAEXIM : LABEL_REFERENCE;
     }
 
     private static BusinessException invalid(String field, String reason) {

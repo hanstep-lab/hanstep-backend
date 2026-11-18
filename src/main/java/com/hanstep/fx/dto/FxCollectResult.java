@@ -39,7 +39,8 @@ public record FxCollectResult(
             @Schema(example = "USD") String currency,
             @Schema(description = "새로 넣은 행", example = "249") int inserted,
             @Schema(description = "값이 바뀌어 고친 행", example = "0") int updated,
-            @Schema(description = "같은 값이라 그대로 둔 행", example = "0") int unchanged,
+            @Schema(description = "같은 rate_date·같은 값이라 값을 그대로 둔 행. 1시간 수집이면 fetched_at(마지막 확인 시각)만 "
+                    + "고치고, 백필은 아무것도 쓰지 않는다", example = "0") int unchanged,
             @Schema(description = "같은 키에 Mock 행(04 시드)이 있어 건드리지 않은 행. 운영은 Mock 정리 SQL 뒤라 0",
                     example = "0") int keptMock,
             @Schema(description = "검증 실패로 저장하지 않은 값(숫자 아님·0 이하·소수 5자리 이상·응답에 없는 통화)",

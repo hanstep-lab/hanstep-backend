@@ -18,7 +18,9 @@ import org.springframework.stereotype.Repository;
 
 /**
  * 수집기의 exchange_rates 저장. 키는 (currency, source, rate_at)(uq_exchange_rates_at). 시각 칸은 UTC.
- * 같은 값을 다시 받으면 아무것도 쓰지 않는다(fetched_at 도 그대로, 새 행 없음). 값이 바뀌었을 때만 고친다.
+ * fetched_at 은 그 값을 원천에서 마지막으로 확인한 시각이다(화면 "업데이트 확인", stale 판정).
+ * 같은 rate_date·같은 값을 다시 받으면 새 행은 만들지 않는다. 1시간 수집(touchUnchanged=true)이면 그 행의 fetched_at 만
+ * 고치고, 백필(false)이면 아무것도 쓰지 않는다(재실행해도 새 행 0, fetched_at 변경 0). 값이 바뀌었으면 값과 fetched_at 을 고친다.
  * 수집기는 is_mock = FALSE 행만 만든다. 같은 키에 Mock 행(04 시드)이 있으면 건드리지 않고 KEPT_MOCK 으로 돌려준다
  * (운영은 Mock 정리 SQL 을 먼저 실행한다).
  */
@@ -42,7 +44,7 @@ public class ExchangeRateRepository {
                             BigDecimal sendRate, BigDecimal receiveRate, String provider) {
     }
 
-    public Saved upsert(FxSource source, String provider, FxRate rate, Instant fetchedAt) {
+    public Saved upsert(FxSource source, String provider, FxRate rate, Instant fetchedAt, boolean touchUnchanged) {
         Optional<Existing> existing = find(source, rate);
         if (existing.isEmpty()) {
             try {
@@ -60,6 +62,9 @@ public class ExchangeRateRepository {
             return new Saved(row.id(), Outcome.KEPT_MOCK);
         }
         if (same(row, provider, rate)) {
+            if (touchUnchanged) {
+                jdbc.update("UPDATE exchange_rates SET fetched_at = ? WHERE id = ?", utc(fetchedAt), row.id());
+            }
             return new Saved(row.id(), Outcome.UNCHANGED);
         }
         jdbc.update("""
