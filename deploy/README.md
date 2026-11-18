@@ -338,7 +338,7 @@ dc exec spring sh -c 'curl -fsS -X POST -H "X-Internal-Token: $SPRING_INTERNAL_A
 앱이 켜져 있는 동안 `GET /api/v1/fx/alerts/stream`(SSE)을 열어 두면, 판정이 알림을 `TRIGGERED`로 바꾼 직후 서버가 이벤트를 보낸다(#129). 앱은 받으면 로컬 알림을 띄우고 `POST /api/v1/fx/alerts/{alertId}/notified`를 보낸다. 앱이 꺼져 있으면 오지 않는다(실서비스에서는 호스트 앱 SOL 푸시 채널 몫).
 
 - 연결하면 `event:ready`, 이어서 아직 알리지 않은 도달(`TRIGGERED`이고 `notified_at`이 비어 있음)을 `event:fx-alert-triggered`로 먼저 보낸다(보충). 서버는 보낸 것만으로 알렸다고 보지 않는다. 앱이 notified를 보내야 `notified_at`이 채워지고 다음 연결부터 빠진다.
-- 연결 목록은 Spring 메모리에 있다. **재배포하면 연결이 모두 끊기고**, 앱이 다시 연결하면 그사이 도달은 보충으로 받는다.
+- 연결 목록은 Spring 메모리에 있다. **재배포하면 연결이 모두 끊기고**(종료가 시작될 때 서버가 먼저 닫아 graceful shutdown 이 기다리지 않는다), 앱이 다시 연결하면 그사이 도달은 보충으로 받는다.
 - 25초마다 `: ping` 주석, 연결 1개는 30분이 지나면 서버가 닫는다(둘 다 `hanstep.fx-alert-stream.*` 임시값). 한 사용자 연결은 3개까지이고 넘으면 가장 오래된 연결을 닫는다.
 - 앱이 끊은 연결은 다음 ping을 쓸 때 드러나 목록에서 빠진다. 끊긴 직후 첫 쓰기는 성공할 수 있어 최대 ping 2번(약 50초) 걸린다.
 - Caddy는 챗봇 스트림과 같은 `handle /api/v1/*`로 전달하고 따로 예외를 두지 않는다. 사이트 전체 `encode gzip`이 스트림에도 걸리지만(앱이 `Accept-Encoding: gzip`을 보낼 때) 이벤트마다 바로 흘려보낸다(로컬 Caddy 2.11.9 확인, 판정 → 수신 15~50 ms, 3회).

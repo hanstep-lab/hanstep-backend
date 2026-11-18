@@ -16,6 +16,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.event.TransactionPhase;
@@ -34,7 +36,8 @@ import tools.jackson.databind.ObjectMapper;
  *   그래서 같은 alertId 가 두 번 올 수 있다(연결 직후 판정이 겹치거나 notified 전에 다시 연결). 앱은 alertId 로 한 번만 알린다
  * - 도달 판정이 커밋된 뒤(FxAlertTriggeredEvent) 그 사용자의 열린 연결에 같은 이벤트를 보낸다. 연결이 없으면 아무것도 안 함
  * - pingInterval 마다 ": ping" 주석. 보충·도달·ping 전송은 fxAlertStreamExecutor 에서 해 요청 스레드를 붙잡지 않는다
- * - 타임아웃·완료·오류·전송 실패면 목록에서 뺀다. 로그에는 userId·연결 수·alertId 만 남긴다(환율·목표 값 없음)
+ * - 타임아웃·완료·오류·전송 실패면 목록에서 뺀다. 종료(재배포)가 시작되면 열린 연결을 모두 닫는다(graceful shutdown 이 기다리지 않게)
+ * - 로그에는 userId·연결 수·alertId 만 남긴다(환율·목표 값 없음)
  */
 @Service
 public class FxAlertStreamService {
@@ -139,6 +142,16 @@ public class FxAlertStreamService {
         }
         log.info("fx alert stream sent alertId={} userId={} connections={} sent={}", alertId, row.userId(),
                 targets.size(), sent);
+    }
+
+    /**
+     * 종료(재배포)가 시작되면 열린 연결을 먼저 닫는다. graceful shutdown 은 열린 스트림을 처리 중인 요청으로 보고 끝날 때까지
+     * 기다려, 닫지 않으면 종료 제한 시간(기본 30초)까지 멈춘다. ContextClosedEvent 는 웹 서버가 멈추기 전에 온다.
+     * 앱은 다시 연결해 보충을 받는다.
+     */
+    @EventListener(ContextClosedEvent.class)
+    public void closeAll() {
+        connections.values().forEach(list -> list.forEach(connection -> close(connection, "SHUTDOWN")));
     }
 
     /** keep-alive. fxAlertStreamPinger 가 pingInterval 마다 부른다. 끊긴 연결은 여기서 전송 실패로 드러나 목록에서 빠진다. */

@@ -24,7 +24,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * 목표 환율 도달 스트림의 keep-alive·타임아웃·끊김 정리(#129). 기다리지 않게 ping 200ms, 타임아웃 2초로 띄운다
+ * 목표 환율 도달 스트림의 keep-alive·타임아웃·끊김·종료 정리(#129). 기다리지 않게 ping 200ms, 타임아웃 2초로 띄운다
  * (운영 기본은 25초·30분). 연결이 닫히면 목록(openConnections)에서 빠져야 한다.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
@@ -95,6 +95,22 @@ class FxAlertStreamTimeoutTest {
         assertThat(SseStreamClient.until(() -> streamService.openConnections(userId) == 0, WAIT)).isTrue();
         // 타임아웃이 아니라 ping 쓰기에서 드러나 빠졌다(쓰기 실패 또는 컨테이너 오류 알림)
         assertThat(closedReasons(output)).hasSize(1).first().isIn("SEND_FAILED", "ERROR");
+    }
+
+    @Test
+    void 종료가_시작되면_열린_연결을_모두_닫는다(CapturedOutput output) throws Exception {
+        // ContextClosedEvent 를 직접 발행하면 다른 빈(RabbitMQ 연결 등)도 닫히므로 받는 메서드를 부른다
+        try (SseStreamClient first = open(); SseStreamClient second = open()) {
+            first.await("ready", 1, WAIT);
+            second.await("ready", 1, WAIT);
+
+            streamService.closeAll();
+
+            assertThat(first.awaitEnd(WAIT)).isTrue();
+            assertThat(second.awaitEnd(WAIT)).isTrue();
+            assertThat(streamService.openConnections(userId)).isZero();
+            assertThat(closedReasons(output)).containsExactly("SHUTDOWN", "SHUTDOWN");
+        }
     }
 
     /** 이 테스트 사용자의 연결이 닫힐 때 남긴 로그의 reason. */
