@@ -27,9 +27,10 @@ public class DemoResetController {
 
     @Operation(summary = "데모 계정 초기화",
             description = "본문 없음. 요청한 사용자 본인의 온보딩 진행(onboarding_progress)과 등록증 문서(documents·"
-                    + "document_fields, 확정 전 문서의 R2 원본)를 지운다. 초기화 뒤 ONB-01 은 NOT_STARTED. "
-                    + "visa_profiles(입국일·이전 체류 개월 포함)·목표·마이데이터·금융 분석은 그대로 둔다. 한 트랜잭션.")
-    @ApiResponse(responseCode = "200", description = "초기화(삭제 건수)")
+                    + "document_fields)·OCR 작업(ai_jobs)을 한 트랜잭션으로 지우고, 커밋 뒤 확정 전 문서의 R2 원본을 지운다. "
+                    + "초기화 뒤 ONB-01 은 NOT_STARTED. visa_profiles(입국일·이전 체류 개월 포함)·목표·마이데이터·"
+                    + "금융 분석은 그대로 둔다.")
+    @ApiResponse(responseCode = "200", description = "초기화(삭제 건수). R2 원본 삭제가 실패해도 200(failedOriginals)")
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "403", description = "FORBIDDEN: 데모 계정(external_user_key 가 demo- 로 시작)이 아님",

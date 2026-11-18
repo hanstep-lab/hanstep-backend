@@ -83,6 +83,9 @@ class DemoResetApiTest {
         String key = jdbcTemplate.queryForObject("SELECT object_key FROM documents WHERE id = ?", String.class,
                 pendingId);
         assertThat(storage.objects).containsKey(key);
+        assertThat(count(OCR_JOBS, userId)).isEqualTo(1);
+        // OCR 이 아닌 작업은 남긴다
+        insertAiJob(userId, "DOCUMENT_ANALYSIS");
         // 테스트 트랜잭션 하나로 묶여 있어 요청 경계처럼 영속성 컨텍스트를 비운다(초기화는 JDBC 로 지운다)
         entityManager.flush();
         entityManager.clear();
@@ -91,10 +94,15 @@ class DemoResetApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.deletedDocuments").value(2))
                 .andExpect(jsonPath("$.deletedDocumentFields").value(6))
+                .andExpect(jsonPath("$.deletedOcrJobs").value(1))
+                .andExpect(jsonPath("$.deletedOnboardingSteps").value(2))
                 .andExpect(jsonPath("$.deletedOriginals").value(1))
-                .andExpect(jsonPath("$.deletedOnboardingSteps").value(2));
+                .andExpect(jsonPath("$.failedOriginals").value(0));
 
         assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?", userId)).isZero();
+        assertThat(count(OCR_JOBS, userId)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM ai_jobs WHERE user_id = ? AND job_type = 'DOCUMENT_ANALYSIS'",
+                userId)).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM document_fields WHERE document_id = ?", pendingId)).isZero();
         assertThat(count("SELECT COUNT(*) FROM onboarding_progress WHERE user_id = ?", userId)).isZero();
         assertThat(storage.objects).doesNotContainKey(key);
@@ -132,8 +140,38 @@ class DemoResetApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.deletedDocuments").value(0))
                 .andExpect(jsonPath("$.deletedDocumentFields").value(0))
+                .andExpect(jsonPath("$.deletedOcrJobs").value(0))
+                .andExpect(jsonPath("$.deletedOnboardingSteps").value(0))
                 .andExpect(jsonPath("$.deletedOriginals").value(0))
-                .andExpect(jsonPath("$.deletedOnboardingSteps").value(0));
+                .andExpect(jsonPath("$.failedOriginals").value(0));
+    }
+
+    @Test
+    void R2_원본_삭제가_실패해도_200이고_DB는_지우며_실패_수를_준다() throws Exception {
+        long userId = TestUsers.create(jdbcTemplate, "demo-test-" + UUID.randomUUID(), "MARK ANTHONY REYES");
+        String bearer = bearer(userId);
+        finishSteps(userId, "LANGUAGE");
+        long pendingId = upload(bearer);
+        String key = jdbcTemplate.queryForObject("SELECT object_key FROM documents WHERE id = ?", String.class,
+                pendingId);
+        entityManager.flush();
+        entityManager.clear();
+        storage.failDelete = true;
+
+        mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deletedDocuments").value(1))
+                .andExpect(jsonPath("$.deletedOcrJobs").value(1))
+                .andExpect(jsonPath("$.deletedOnboardingSteps").value(1))
+                .andExpect(jsonPath("$.deletedOriginals").value(0))
+                .andExpect(jsonPath("$.failedOriginals").value(1));
+
+        assertThat(storage.deletes.get()).isEqualTo(1);
+        // 원본은 남았지만(가리키는 행 없음) DB 는 지워졌다
+        assertThat(storage.objects).containsKey(key);
+        assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?", userId)).isZero();
+        assertThat(count(OCR_JOBS, userId)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM onboarding_progress WHERE user_id = ?", userId)).isZero();
     }
 
     @Test
@@ -156,8 +194,13 @@ class DemoResetApiTest {
         long otherId = TestUsers.create(jdbcTemplate, "demo-test-" + UUID.randomUUID(), "OTHER DEMO USER");
         long otherDocument = insertConfirmedDocument(otherId);
         finishSteps(otherId, "LANGUAGE");
+        insertAiJob(otherId, "OCR");
+        insertAiJob(demoId, "OCR");
 
-        mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer(demoId))).andExpect(status().isOk());
+        mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer(demoId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deletedOcrJobs").value(1));
+        assertThat(count(OCR_JOBS, otherId)).isEqualTo(1);
 
         assertThat(count("SELECT COUNT(*) FROM documents WHERE id = ?", otherDocument)).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM onboarding_progress WHERE user_id = ?", otherId)).isEqualTo(1);
@@ -169,6 +212,15 @@ class DemoResetApiTest {
     }
 
     // ---------- helpers ----------
+
+    private static final String OCR_JOBS =
+            "SELECT COUNT(*) FROM ai_jobs WHERE user_id = ? AND job_type = 'OCR' AND resource_type = 'DOCUMENT'";
+
+    private void insertAiJob(long userId, String jobType) {
+        jdbcTemplate.update("INSERT INTO ai_jobs (user_id, job_type, resource_type, resource_id, idempotency_key, "
+                + "correlation_id) VALUES (?, ?, 'DOCUMENT', 1, ?, 'test')", userId, jobType,
+                "test-" + UUID.randomUUID());
+    }
 
     private String bearer(long userId) {
         return "Bearer " + jwtTokenProvider.issue(userId);
