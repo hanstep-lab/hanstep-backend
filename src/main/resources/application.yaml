@@ -77,6 +77,29 @@ hanstep:
   e74:
     # 승인 전(DRAFT) 규칙 버전으로 계산한 결과도 저장할지. AI 서버 .env 와 같은 값. 운영은 false, 로컬·시연에서만 true
     include-draft-rules: ${E74_INCLUDE_DRAFT_RULES:false}
+  # 환율 수집기(#119). 외부 환율 API 를 부르는 곳은 이 수집기뿐이다(화면·챗봇은 exchange_rates 만 읽음). 실데이터만 저장한다
+  fx-collector:
+    # 1시간 주기 수집. 꺼져 있어도 백필(POST /internal/v1/fx/backfill)은 된다. 테스트는 기본값(false) 그대로
+    enabled: ${FX_COLLECTOR_ENABLED:false}
+    interval-ms: 3600000
+    initial-delay-ms: 60000
+    # 수집할 통화(쉼표). PHP 는 Frankfurter(ECB), 나머지는 수출입은행 고시 통화(23개)만. 비우면 USD,PHP
+    currencies: ${FX_COLLECTOR_CURRENCIES:USD,PHP}
+    connect-timeout: 3s
+    read-timeout: 10s
+    koreaexim:
+      base-url: https://oapi.koreaexim.go.kr
+      # 한국수출입은행 현재환율 Open API 인증키. 코드·문서·로그에 쓰지 않는다(요청 URL 은 로그에 남기지 않고, 오류 문구는 가림)
+      api-key: ${KOREAEXIM_API_KEY:}
+    frankfurter:
+      # 비우면 https://api.frankfurter.dev/v2
+      base-url: ${FRANKFURTER_BASE_URL:https://api.frankfurter.dev/v2}
+    backfill:
+      # from 을 안 주면 오늘(KST)부터 이만큼 거슬러 올라간다
+      months: 12
+      # 수출입은행 1회 실행 호출 상한. 한도는 1000회/일로 알려져 있으나 미확인이라 400 으로 나눠 돌릴 수 있게 둔다
+      max-calls: 400
+      call-interval: 300ms
 
 logging:
     pattern:

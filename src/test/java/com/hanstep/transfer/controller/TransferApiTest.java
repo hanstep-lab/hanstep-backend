@@ -21,8 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * TRF-01·02(화면)와 INT-14·17·18(챗봇 내부). 실제 DB, 테스트마다 롤백.
- * 데모 사용자 대신 테스트 사용자를 만들고(로컬 DB 의 demo-setup 데이터와 무관), 환율은 04 시드의 PHP 최신값
- * 22.3200(2026-11-06, MOCK)을 쓴다.
+ * 데모 사용자 대신 테스트 사용자를 만들고(로컬 DB 의 demo-setup 데이터와 무관), 환율도 테스트 안에서 넣는다.
+ * PHP 22.3200(MOCK)을 먼 미래 기준일(2099-01-02)로 넣어, 로컬 DB 에 04 시드나 수집한 실데이터가 있어도 이 행이 최신값이 된다.
  */
 @SpringBootTest(properties = InternalApiTestSupport.KEY_PROPERTY)
 @AutoConfigureMockMvc
@@ -30,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 class TransferApiTest {
 
     private static final String INTERNAL = "/internal/v1/ai-context";
+    private static final String RATE_DATE = "2099-01-02";
 
     @Autowired
     private MockMvc mockMvc;
@@ -53,6 +54,9 @@ class TransferApiTest {
         selfId = insertRecipient(userId, "test-self", "MARK ANTHONY REYES", "SELF", "BPI", "****7788", true);
         insertRecipient(userId, "test-unconfirmed", "JUAN DELA CRUZ", "OTHER", "BPI", "****1234", false);
         insertAccount(userId, 1_000_000);
+        jdbc.update("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, send_rate, "
+                + "receive_rate, source, is_mock, fetched_at) VALUES ('PHP', 1, ?, '2099-01-01 15:00:00', 22.3200, "
+                + "22.5432, 22.0968, 'MOCK', TRUE, '2099-01-01 15:00:00')", RATE_DATE);
     }
 
     // ---- TRF-01 ----
@@ -139,7 +143,7 @@ class TransferApiTest {
                 .andExpect(jsonPath("$.appliedRate.unit").value(1))
                 .andExpect(jsonPath("$.appliedRate.rate").value(22.32))
                 .andExpect(jsonPath("$.appliedRate.sourceLabel").value("ECB 기준환율 기반 참고값"))
-                .andExpect(jsonPath("$.appliedRate.asOf").value("2026-11-06"))
+                .andExpect(jsonPath("$.appliedRate.asOf").value(RATE_DATE))
                 .andExpect(jsonPath("$.appliedRate.isMock").value(true));
     }
 
@@ -240,7 +244,7 @@ class TransferApiTest {
         String php = internal(get(INTERNAL + "/fx-rates").param("currency", "PHP"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.unit").value(1))
-                .andExpect(jsonPath("$.asOf").value("2026-11-06"))
+                .andExpect(jsonPath("$.asOf").value(RATE_DATE))
                 .andReturn().getResponse().getContentAsString();
         assertThat(php).contains("\"rate\":22.32,");
 

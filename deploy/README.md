@@ -62,6 +62,7 @@ vi deploy/.env
 - `R2_OCR_WORKER_ACCESS_KEY_ID`·`R2_OCR_WORKER_SECRET_ACCESS_KEY`는 같은 버킷의 **읽기 전용** 키다. OCR Worker가 원본을 읽는 데(GetObject)만 쓰고, compose가 Worker에는 `R2_OCR_ACCESS_KEY_ID`·`R2_OCR_SECRET_ACCESS_KEY` 이름으로 넘긴다. 위 Spring 키와 다른 키로 만든다. 비어 있으면 OCR Worker만 종료하고(다른 서비스는 그대로 뜸), 올린 등록증은 확인 대기로 넘어가지 않는다.
 - Spring이 처음 RabbitMQ에 연결할 때 `ocr.request`·`ocr.request.retry`·`ocr.request.dlq` 큐를 선언한다(#73). `ocr-worker`가 이 큐를 소비한다. Worker가 떠 있지 않은 동안 올린 등록증의 OCR 작업은 `ocr.request`에 쌓였다가 Worker가 뜨면 처리된다.
 - 발행 대기 AI 작업(큐에 못 들어간 OCR·정책 적재 작업)은 Spring이 1분마다 다시 보낸다. 끄려면 `AI_JOB_REPUBLISH_ENABLED=false`를 spring 서비스 환경 변수에 넣는다.
+- `KOREAEXIM_API_KEY`는 환율 수집기의 한국수출입은행 인증키다. `FX_COLLECTOR_ENABLED`는 처음에는 비워 둔다(false). 켜는 순서는 [환율 수집기](#환율-수집기).
 - MySQL·RabbitMQ·MongoDB 계정은 볼륨이 비어 있는 최초 기동 때만 적용된다.
 - `SWAGGER_BASIC_USER`·`SWAGGER_BASIC_HASH`는 필수다. 만드는 법은 [Swagger UI 기본 인증](#swagger-ui-기본-인증).
 
@@ -78,8 +79,9 @@ docker compose -f deploy/compose.prod.yml up -d --build
 docker compose -f deploy/compose.prod.yml ps
 ```
 
-- 최초 기동 때 MySQL이 `db/init`(스키마 → 기준 시드 → 데모 시드)를 실행한다.
+- 최초 기동 때 MySQL이 `db/init`(스키마 → 기준 시드 → 데모 시드)를 실행한다. 로컬 전용 시드(`db/dev`, Mock 환율)는 운영에 마운트하지 않는다(운영 환율은 실데이터만).
 - **이미 떠 있는 DB**(볼륨 있음)에는 `db/init` 변경이 들어가지 않는다. 그런 변경은 `deploy/migrations/`에 날짜별 SQL로 두고, `git pull` 뒤 `up` 전에 순서대로 실행한다. 빠뜨리면 Spring이 스키마 검증(`ddl-auto: validate`)에서 기동에 실패할 수 있다. 여러 번 실행해도 결과가 같게 만든다.
+  - `deploy/migrations/manual/`의 SQL은 자동 배포가 실행하지 않는다(정해진 때 사람이 실행). 지금은 Mock 환율 정리 SQL 하나다([환율 수집기](#환율-수집기)).
   - `2026-11-17-bill-payments-e74-approved.sql`: 청구 납부 테이블·Reyes 납부 내역(#87), E-7-4 2026 규칙 승인(#95). 실행 명령과 확인 쿼리는 파일 맨 위·맨 아래에 있다.
 - AI 서버는 `LOAD_MODEL_ON_STARTUP=true`라 처음에 BGE-M3(~2.3GB)를 받아 `hf-cache` 볼륨에 저장한다. 처음에는 몇 분 걸린다.
 - OCR Worker 이미지는 첫 빌드가 오래 걸린다(paddle 설치·OCR 모델 다운로드). [OCR Worker](#ocr-worker)의 "첫 빌드"를 먼저 본다.
@@ -118,6 +120,7 @@ rm ~/hanstep/AUTO_DEPLOY_OFF      # 켜기
 - Actions 제한 시간은 20분이다. OCR Worker 첫 빌드처럼 오래 걸리는 빌드는 머지 전에 서버에서 미리 해 둔다([OCR Worker](#ocr-worker)).
 - EC2가 꺼진 시간에 머지하면 Actions가 실패한다. 서버를 켠 뒤 해당 실행에서 Re-run을 누른다.
 - 마이그레이션 파일은 여러 번 실행해도 결과가 같게 작성한다.
+- 자동 실행되면 안 되는 SQL(데이터 삭제 등)은 `deploy/migrations/manual/`에 둔다. 자동 배포는 `deploy/migrations` 바로 아래 `*.sql`만 실행한다.
 - `docker compose down -v`는 쓰지 않는다. DB 볼륨이 지워진다.
 - `docker compose config`는 `--quiet` 없이 실행하지 않는다. `.env` 값이 화면과 로그에 나온다.
 
@@ -206,6 +209,87 @@ alias dc='docker compose -f deploy/compose.prod.yml'
 
 - `cpus: "2"`는 임시값이다. 로컬 측정에서 OCR 추론이 CPU 8코어를 모두 써서 같은 서버의 Spring·AI 서버(챗봇)가 느려질 수 있었다. 서버에서 `nproc`를 확인하고 OCR 처리 시간과 챗봇 응답 시간을 같이 재서 조정한다.
 - 값이 서버 코어 수보다 크면 컨테이너가 뜨지 않는다. 서버 코어가 2개면 Worker가 CPU를 전부 쓸 수 있으므로 1로 낮춘다.
+
+## 환율 수집기
+
+화면·챗봇은 `exchange_rates`만 읽는다. 외부 환율 API를 부르는 곳은 Spring의 환율 수집기 하나뿐이다(#119). 환율은 실데이터만 두고, 못 받은 날짜는 비워 둔다(화면·챗봇이 "데이터 부족"으로 처리).
+
+| 원천 | 통화 | `source` | 저장하는 값 |
+|---|---|---|---|
+| 한국수출입은행 현재환율 Open API | USD(설정으로 23개 고시 통화까지) | `KOREAEXIM` | 매매기준율·송금 보낼 때·받을 때. 기준일 00:00 KST로 하루 1건 |
+| Frankfurter v2, 기관 ECB 고정 | PHP | `MARKET_REF`(`provider=frankfurter-ecb`) | 매매기준율만. `rate_at`은 ECB 고시 시각(프랑크푸르트 16:00) |
+
+### 필요한 .env 키
+
+| 키 | 용도 |
+|---|---|
+| `KOREAEXIM_API_KEY` | 수출입은행 인증키. 없으면 수출입은행 수집·백필만 실패한다(로그 `KOREAEXIM_API_KEY is not set`) |
+| `FX_COLLECTOR_ENABLED` | 1시간 주기 수집. 비우면 false. 백필은 이 값과 관계없이 된다 |
+| `FX_COLLECTOR_CURRENCIES` | 비우면 `USD,PHP` |
+| `FRANKFURTER_BASE_URL` | 비우면 `https://api.frankfurter.dev/v2` |
+
+키는 `deploy/.env`에만 둔다. 요청 URL은 로그에 남기지 않고, 실패 이유의 `authkey=` 값은 가린다.
+
+### 처음 켜는 순서(운영 Mock 환율 → 실데이터)
+
+운영 DB에는 04 Mock 환율 738행(USD·PHP·VND 각 246, 2025-11-07 ~ 2026-11-06)이 있다(11/17 확인). 2·3을 연달아 실행한다. 그 사이(몇 분) 송금 견적·챗봇 환율·목표 환율 알림 만들기는 `FX_RATE_NOT_FOUND`다.
+
+1. `deploy/.env`에 `KOREAEXIM_API_KEY`를 넣고 `FX_COLLECTOR_ENABLED`는 비운 채 배포한다. 이미 떠 있으면 `dc up -d spring`으로 키를 반영한다.
+2. Mock 환율 정리. 맨 위 확인 쿼리에서 `alerts_on_mock_rates`가 0이어야 지워진다(0이 아니면 외래 키 오류로 아무것도 지워지지 않는다).
+
+   ```bash
+   dc exec -T mysql sh -c 'mysql --default-character-set=utf8mb4 -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < deploy/migrations/manual/2026-11-17-delete-mock-exchange-rates.sql
+   ```
+
+3. 백필(기본: 오늘(KST)부터 12개월). 끝날 때까지 응답을 기다린다. 내부 키는 컨테이너 환경 변수를 쓰므로 명령에 펼쳐지지 않는다.
+
+   ```bash
+   dc exec spring sh -c 'curl -fsS -X POST -H "X-Internal-Token: $SPRING_INTERNAL_API_KEY" "http://127.0.0.1:8080/internal/v1/fx/backfill"'
+   ```
+
+   - 수출입은행은 평일마다 1번(12개월이면 약 260번), Frankfurter는 1번 부른다. 수출입은행 호출 사이에 300ms를 쉰다.
+   - 응답의 `sources[].status`가 `OK`이고 `failures`가 비었는지 본다. `nextFrom`이 있으면 그 날짜를 `from`으로 다시 부른다(1회 호출 상한 400, 인증키 오류 `result=3`, 일일 한도 `result=4`에서 멈춤).
+   - 다시 실행해도 같은 값은 새 행을 만들지 않는다(`unchanged`로 센다).
+   - 나눠 돌리기: `?from=2025-11-17&to=2026-05-17`, 한 원천만 `&source=KOREAEXIM`(또는 `MARKET_REF`), 호출 상한 `&maxCalls=200`. 수출입은행 일일 한도는 1000회로 알려져 있으나 확인되지 않았다.
+
+4. 확인: `is_mock`이 모두 0이고 USD는 `KOREAEXIM`, PHP는 `MARKET_REF`다.
+
+   ```bash
+   dc exec -T mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' <<'SQL'
+   SELECT source, is_mock, currency, COUNT(*) AS cnt, MIN(rate_date) AS first_date, MAX(rate_date) AS last_date
+   FROM exchange_rates GROUP BY source, is_mock, currency ORDER BY source, currency;
+   SQL
+   ```
+
+5. `deploy/.env`에 `FX_COLLECTOR_ENABLED=true`를 넣고 `dc up -d spring`. 기동 1분 뒤부터 1시간마다 수출입은행(오늘 고시)과 Frankfurter(최신 ECB 기준일)를 받는다. 수출입은행은 영업일 11시 무렵 고시하므로 그 전·주말·공휴일의 빈 응답은 실패가 아니다.
+
+### 로그
+
+`dc logs spring | grep 'fx '`
+
+- 실패: `fx collect failed: source=KOREAEXIM currencies=[USD] date=2026-11-17 reason=HTTP 503`처럼 원천마다 WARN 한 줄. 한 원천이 실패해도 다른 원천은 저장한다.
+- 저장: `fx collect saved: source=MARKET_REF backfill=false rows=1`. 같은 값만 받았으면 로그가 없다.
+- 저장하지 않은 값(숫자 아님·0 이하·소수 5자리 이상): `fx rate rejected: ...`
+
+### 로컬을 운영과 같게 만들기
+
+로컬 DB에는 04 Mock 환율(`db/dev`)이 있다. 수집기는 같은 키의 Mock 행을 덮어쓰지 않으므로, 그대로 수집하면 11/06 이전 USD는 Mock 행(`source=KOREAEXIM`, `is_mock=1`)으로 남아 실데이터와 섞인다. 실데이터만 두려면 아래를 순서대로 한다(레포 루트, Git Bash).
+
+1. 정리 SQL(Mock 738행 삭제. VND 는 수집 대상이 아니라 이후 `FX_RATE_NOT_FOUND`):
+
+   ```bash
+   docker exec -i hanstep-mysql sh -c 'mysql --default-character-set=utf8mb4 -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < deploy/migrations/manual/2026-11-17-delete-mock-exchange-rates.sql
+   ```
+
+2. 로컬 Spring 을 띄우고 백필:
+
+   ```bash
+   K=$(grep '^SPRING_INTERNAL_API_KEY=' .env | cut -d= -f2-)
+   curl -fsS -X POST -H "X-Internal-Token: $K" http://localhost:8080/internal/v1/fx/backfill
+   ```
+
+- 백필은 하루 1번만 돌린다. 12개월이면 수출입은행을 약 260번 부른다(일일 한도 1000회로 알려져 있으나 미확인. 같은 키를 쓰는 다른 환경과 한도를 나눠 쓴다).
+- 테스트는 04 시드에 기대지 않아(환율 행을 테스트 안에서 넣음) 정리한 뒤에도 그대로 통과한다.
 
 ## 6. 데모 데이터
 
