@@ -22,11 +22,13 @@ import java.util.Optional;
 import java.util.TreeMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 /**
- * 목표 환율 알림 도달 판정(FX-002, #125). 푸시는 없고 목록(GET /api/v1/fx/alerts)이 TRIGGERED·triggeredRate 를 보여 준다.
+ * 목표 환율 알림 도달 판정(FX-002, #125). 목록(GET /api/v1/fx/alerts)이 TRIGGERED·triggeredRate 를 보여 주고,
+ * TRIGGERED 로 바꾸면 FxAlertTriggeredEvent 를 발행해 커밋 뒤 열린 스트림으로 보낸다(#129, 원격 푸시는 없음).
  * - 새 환율이 저장되면(ExchangeRatesSavedEvent: 1시간 수집·백필에서 새 행이거나 값이 바뀐 행) 그 통화의 ACTIVE 알림만 판정한다
  * - 비교 값: SEND 는 send_rate, BASE 는 base_rate. 그 행에 값이 없으면(송금 환율이 없는 MARKET_REF 의 SEND) 판정하지 않는다
  * - LTE 는 값 <= 목표, GTE 는 값 >= 목표면 TRIGGERED(triggered_rate_id, triggered_at). TRIGGERED 는 다시 보지 않는다
@@ -63,10 +65,13 @@ public class FxAlertTriggerService {
 
     private final FxAlertRepository repository;
     private final ExchangeRateReader rateReader;
+    private final ApplicationEventPublisher events;
 
-    public FxAlertTriggerService(FxAlertRepository repository, ExchangeRateReader rateReader) {
+    public FxAlertTriggerService(FxAlertRepository repository, ExchangeRateReader rateReader,
+                                 ApplicationEventPublisher events) {
         this.repository = repository;
         this.rateReader = rateReader;
+        this.events = events;
     }
 
     /** 수집기 저장 직후 같은 스레드에서 돈다. 오류는 수집기가 WARN 으로 남기고 저장에는 영향이 없다. */
@@ -135,6 +140,9 @@ public class FxAlertTriggerService {
             if (reached(value, alert.comparator(), alert.targetRate())) {
                 Result result = repository.trigger(alert.id(), rate.id(), now) == 1
                         ? Result.TRIGGERED : Result.ALREADY_CHANGED;
+                if (result == Result.TRIGGERED) {
+                    events.publishEvent(new FxAlertTriggeredEvent(alert.id())); // 커밋 뒤 스트림으로(FxAlertStreamService)
+                }
                 return new Judgement(alert.id(), result, rate.id(), value);
             }
         }

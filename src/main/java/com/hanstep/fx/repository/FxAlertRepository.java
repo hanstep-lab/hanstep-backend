@@ -187,6 +187,12 @@ public class FxAlertRepository {
                 FxAlertRepository::notification, userId);
     }
 
+    /** 알림 1건이 아직 알리지 않은 도달이면 그 행(도달 직후 스트림 전송용). 이미 알렸거나 지웠으면 빈 값. */
+    public Optional<NotificationRow> pendingNotification(long alertId) {
+        return jdbc.query(SELECT_PENDING_NOTIFICATION + "AND a.id = ?", FxAlertRepository::notification, alertId)
+                .stream().findFirst();
+    }
+
     /**
      * TRIGGERED 이고 아직 비어 있을 때만 notified_at 을 채운다(조건부 UPDATE). 바꾼 행 수.
      * 이미 채워졌거나(처음 시각 유지), 없거나, 남의 것이거나, TRIGGERED 가 아니면 0.

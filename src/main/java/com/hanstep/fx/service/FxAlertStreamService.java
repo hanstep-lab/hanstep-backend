@@ -4,6 +4,7 @@ import com.hanstep.fx.config.FxAlertStreamProperties;
 import com.hanstep.fx.dto.FxAlertNotification;
 import com.hanstep.fx.dto.FxAlertStreamReady;
 import com.hanstep.fx.repository.FxAlertRepository;
+import com.hanstep.fx.repository.FxAlertRepository.NotificationRow;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,6 +18,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tools.jackson.databind.ObjectMapper;
 
@@ -29,7 +32,8 @@ import tools.jackson.databind.ObjectMapper;
  *   항목·순서로 event: fx-alert-triggered, id: alertId 로 보낸다. 등록한 뒤에 보충을 읽어 그사이 도달을 놓치지 않는다
  * - 보낸 것만으로 알렸다고 보지 않는다. 앱이 POST notified 를 보내야 notified_at 이 채워지고 보충에서 빠진다.
  *   그래서 같은 alertId 가 두 번 올 수 있다(연결 직후 판정이 겹치거나 notified 전에 다시 연결). 앱은 alertId 로 한 번만 알린다
- * - pingInterval 마다 ": ping" 주석. 보충·ping 전송은 fxAlertStreamExecutor 에서 해 요청 스레드를 붙잡지 않는다
+ * - 도달 판정이 커밋된 뒤(FxAlertTriggeredEvent) 그 사용자의 열린 연결에 같은 이벤트를 보낸다. 연결이 없으면 아무것도 안 함
+ * - pingInterval 마다 ": ping" 주석. 보충·도달·ping 전송은 fxAlertStreamExecutor 에서 해 요청 스레드를 붙잡지 않는다
  * - 타임아웃·완료·오류·전송 실패면 목록에서 뺀다. 로그에는 userId·연결 수·alertId 만 남긴다(환율·목표 값 없음)
  */
 @Service
@@ -91,6 +95,50 @@ public class FxAlertStreamService {
             close(connection, "SHUTDOWN");
         }
         return emitter;
+    }
+
+    /**
+     * 도달 판정이 커밋된 뒤 그 사용자의 열린 연결에 보낸다. 롤백되면 오지 않는다. 판정에 트랜잭션이 없으면(지금의 수집기·다시 판정)
+     * 발행하자마자 온다(fallbackExecution, UPDATE 가 이미 커밋됨). 연결이 없으면 아무것도 하지 않는다(다음 연결 때 보충).
+     * 읽기·전송은 실행기에서 해 판정 스레드를 붙잡지 않는다.
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onTriggered(FxAlertTriggeredEvent event) {
+        if (connections.isEmpty()) {
+            return;
+        }
+        try {
+            executor.execute(() -> push(event.alertId()));
+        } catch (RejectedExecutionException e) {
+            log.warn("fx alert stream push skipped alertId={} reason=SHUTDOWN", event.alertId());
+        }
+    }
+
+    private void push(long alertId) {
+        NotificationRow row;
+        try {
+            // 커밋 뒤 다시 읽는다. 그사이 알렸거나(notified) 지웠으면 보내지 않는다
+            row = repository.pendingNotification(alertId).orElse(null);
+        } catch (DataAccessException e) {
+            log.warn("fx alert stream push failed alertId={} error={}", alertId, e.getClass().getSimpleName());
+            return;
+        }
+        if (row == null) {
+            return;
+        }
+        List<Connection> targets = connections.getOrDefault(row.userId(), List.of());
+        if (targets.isEmpty()) {
+            return;
+        }
+        String json = json(FxAlertNotification.from(row));
+        int sent = 0;
+        for (Connection connection : targets) {
+            if (send(connection, triggered(alertId, json))) {
+                sent++;
+            }
+        }
+        log.info("fx alert stream sent alertId={} userId={} connections={} sent={}", alertId, row.userId(),
+                targets.size(), sent);
     }
 
     /** keep-alive. fxAlertStreamPinger 가 pingInterval 마다 부른다. 끊긴 연결은 여기서 전송 실패로 드러나 목록에서 빠진다. */
