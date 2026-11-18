@@ -91,6 +91,6 @@ class FxRateServiceTest {
 
     private static DailyRate row(String source, String rateDate, Instant fetchedAt, String rate) {
         return new DailyRate(1, "XTS", source, null, 1, LocalDate.parse(rateDate), Instant.EPOCH,
-                new BigDecimal(rate), null, null, "MOCK".equals(source), fetchedAt);
+                new BigDecimal(rate), null, null, "MOCK".equals(source), fetchedAt, Instant.EPOCH);
     }
 }

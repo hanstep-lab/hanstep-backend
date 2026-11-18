@@ -88,7 +88,7 @@ public class FxAlertController {
             targetRate 는 고시 단위(unitAmount)당 원화다(VND 는 100 VND 당).
             같은 통화·같은 comparator 의 ACTIVE 알림은 1개만 둘 수 있다(rateType·targetRate 가 달라도 409). \
             방향이 다르면(LTE 와 GTE) 따로 만들 수 있고, 지우거나(CANCELLED) 도달한(TRIGGERED) 알림은 막지 않는다.
-            도달 판정은 아직 없어(환율 수집기 연결 뒤 별도 작업) 지금 만든 알림은 ACTIVE 로 남는다.""")
+            새 환율(실데이터)이 저장되면 도달 판정을 한다. 알림을 만든 뒤 처음 저장된 환율만 보므로, 이미 있던 값으로 바로 바뀌지 않는다.""")
     @ApiResponse(responseCode = "201", description = "만듦", content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = FxAlertResponse.class),
             examples = @ExampleObject(name = "성공", value = CREATED_EXAMPLE)))

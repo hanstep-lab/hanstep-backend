@@ -11,6 +11,8 @@ import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -44,6 +46,19 @@ public class FxAlertRepository {
     public record AlertRow(long id, String currency, FxRateType rateType, FxComparator comparator,
                            BigDecimal targetRate, Integer unitAmount, FxAlertStatus status, Instant createdAt,
                            Instant triggeredAt, BigDecimal triggeredRate) {
+    }
+
+    /** 도달 판정 대상 ACTIVE 알림. */
+    public record ActiveAlert(long id, FxRateType rateType, FxComparator comparator, BigDecimal targetRate,
+                              Instant createdAt) {
+    }
+
+    /**
+     * 도달 판정에 쓰는 실데이터 환율 1행(is_mock = FALSE). sendRate 는 원천에 없으면 null.
+     * createdAt 은 그 행을 처음 저장한 시각(exchange_rates.created_at)이고 값이 바뀌어도(UPDATE) 그대로다.
+     */
+    public record JudgeRate(long id, String currency, Instant rateAt, BigDecimal baseRate, BigDecimal sendRate,
+                            Instant createdAt) {
     }
 
     /** 그 통화 최신 행의 고시 단위·출처와, 송금 보낼 때 환율(send_rate)이 있는 행이 하나라도 있는지. */
@@ -107,6 +122,42 @@ public class FxAlertRepository {
                 + "AND status <> 'CANCELLED'", alertId, userId);
     }
 
+    /** 그 통화의 ACTIVE 알림(ix_fx_alerts_active). TRIGGERED·CANCELLED 는 다시 판정하지 않는다. */
+    public List<ActiveAlert> activeAlerts(String currency) {
+        return jdbc.query("SELECT id, rate_type, comparator, target_rate, created_at FROM fx_alerts "
+                        + "WHERE status = 'ACTIVE' AND currency = ? ORDER BY id",
+                (rs, i) -> new ActiveAlert(rs.getLong("id"), FxRateType.valueOf(rs.getString("rate_type")),
+                        FxComparator.valueOf(rs.getString("comparator")), rs.getBigDecimal("target_rate"),
+                        instant(rs, "created_at")),
+                currency);
+    }
+
+    /** ACTIVE 알림이 있는 통화. */
+    public List<String> activeCurrencies() {
+        return jdbc.queryForList("SELECT DISTINCT currency FROM fx_alerts WHERE status = 'ACTIVE' ORDER BY currency",
+                String.class);
+    }
+
+    /** ids 중 실데이터 행만(Mock 은 빼고), rate_at·id 오름차순. */
+    public List<JudgeRate> realRates(Collection<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        String marks = String.join(", ", Collections.nCopies(ids.size(), "?"));
+        return jdbc.query("SELECT id, currency, rate_at, base_rate, send_rate, created_at FROM exchange_rates "
+                + "WHERE id IN (" + marks + ") AND NOT is_mock ORDER BY rate_at, id", FxAlertRepository::judgeRate,
+                ids.toArray());
+    }
+
+    /**
+     * ACTIVE 일 때만 TRIGGERED 로 바꾼다(조건부 UPDATE). 바꾼 행 수. 두 판정이 동시에 와도 InnoDB 가 행을 잠그고 늦은 쪽은
+     * 최신 커밋 값(TRIGGERED)으로 조건을 다시 봐서 0 이 된다. 그사이 지워졌어도(CANCELLED) 0.
+     */
+    public int trigger(long alertId, long rateId, Instant now) {
+        return jdbc.update("UPDATE fx_alerts SET status = 'TRIGGERED', triggered_rate_id = ?, triggered_at = ? "
+                + "WHERE id = ? AND status = 'ACTIVE'", rateId, LocalDateTime.ofInstant(now, ZoneOffset.UTC), alertId);
+    }
+
     public boolean exists(long userId, long alertId) {
         return !jdbc.queryForList("SELECT id FROM fx_alerts WHERE id = ? AND user_id = ?", Long.class,
                 alertId, userId).isEmpty();
@@ -117,6 +168,11 @@ public class FxAlertRepository {
                 FxComparator.valueOf(rs.getString("comparator")), rs.getBigDecimal("target_rate"),
                 rs.getObject("unit_amount", Integer.class), FxAlertStatus.valueOf(rs.getString("status")),
                 instant(rs, "created_at"), instant(rs, "triggered_at"), rs.getBigDecimal("triggered_rate"));
+    }
+
+    private static JudgeRate judgeRate(ResultSet rs, int rowNum) throws SQLException {
+        return new JudgeRate(rs.getLong("id"), rs.getString("currency"), instant(rs, "rate_at"),
+                rs.getBigDecimal("base_rate"), rs.getBigDecimal("send_rate"), instant(rs, "created_at"));
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {
