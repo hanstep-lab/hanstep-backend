@@ -32,7 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 목표 환율 알림 도달 판정(#125). 실제 DB, 테스트마다 롤백. 환율은 ISO 4217 시험용 코드 XTS·XXX, 날짜는 2099년이라
- * 로컬 DB 의 다른 환율과 섞이지 않는다. 알림은 2099-01-02 00:00 UTC 에 만든 것으로 넣는다.
+ * 로컬 DB 의 다른 환율과 섞이지 않는다. 알림은 2099-01-02 10:00 KST 에 만들고, 환율 행은 기본으로 그날 11:00 KST 에
+ * 처음 저장한 것(created_at)으로 넣는다. 수출입은행 rate_at 은 고시일 00:00 KST(알림보다 이름)다.
  * 같은 사용자·통화·방향의 ACTIVE 는 1건이라(uq_fx_alerts_active) 목표가 다른 알림은 사용자를 나눈다.
  */
 @SpringBootTest
@@ -40,8 +41,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class FxAlertTriggerTest {
 
-    private static final String CREATED = "2099-01-02 00:00:00";
-    private static final String AFTER = "2099-01-02 15:00:00";
+    private static final String CREATED = "2099-01-02 01:00:00"; // 알림 만든 시각(10:00 KST)
+    private static final String SAVED = "2099-01-02 02:00:00";   // 환율 행 처음 저장(11:00 KST)
+    private static final String AFTER = "2099-01-01 15:00:00";   // 고시일 2099-01-02 00:00 KST
 
     @Autowired
     private FxAlertTriggerService service;
@@ -108,7 +110,7 @@ class FxAlertTriggerTest {
         long alertId = alert(users.get(0), "XTS", "BASE", "LTE", "2000");
         // USD Mock 행처럼 source 가 KOREAEXIM 이어도 is_mock 이면 보지 않는다
         long mockExim = koreaexim("XTS", AFTER, "1300.0000", "1313.0000", true);
-        long mockSource = marketRef("XTS", "2099-01-03 15:00:00", "1300.0000", true);
+        long mockSource = marketRef("XTS", "2099-01-02 15:00:00", "1300.0000", true);
 
         saved(mockExim, mockSource);
 
@@ -116,16 +118,29 @@ class FxAlertTriggerTest {
     }
 
     @Test
-    void 알림을_만든_시각보다_이전_rate_at은_보지_않고_같은_시각부터_본다() {
-        long before = alert(users.get(0), "XTS", "BASE", "LTE", "2000");
-        long rateId = koreaexim("XTS", "2099-01-01 23:59:59", "1300.0000", "1313.0000", false);
+    void 오전에_만든_알림은_그날_고시값이_11시에_처음_저장되면_판정한다() {
+        // 고시일 00:00 KST(rate_at)는 알림(10:00)보다 이르지만, 행을 처음 저장한 시각(11:00)이 알림 뒤라 판정 대상
+        long alertId = alert(users.get(0), "XTS", "SEND", "LTE", "1400");
+        long rateId = koreaexim("XTS", "2099-01-01 15:00:00", "1300.0000", "1313.0000", false, SAVED);
 
         saved(rateId);
-        assertThat(state(before)).isEqualTo("ACTIVE:null");
 
-        long sameTime = koreaexim("XTS", CREATED, "1301.0000", "1314.0000", false);
-        saved(sameTime);
-        assertThat(state(before)).isEqualTo("TRIGGERED:" + sameTime);
+        assertThat(state(alertId)).isEqualTo("TRIGGERED:" + rateId);
+    }
+
+    @Test
+    void 알림보다_먼저_저장된_행은_fetched_at이_갱신되거나_값이_바뀌어도_판정하지_않는다() {
+        long alertId = alert(users.get(0), "XTS", "SEND", "LTE", "1400");
+        // 09:00 KST 에 처음 저장된 행. 11:00 수집에서 fetched_at 이 갱신되고 값이 바뀌어도(UPDATED 이벤트) 대상이 아니다
+        long early = koreaexim("XTS", "2099-01-01 15:00:00", "1500.0000", "1515.0000", false, "2099-01-02 00:00:00");
+        jdbc.update("UPDATE exchange_rates SET send_rate = 1313.0000, fetched_at = ? WHERE id = ?", SAVED, early);
+        saved(early);
+        assertThat(state(alertId)).isEqualTo("ACTIVE:null");
+
+        // 알림과 같은 시각에 저장된 행도 대상이 아니다(알림보다 늦어야 함)
+        long same = koreaexim("XTS", "2099-01-02 15:00:00", "1300.0000", "1313.0000", false, CREATED);
+        saved(same);
+        assertThat(state(alertId)).isEqualTo("ACTIVE:null");
     }
 
     @Test
@@ -137,7 +152,8 @@ class FxAlertTriggerTest {
                 alertId);
 
         saved(first);
-        long second = koreaexim("XTS", "2099-01-03 15:00:00", "1200.0000", "1212.0000", false);
+        long second = koreaexim("XTS", "2099-01-02 15:00:00", "1200.0000", "1212.0000", false,
+                "2099-01-03 02:00:00");
         saved(second);
 
         assertThat(state(alertId)).isEqualTo("TRIGGERED:" + first);
@@ -162,9 +178,9 @@ class FxAlertTriggerTest {
     void 여러_행이_오면_rate_at이_이른_행부터_보고_처음_닿은_행을_쓴다() {
         long alertId = alert(users.get(0), "XTS", "BASE", "LTE", "1300");
         // 저장 순서와 상관없이 rate_at 순서로 본다
-        long late = koreaexim("XTS", "2099-01-05 15:00:00", "1250.0000", "1262.5000", false);
+        long late = koreaexim("XTS", "2099-01-04 15:00:00", "1250.0000", "1262.5000", false, "2099-01-05 02:00:00");
         long notReached = koreaexim("XTS", AFTER, "1350.0000", "1363.5000", false);
-        long reached = koreaexim("XTS", "2099-01-03 15:00:00", "1290.0000", "1302.9000", false);
+        long reached = koreaexim("XTS", "2099-01-02 15:00:00", "1290.0000", "1302.9000", false, "2099-01-03 02:00:00");
 
         service.onRatesSaved(new ExchangeRatesSavedEvent(FxSource.KOREAEXIM, true,
                 List.of(savedRate(late), savedRate(notReached), savedRate(reached))));
@@ -225,18 +241,24 @@ class FxAlertTriggerTest {
                 + "VALUES (?, ?, ?, ?, ?, ?)", owner, currency, rateType, comparator, target, CREATED);
     }
 
-    /** 수출입은행 형식(송금 환율 있음). rate_date 는 rate_at(UTC) + 9시간의 날짜. */
     private long koreaexim(String currency, String rateAtUtc, String base, String send, boolean mock) {
-        return insert("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, send_rate, "
-                        + "receive_rate, source, is_mock, fetched_at) VALUES (?, 1, DATE(? + INTERVAL 9 HOUR), ?, ?, ?, ?, "
-                        + "'KOREAEXIM', ?, ?)", currency, rateAtUtc, rateAtUtc, base, send, base, mock, rateAtUtc);
+        return koreaexim(currency, rateAtUtc, base, send, mock, SAVED);
     }
 
-    /** ECB 참고 환율 형식(송금 환율 없음). */
+    /** 수출입은행 형식(송금 환율 있음). rate_date 는 rate_at(UTC) + 9시간의 날짜. savedAtUtc 는 처음 저장 시각(created_at). */
+    private long koreaexim(String currency, String rateAtUtc, String base, String send, boolean mock,
+                           String savedAtUtc) {
+        return insert("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, send_rate, "
+                        + "receive_rate, source, is_mock, fetched_at, created_at) VALUES (?, 1, DATE(? + INTERVAL 9 HOUR), "
+                        + "?, ?, ?, ?, 'KOREAEXIM', ?, ?, ?)",
+                currency, rateAtUtc, rateAtUtc, base, send, base, mock, savedAtUtc, savedAtUtc);
+    }
+
+    /** ECB 참고 환율 형식(송금 환율 없음). 처음 저장 시각은 SAVED. */
     private long marketRef(String currency, String rateAtUtc, String base, boolean mock) {
         return insert("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, source, provider, "
-                        + "is_mock, fetched_at) VALUES (?, 1, DATE(?), ?, ?, ?, 'frankfurter-ecb', ?, ?)",
-                currency, rateAtUtc, rateAtUtc, base, mock ? "MOCK" : "MARKET_REF", mock, rateAtUtc);
+                        + "is_mock, fetched_at, created_at) VALUES (?, 1, DATE(?), ?, ?, ?, 'frankfurter-ecb', ?, ?, ?)",
+                currency, rateAtUtc, rateAtUtc, base, mock ? "MOCK" : "MARKET_REF", mock, SAVED, SAVED);
     }
 
     private long insert(String sql, Object... args) {

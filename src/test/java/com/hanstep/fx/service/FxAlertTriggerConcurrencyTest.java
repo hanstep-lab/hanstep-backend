@@ -59,7 +59,7 @@ class FxAlertTriggerConcurrencyTest {
     @Test
     void 같은_알림을_10개_판정이_동시에_봐도_TRIGGERED는_1번이고_도달_행과_시각이_하나다() throws Exception {
         jdbc.update("INSERT INTO fx_alerts (user_id, currency, rate_type, comparator, target_rate, created_at) "
-                + "VALUES (?, 'XTS', 'SEND', 'LTE', 1400.0000, '2099-01-02 00:00:00')", userId);
+                + "VALUES (?, 'XTS', 'SEND', 'LTE', 1400.0000, NOW(3) - INTERVAL 1 MINUTE)", userId);
         long alertId = jdbc.queryForObject("SELECT id FROM fx_alerts WHERE user_id = ?", Long.class, userId);
         // 판정마다 다른 행(값은 모두 목표 아래)을 쓴다. 누가 이겨도 triggered_rate_id 는 하나여야 한다
         List<Long> rateIds = new ArrayList<>();

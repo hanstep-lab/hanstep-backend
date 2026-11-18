@@ -3,6 +3,7 @@ package com.hanstep.fx.dto;
 import com.hanstep.fx.repository.FxAlertRepository.JudgeRate;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
@@ -10,7 +11,7 @@ import java.util.List;
 
 @Schema(description = "최신 실데이터 값으로 ACTIVE 알림을 다시 판정한 결과(내부 관리용)")
 public record FxAlertEvaluateResponse(
-        @Schema(description = "created_at 규칙을 빼고 판정했는지", example = "false")
+        @Schema(description = "'알림 뒤에 저장된 행' 규칙을 빼고 판정했는지(시연용)", example = "false")
         boolean ignoreCreatedAt,
 
         @Schema(description = "이번에 TRIGGERED 로 바꾼 알림 수", example = "1")
@@ -31,6 +32,10 @@ public record FxAlertEvaluateResponse(
             @Schema(description = "그 행의 rate_at(+09:00)", nullable = true)
             OffsetDateTime rateAt,
 
+            @Schema(description = "그 행을 처음 저장한 시각(exchange_rates.created_at, +09:00). 알림보다 늦어야 판정 대상",
+                    nullable = true)
+            OffsetDateTime savedAt,
+
             @Schema(description = "매매기준율(base_rate)", nullable = true)
             BigDecimal baseRate,
 
@@ -43,10 +48,9 @@ public record FxAlertEvaluateResponse(
 
         public static CurrencyResult of(String currency, JudgeRate rate, List<AlertResult> alerts) {
             if (rate == null) {
-                return new CurrencyResult(currency, null, null, null, null, alerts);
+                return new CurrencyResult(currency, null, null, null, null, null, alerts);
             }
-            return new CurrencyResult(currency, rate.id(),
-                    rate.rateAt().atOffset(ZoneOffset.ofHours(9)).truncatedTo(ChronoUnit.SECONDS),
+            return new CurrencyResult(currency, rate.id(), kst(rate.rateAt()), kst(rate.createdAt()),
                     plain(rate.baseRate()), plain(rate.sendRate()), alerts);
         }
     }
@@ -57,7 +61,7 @@ public record FxAlertEvaluateResponse(
             long alertId,
 
             @Schema(description = "TRIGGERED: 이번에 바꿈 / NOT_REACHED: 목표에 닿지 않음 / NO_RATE_VALUE: 그 행에 rateType 값이 없음 "
-                    + "/ RATE_BEFORE_CREATED: 알림보다 이전 값 / NO_RATE: 실데이터 없음 "
+                    + "/ RATE_BEFORE_CREATED: 환율 행이 알림보다 먼저 저장됨 / NO_RATE: 실데이터 없음 "
                     + "/ ALREADY_CHANGED: 그사이 다른 판정·삭제가 먼저 바꿈", example = "TRIGGERED")
             String result,
 
@@ -68,6 +72,10 @@ public record FxAlertEvaluateResponse(
         public static AlertResult of(long alertId, String result, BigDecimal value) {
             return new AlertResult(alertId, result, plain(value));
         }
+    }
+
+    private static OffsetDateTime kst(Instant at) {
+        return at.atOffset(ZoneOffset.ofHours(9)).truncatedTo(ChronoUnit.SECONDS);
     }
 
     /** 22.1000 → 22.1, 1350.0000 → 1350(지수 표기 없음). FxAlertResponse 와 같은 표기. */

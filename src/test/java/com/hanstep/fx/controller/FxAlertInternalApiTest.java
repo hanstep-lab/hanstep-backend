@@ -43,13 +43,15 @@ class FxAlertInternalApiTest {
     @BeforeEach
     void setUp() {
         userId = TestUsers.create(jdbc, "test-fx-alert-evaluate", "TEST FX EVALUATE");
-        // 최신 값(2099-01-02 15:00 UTC)이 알림(2099-01-03 만듦)보다 먼저 있었다. 더 늦은 MARKET_REF 보다 KOREAEXIM 이 우선
+        // 최신 값(KOREAEXIM)은 2099-01-03 08:30 KST 에 처음 저장돼 알림(09:00 KST 만듦)보다 이르다. 더 늦은 MARKET_REF 보다
+        // KOREAEXIM 이 우선
         jdbc.update("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, send_rate, "
-                + "receive_rate, source, is_mock, fetched_at) VALUES ('XTS', 1, '2099-01-03', '2099-01-02 15:00:00', "
-                + "1300.0000, 1313.0000, 1287.0000, 'KOREAEXIM', FALSE, '2099-01-03 02:05:00')");
+                + "receive_rate, source, is_mock, fetched_at, created_at) VALUES ('XTS', 1, '2099-01-03', "
+                + "'2099-01-02 15:00:00', 1300.0000, 1313.0000, 1287.0000, 'KOREAEXIM', FALSE, '2099-01-02 23:30:00', "
+                + "'2099-01-02 23:30:00')");
         jdbc.update("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, source, provider, "
-                + "is_mock, fetched_at) VALUES ('XTS', 1, '2099-01-04', '2099-01-04 15:00:00', 9999.0000, 'MARKET_REF', "
-                + "'frankfurter-ecb', FALSE, '2099-01-04 15:05:00')");
+                + "is_mock, fetched_at, created_at) VALUES ('XTS', 1, '2099-01-04', '2099-01-04 15:00:00', 9999.0000, "
+                + "'MARKET_REF', 'frankfurter-ecb', FALSE, '2099-01-04 15:05:00', '2099-01-04 15:05:00')");
     }
 
     @Test
@@ -71,6 +73,7 @@ class FxAlertInternalApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.triggered").value(1))
                 .andExpect(jsonPath("$.currencies[0].rateAt").value("2099-01-03T00:00:00+09:00"))
+                .andExpect(jsonPath("$.currencies[0].savedAt").value("2099-01-03T08:30:00+09:00"))
                 .andExpect(jsonPath("$.currencies[0].baseRate").value(1300))
                 .andExpect(jsonPath("$.currencies[0].sendRate").value(1313))
                 .andExpect(jsonPath("$.currencies[0].alerts[0].result").value("TRIGGERED"))
@@ -87,6 +90,27 @@ class FxAlertInternalApiTest {
         // TRIGGERED 는 다시 판정 대상이 아니다
         evaluate("XTS", true).andExpect(jsonPath("$.triggered").value(0))
                 .andExpect(jsonPath("$.currencies[0].alerts.length()").value(0));
+    }
+
+    @Test
+    void 기본은_fetched_at만_갱신된_행이면_대상이_아니고_알림_뒤에_처음_저장된_행이면_대상이다() throws Exception {
+        long alertId = alert("SEND", "LTE", "2000");
+        // 알림 뒤 1시간 수집에서 fetched_at 만 갱신됨 → 대상 아님
+        jdbc.update("UPDATE exchange_rates SET fetched_at = '2099-01-03 02:05:00' WHERE currency = 'XTS' "
+                + "AND source = 'KOREAEXIM'");
+        evaluate("XTS", false).andExpect(jsonPath("$.currencies[0].alerts[0].result").value("RATE_BEFORE_CREATED"));
+
+        // 다음 고시값이 알림 뒤(2099-01-04 11:00 KST)에 처음 저장됨 → 대상(rate_at 은 고시일 00:00)
+        jdbc.update("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, send_rate, "
+                + "receive_rate, source, is_mock, fetched_at, created_at) VALUES ('XTS', 1, '2099-01-04', "
+                + "'2099-01-03 15:00:00', 1290.0000, 1302.9000, 1277.1000, 'KOREAEXIM', FALSE, '2099-01-04 02:00:00', "
+                + "'2099-01-04 02:00:00')");
+        evaluate("XTS", false)
+                .andExpect(jsonPath("$.triggered").value(1))
+                .andExpect(jsonPath("$.currencies[0].savedAt").value("2099-01-04T11:00:00+09:00"))
+                .andExpect(jsonPath("$.currencies[0].alerts[0].alertId").value(alertId))
+                .andExpect(jsonPath("$.currencies[0].alerts[0].result").value("TRIGGERED"))
+                .andExpect(jsonPath("$.currencies[0].alerts[0].value").value(1302.9));
     }
 
     @Test

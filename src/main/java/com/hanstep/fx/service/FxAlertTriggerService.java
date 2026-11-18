@@ -29,7 +29,10 @@ import org.springframework.stereotype.Service;
  * - 새 환율이 저장되면(ExchangeRatesSavedEvent: 1시간 수집·백필에서 새 행이거나 값이 바뀐 행) 그 통화의 ACTIVE 알림만 판정한다
  * - 비교 값: SEND 는 send_rate, BASE 는 base_rate. 그 행에 값이 없으면(송금 환율이 없는 MARKET_REF 의 SEND) 판정하지 않는다
  * - LTE 는 값 <= 목표, GTE 는 값 >= 목표면 TRIGGERED(triggered_rate_id, triggered_at). TRIGGERED 는 다시 보지 않는다
- * - Mock 행(is_mock)으로는 판정하지 않는다. 이미 지난 값으로 바로 판정하지 않게 알림 created_at 이후(같은 시각 포함) rate_at 만 본다
+ * - Mock 행(is_mock)으로는 판정하지 않는다
+ * - 이미 있던 값으로 바로 판정하지 않게, 알림을 만든 뒤 처음 저장된 행(exchange_rates.created_at > 알림 created_at)만 본다(11/18 결정).
+ *   rate_at 은 수출입은행이 고시일 00:00(KST)이라 오전에 만든 알림이 그날 11시 무렵 고시값을 놓치므로 쓰지 않고,
+ *   fetched_at 은 1시간 수집마다 바뀌므로 쓰지 않는다. 알림보다 먼저 저장된 행은 값이 바뀌어도(UPDATED) 보지 않는다
  * - 한 번에 여러 행이 오면(백필) rate_at 이 이른 행부터 보고 처음 닿은 행을 쓴다
  * - 동시성: 트랜잭션 없이 알림마다 조건부 UPDATE ... WHERE status = 'ACTIVE' 로 바꾼다(FxAlertRepository.trigger)
  */
@@ -44,7 +47,7 @@ public class FxAlertTriggerService {
         NOT_REACHED,
         /** 그 행에 rateType 값이 없음(송금 환율이 없는 원천의 SEND) */
         NO_RATE_VALUE,
-        /** 행의 rate_at 이 알림 created_at 보다 이름(이미 지난 값) */
+        /** 환율 행이 알림보다 먼저 저장됨(exchange_rates.created_at <= 알림 created_at) */
         RATE_BEFORE_CREATED,
         /** 그 통화에 실데이터 환율이 없음 */
         NO_RATE,
@@ -81,7 +84,7 @@ public class FxAlertTriggerService {
 
     /**
      * 내부 경로(시연·관리용): 현재 최신 실데이터 값으로 ACTIVE 알림을 다시 판정한다. currency 가 없으면 ACTIVE 알림이 있는 통화 전부.
-     * ignoreCreatedAt 이면 created_at 규칙을 빼고 판정한다(시연에서 이미 있는 최신 값으로 도달 장면을 보여 줄 때).
+     * ignoreCreatedAt 이면 "알림 뒤에 저장된 행" 규칙을 빼고 판정한다(시연에서 도달 장면을 보여 줄 때만).
      * currency 를 줬는데 실데이터가 없으면 404 FX_RATE_NOT_FOUND.
      */
     public FxAlertEvaluateResponse evaluateLatest(String currency, boolean ignoreCreatedAt) {
@@ -117,7 +120,7 @@ public class FxAlertTriggerService {
         boolean afterCreated = false;
         boolean hasValue = false;
         for (JudgeRate rate : rates) {
-            if (afterCreatedOnly && rate.rateAt().isBefore(alert.createdAt())) {
+            if (afterCreatedOnly && !rate.createdAt().isAfter(alert.createdAt())) {
                 continue;
             }
             afterCreated = true;

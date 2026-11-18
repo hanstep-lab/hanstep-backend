@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 수집기 저장 → "저장됨" 이벤트 → 도달 판정까지 한 번에(실제 DB, 롤백). 원천은 FakeFxSourceServer(2031년 값).
+ * 행의 처음 저장 시각(created_at)은 DB 의 지금 시각이라 알림은 그보다 1분 먼저 만든 것으로 넣는다.
  * 2031-01-06(월) 수집: USD 는 수출입은행 고시(rate_at 2031-01-06 00:00 KST = 01-05 15:00 UTC, 송금 보낼 때 1306.72),
  * PHP 는 ECB 최신 기준일 2031-01-03 값(rate_at 01-03 15:00 UTC, 20.003, 송금 환율 없음).
  */
@@ -42,21 +43,20 @@ class FxAlertTriggerCollectTest {
     }
 
     @Test
-    void 수집으로_새_값이_저장되면_그_통화의_ACTIVE_알림을_판정한다() {
+    void 수집으로_알림_뒤에_처음_저장된_값이면_그_통화의_ACTIVE_알림을_판정한다() {
         long reyes = TestUsers.create(jdbc, "test-fx-trigger-collect-0", "TEST FX COLLECT 0");
         long other = TestUsers.create(jdbc, "test-fx-trigger-collect-1", "TEST FX COLLECT 1");
-        long usdSend = alert(reyes, "USD", "SEND", "LTE", "1306.72", "2031-01-05 00:00:00");
-        // 고시일 00:00(KST)보다 늦게 만든 알림은 그날 고시값으로 판정하지 않는다
-        long usdLate = alert(other, "USD", "SEND", "LTE", "1400", "2031-01-05 16:00:00");
-        long phpBase = alert(reyes, "PHP", "BASE", "GTE", "20.003", "2031-01-01 00:00:00");
-        long phpSend = alert(other, "PHP", "SEND", "GTE", "1", "2031-01-01 00:00:00");
+        long usdSend = alert(reyes, "USD", "SEND", "LTE", "1306.72");
+        long usdNotReached = alert(other, "USD", "SEND", "LTE", "1306.71");
+        long phpBase = alert(reyes, "PHP", "BASE", "GTE", "20.003");
+        long phpSend = alert(other, "PHP", "SEND", "GTE", "1");
 
         collectService.collectLatest(MONDAY);
 
         long usdRate = rateId("USD", "KOREAEXIM", "2031-01-06");
         long phpRate = rateId("PHP", "MARKET_REF", "2031-01-03");
         assertThat(state(usdSend)).isEqualTo("TRIGGERED:" + usdRate + ":1306.7200");
-        assertThat(state(usdLate)).isEqualTo("ACTIVE:null:null");
+        assertThat(state(usdNotReached)).isEqualTo("ACTIVE:null:null");
         assertThat(state(phpBase)).isEqualTo("TRIGGERED:" + phpRate + ":20.0030");
         assertThat(state(phpSend)).isEqualTo("ACTIVE:null:null");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM fx_alerts WHERE id IN (?, ?) AND triggered_at IS NOT NULL",
@@ -64,11 +64,13 @@ class FxAlertTriggerCollectTest {
     }
 
     @Test
-    void 같은_값을_다시_받으면_이벤트가_없어_다시_판정하지_않는다() {
+    void 이미_있던_행은_다시_수집해도_판정하지_않는다() {
         long userId = TestUsers.create(jdbc, "test-fx-trigger-collect-2", "TEST FX COLLECT 2");
         collectService.collectLatest(MONDAY);
-        // 첫 수집 뒤에 넣은 알림(만든 시각은 고시 전으로 둬서 값만 보면 닿는다). 같은 값 재수집은 "저장됨"이 아니라 판정하지 않는다
-        long alertId = alert(userId, "USD", "SEND", "LTE", "2000", "2031-01-05 00:00:00");
+        // 첫 수집 뒤에 만든 알림. 값은 닿지만 행이 알림보다 먼저 저장됐고, 같은 값 재수집은 "저장됨"이 아니다
+        jdbc.update("INSERT INTO fx_alerts (user_id, currency, rate_type, comparator, target_rate, created_at) "
+                + "VALUES (?, 'USD', 'SEND', 'LTE', 2000, NOW(3))", userId);
+        long alertId = jdbc.queryForObject("SELECT id FROM fx_alerts WHERE user_id = ?", Long.class, userId);
 
         collectService.collectLatest(MONDAY);
 
@@ -89,10 +91,10 @@ class FxAlertTriggerCollectTest {
                 Long.class, currency, source, rateDate);
     }
 
-    private long alert(long owner, String currency, String rateType, String comparator, String target,
-                       String createdAtUtc) {
+    /** 수집 1분 전에 만든 알림. */
+    private long alert(long owner, String currency, String rateType, String comparator, String target) {
         jdbc.update("INSERT INTO fx_alerts (user_id, currency, rate_type, comparator, target_rate, created_at) "
-                + "VALUES (?, ?, ?, ?, ?, ?)", owner, currency, rateType, comparator, target, createdAtUtc);
+                + "VALUES (?, ?, ?, ?, ?, NOW(3) - INTERVAL 1 MINUTE)", owner, currency, rateType, comparator, target);
         return jdbc.queryForObject("SELECT MAX(id) FROM fx_alerts WHERE user_id = ?", Long.class, owner);
     }
 }

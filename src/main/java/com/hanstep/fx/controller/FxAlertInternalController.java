@@ -41,8 +41,9 @@ public class FxAlertInternalController {
                     현재 최신 실데이터 값(통화마다 우선 원천 KOREAEXIM > MARKET_REF, Mock 제외)으로 ACTIVE 알림을 판정한다. \
                     규칙은 새 환율 저장 때와 같다(SEND 는 send_rate·BASE 는 base_rate, 값이 없으면 판정 안 함, LTE 이하·GTE 이상, \
                     조건부 UPDATE).
-                    기본은 알림 created_at 이후 rate_at 만 보므로, 알림보다 먼저 있던 최신 값으로는 바뀌지 않는다(RATE_BEFORE_CREATED). \
-                    시연에서 지금 값으로 도달 장면을 보여 주려면 ignoreCreatedAt=true 로 부른다.""")
+                    기본은 알림을 만든 뒤 처음 저장된 행(exchange_rates.created_at > 알림 created_at)만 보므로, 알림보다 먼저 \
+                    저장된 최신 값으로는 바뀌지 않는다(RATE_BEFORE_CREATED). fetched_at(마지막 확인 시각)은 보지 않는다.
+                    ignoreCreatedAt=true 는 시연에서 도달 장면을 보여 줄 때만 쓴다(이 규칙을 빼고 지금 값으로 판정).""")
     @ApiResponse(responseCode = "200", description = "판정함(통화·알림별 결과)")
     @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: currency 가 ISO 4217 세 글자가 아님(details.fields)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -54,7 +55,7 @@ public class FxAlertInternalController {
     public FxAlertEvaluateResponse evaluate(
             @Parameter(description = "한 통화만. 기본: ACTIVE 알림이 있는 통화 전부", example = "PHP")
             @RequestParam(required = false) String currency,
-            @Parameter(description = "true 면 created_at 규칙을 빼고 판정(시연용). 기본 false")
+            @Parameter(description = "true 면 '알림 뒤에 저장된 행' 규칙을 빼고 판정(시연에서 도달 장면을 보여 줄 때만). 기본 false")
             @RequestParam(defaultValue = "false") boolean ignoreCreatedAt) {
         if (currency != null && !currency.matches("[A-Z]{3}")) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,

@@ -53,8 +53,12 @@ public class FxAlertRepository {
                               Instant createdAt) {
     }
 
-    /** 도달 판정에 쓰는 실데이터 환율 1행(is_mock = FALSE). sendRate 는 원천에 없으면 null. */
-    public record JudgeRate(long id, String currency, Instant rateAt, BigDecimal baseRate, BigDecimal sendRate) {
+    /**
+     * 도달 판정에 쓰는 실데이터 환율 1행(is_mock = FALSE). sendRate 는 원천에 없으면 null.
+     * createdAt 은 그 행을 처음 저장한 시각(exchange_rates.created_at)이고 값이 바뀌어도(UPDATE) 그대로다.
+     */
+    public record JudgeRate(long id, String currency, Instant rateAt, BigDecimal baseRate, BigDecimal sendRate,
+                            Instant createdAt) {
     }
 
     /** 그 통화 최신 행의 고시 단위·출처와, 송금 보낼 때 환율(send_rate)이 있는 행이 하나라도 있는지. */
@@ -140,7 +144,7 @@ public class FxAlertRepository {
             return List.of();
         }
         String marks = String.join(", ", Collections.nCopies(ids.size(), "?"));
-        return jdbc.query("SELECT id, currency, rate_at, base_rate, send_rate FROM exchange_rates "
+        return jdbc.query("SELECT id, currency, rate_at, base_rate, send_rate, created_at FROM exchange_rates "
                 + "WHERE id IN (" + marks + ") AND NOT is_mock ORDER BY rate_at, id", FxAlertRepository::judgeRate,
                 ids.toArray());
     }
@@ -150,7 +154,7 @@ public class FxAlertRepository {
      * #123 이 develop 에 들어가면 그쪽으로 모은다.
      */
     public Optional<JudgeRate> latestRealRate(String currency) {
-        return jdbc.query("SELECT id, currency, rate_at, base_rate, send_rate FROM exchange_rates "
+        return jdbc.query("SELECT id, currency, rate_at, base_rate, send_rate, created_at FROM exchange_rates "
                         + "WHERE currency = ? AND NOT is_mock "
                         + "ORDER BY FIELD(source, 'KOREAEXIM', 'MARKET_REF', 'MOCK'), rate_date DESC, rate_at DESC, id DESC "
                         + "LIMIT 1", FxAlertRepository::judgeRate, currency).stream().findFirst();
@@ -179,7 +183,7 @@ public class FxAlertRepository {
 
     private static JudgeRate judgeRate(ResultSet rs, int rowNum) throws SQLException {
         return new JudgeRate(rs.getLong("id"), rs.getString("currency"), instant(rs, "rate_at"),
-                rs.getBigDecimal("base_rate"), rs.getBigDecimal("send_rate"));
+                rs.getBigDecimal("base_rate"), rs.getBigDecimal("send_rate"), instant(rs, "created_at"));
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {
