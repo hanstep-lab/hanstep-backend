@@ -3,13 +3,15 @@ package com.hanstep.transfer.service;
 import com.hanstep.common.dto.Money;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
+import com.hanstep.common.time.KstDates;
+import com.hanstep.transfer.config.RemittanceProperties;
 import com.hanstep.transfer.dto.AppliedRate;
 import com.hanstep.transfer.dto.RemittanceQuoteResponse;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,9 +28,14 @@ public class RemittanceQuoteService {
     private static final String LABEL_REFERENCE = "ECB 기준환율 기반 참고값";
 
     private final JdbcTemplate jdbcTemplate;
+    private final RemittanceQuoteCalculator calculator;
+    private final RemittanceProperties properties;
 
-    public RemittanceQuoteService(JdbcTemplate jdbcTemplate) {
+    public RemittanceQuoteService(JdbcTemplate jdbcTemplate, RemittanceQuoteCalculator calculator,
+                                  RemittanceProperties properties) {
         this.jdbcTemplate = jdbcTemplate;
+        this.calculator = calculator;
+        this.properties = properties;
     }
 
     /** 관계를 확인한 본인의 활성 받는 분. MOTHER 먼저, 그다음 id 순. */
@@ -70,33 +77,66 @@ public class RemittanceQuoteService {
     }
 
     /**
-     * currency=KRW 면 amount 는 보낼 원화 → 받을 외화 = 원화 × unit ÷ rate(1단위 버림).
-     * currency=받는 분 통화면 amount 는 받을 외화 → 보낼 원화 = 외화 × rate ÷ unit(원 단위 올림).
+     * 송금 견적(#121). amount 는 내 계좌에서 나갈 원화 총액(수수료 포함)이고 currency 는 KRW 만 받는다.
+     * 송금 통화는 USD 이며 계산은 RemittanceQuoteCalculator 하나로 화면·챗봇이 같이 쓴다. 잔액은 보지 않는다(화면 API 만 확인).
+     * - recipientId 가 없으면 첫 받는 분(어머니 먼저, TRF-01 과 같음). 받는 분이 없으면 404 RESOURCE_NOT_FOUND
+     * - USD 매매기준율 실데이터(KOREAEXIM, is_mock = FALSE)가 없으면 404 FX_RATE_NOT_FOUND
+     * - 국적이 PHP 참고 대상(필리핀)이 아니거나 PHP 참고 환율 실데이터가 없으면 PHP 참고값만 null
      */
-    public RemittanceQuoteResponse quote(long userId, long recipientId, long amount, String currency) {
+    public RemittanceQuoteResponse quote(long userId, Long recipientId, long amount, String currency) {
         if (amount < 1) {
             throw invalid("amount", "must be 1 or more");
         }
-        RemittanceRecipient recipient = recipient(userId, recipientId);
-        boolean fromKrw = Money.KRW.equals(currency);
-        if (!fromKrw && !recipient.currency().equals(currency)) {
-            throw invalid("currency", "must be KRW or " + recipient.currency());
+        if (!Money.KRW.equals(currency)) {
+            throw invalid("currency", "must be KRW");
         }
-        AppliedRate rate = latestRate(recipient.currency());
-        BigDecimal unit = BigDecimal.valueOf(rate.unit());
-        BigDecimal requested = BigDecimal.valueOf(amount);
+        long resolved = recipientId == null ? firstRecipient(userId).recipientId()
+                : recipient(userId, recipientId).recipientId();
+        RemittanceQuoteCalculator.Rate usd = latestRealRate("""
+                        SELECT base_rate, rate_date FROM exchange_rates
+                        WHERE currency = 'USD' AND source = 'KOREAEXIM' AND NOT is_mock
+                        ORDER BY rate_date DESC, rate_at DESC LIMIT 1""")
+                .orElseThrow(() -> new BusinessException(ErrorCode.FX_RATE_NOT_FOUND));
+        RemittanceQuoteCalculator.Rate php = phpReference(userId) ? latestRealRate("""
+                        SELECT base_rate, rate_date FROM exchange_rates
+                        WHERE currency = 'PHP' AND source = 'MARKET_REF' AND provider = ? AND NOT is_mock
+                        ORDER BY rate_date DESC, rate_at DESC LIMIT 1""", RemittanceQuoteCalculator.PHP_SOURCE)
+                .orElse(null) : null;
+        LocalDate today = LocalDate.now(KstDates.KST);
         try {
-            if (fromKrw) {
-                long receive = requested.multiply(unit).divide(rate.rate(), 0, RoundingMode.DOWN).longValueExact();
-                return new RemittanceQuoteResponse(recipientId, Money.krw(amount),
-                        new Money(receive, recipient.currency()), rate);
-            }
-            long send = requested.multiply(rate.rate()).divide(unit, 0, RoundingMode.CEILING).longValueExact();
-            return new RemittanceQuoteResponse(recipientId, Money.krw(send), new Money(amount, recipient.currency()),
-                    rate);
+            return calculator.calculate(new RemittanceQuoteCalculator.Input(resolved, amount, usd, php,
+                    pastRemittances(userId, today), today));
         } catch (ArithmeticException e) {
             throw invalid("amount", "too large");
         }
+    }
+
+    private RemittanceRecipient firstRecipient(long userId) {
+        return recipients(userId).stream().findFirst()
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+    }
+
+    private Optional<RemittanceQuoteCalculator.Rate> latestRealRate(String sql, Object... args) {
+        return jdbcTemplate.query(sql, (rs, i) -> new RemittanceQuoteCalculator.Rate(rs.getBigDecimal("base_rate"),
+                rs.getObject("rate_date", LocalDate.class)), args).stream().findFirst();
+    }
+
+    /** 수취 국가는 사용자 국적(visa_profiles.nationality_code)으로 정한다. PHP 참고 대상 국적이면 true. */
+    private boolean phpReference(long userId) {
+        List<String> nationality = jdbcTemplate.queryForList(
+                "SELECT nationality_code FROM visa_profiles WHERE user_id = ?", String.class, userId);
+        return !nationality.isEmpty() && nationality.getFirst() != null
+                && properties.phpReferenceNationalities().contains(nationality.getFirst());
+    }
+
+    /** 기준일 포함 과거 365일 해외송금 건수(마이데이터 거래, Mock). 이번 건은 계산기에서 더한다. */
+    private int pastRemittances(long userId, LocalDate today) {
+        Integer count = jdbcTemplate.queryForObject("""
+                        SELECT COUNT(*) FROM financial_transactions
+                        WHERE user_id = ? AND category_code = 'REMITTANCE' AND direction = 'EXPENSE'
+                          AND transaction_kind = 'NORMAL' AND booked_date BETWEEN ? AND ?""",
+                Integer.class, userId, today.minusDays(364), today);
+        return count == null ? 0 : count;
     }
 
     /** 끝자리 0 제거. 1350.00 → 1350 처럼 정수가 되면 지수 표기(1.35E+3)가 되지 않게 scale 을 0 으로 맞춘다. */
