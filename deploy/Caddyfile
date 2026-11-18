@@ -19,7 +19,8 @@
 		reverse_proxy spring:8080
 	}
 
-	# 외부 API 만 Spring 으로 전달. 챗봇 스트림(text/event-stream)은 Caddy 가 버퍼링 없이 바로 흘려보낸다
+	# 외부 API 만 Spring 으로 전달. 스트림(text/event-stream: 챗봇 CHT-04, 목표 환율 도달 /api/v1/fx/alerts/stream)은
+	# Caddy 가 버퍼링 없이 바로 흘려보낸다. 위 encode gzip 이 스트림에도 걸리지만 이벤트마다 flush 되어 늦어지지 않는다(#129 확인)
 	handle /api/v1/* {
 		reverse_proxy spring:8080
 	}

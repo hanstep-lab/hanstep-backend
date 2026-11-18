@@ -312,7 +312,7 @@ alias dc='docker compose -f deploy/compose.prod.yml'
 
 ## 목표 환율 알림 도달 판정
 
-수집기가 새 환율을 저장하면(새 행이거나 값이 바뀐 행) 같은 스레드에서 그 통화의 ACTIVE 알림을 판정한다(#125). 따로 켤 설정은 없다. 푸시는 없고, 앱 알림 목록(`GET /api/v1/fx/alerts`)이 `TRIGGERED`와 `triggeredRate`를 보여 준다.
+수집기가 새 환율을 저장하면(새 행이거나 값이 바뀐 행) 같은 스레드에서 그 통화의 ACTIVE 알림을 판정한다(#125). 따로 켤 설정은 없다. 원격 푸시는 없다. 알림을 `TRIGGERED`로 바꾸면 그 사용자의 열린 스트림으로 바로 보내고(아래 "도달 알림 스트림"), 앱 알림 목록(`GET /api/v1/fx/alerts`)도 `TRIGGERED`와 `triggeredRate`를 보여 준다.
 
 - 비교 값은 `rate_type`이 SEND면 `send_rate`, BASE면 `base_rate`다. PHP(MARKET_REF)는 `send_rate`가 없어 BASE 알림만 닿는다.
 - 알림을 만든 뒤 처음 저장된 환율 행(`exchange_rates.created_at` > 알림 `created_at`)만 본다. 오전 10시에 만든 USD 알림은 그날 11시 무렵 처음 저장되는 고시값부터 판정한다. 이미 있던 행은 `fetched_at`(마지막 확인 시각)이 갱신되거나 값이 바뀌어도 보지 않는다.
@@ -333,6 +333,24 @@ dc exec spring sh -c 'curl -fsS -X POST -H "X-Internal-Token: $SPRING_INTERNAL_A
 - 응답의 `alerts[].result`는 알림마다 `TRIGGERED`·`NOT_REACHED`·`NO_RATE_VALUE`·`RATE_BEFORE_CREATED`·`NO_RATE`·`ALREADY_CHANGED` 중 하나다.
 - 외부(Caddy)에서는 `/internal`이 막혀 있다.
 
+### 도달 알림 스트림
+
+앱이 켜져 있는 동안 `GET /api/v1/fx/alerts/stream`(SSE)을 열어 두면, 판정이 알림을 `TRIGGERED`로 바꾼 직후 서버가 이벤트를 보낸다(#129). 앱은 받으면 로컬 알림을 띄우고 `POST /api/v1/fx/alerts/{alertId}/notified`를 보낸다. 앱이 꺼져 있으면 오지 않는다(실서비스에서는 호스트 앱 SOL 푸시 채널 몫).
+
+- 연결하면 `event:ready`, 이어서 아직 알리지 않은 도달(`TRIGGERED`이고 `notified_at`이 비어 있음)을 `event:fx-alert-triggered`로 먼저 보낸다(보충). 서버는 보낸 것만으로 알렸다고 보지 않는다. 앱이 notified를 보내야 `notified_at`이 채워지고 다음 연결부터 빠진다.
+- 연결 목록은 Spring 메모리에 있다. **재배포하면 연결이 모두 끊기고**, 앱이 다시 연결하면 그사이 도달은 보충으로 받는다.
+- 25초마다 `: ping` 주석, 연결 1개는 30분이 지나면 서버가 닫는다(둘 다 `hanstep.fx-alert-stream.*` 임시값). 한 사용자 연결은 3개까지이고 넘으면 가장 오래된 연결을 닫는다.
+- 앱이 끊은 연결은 다음 ping을 쓸 때 드러나 목록에서 빠진다. 끊긴 직후 첫 쓰기는 성공할 수 있어 최대 ping 2번(약 50초) 걸린다.
+- Caddy는 챗봇 스트림과 같은 `handle /api/v1/*`로 전달하고 따로 예외를 두지 않는다. 사이트 전체 `encode gzip`이 스트림에도 걸리지만(앱이 `Accept-Encoding: gzip`을 보낼 때) 이벤트마다 바로 흘려보낸다(로컬 Caddy 2.11.9 확인, 판정 → 수신 15~50 ms, 3회).
+- 로그(값·목표는 남기지 않음):
+  - `fx alert stream opened userId=1 connectionId=4 userConnections=1 totalConnections=1`
+  - `fx alert stream sent alertId=181 userId=1 connections=1 sent=1` (연결 중 도달) / `fx alert stream backfill sent userId=1 connectionId=2 alerts=3` (연결 시 보충)
+  - `fx alert stream closed userId=1 connectionId=4 reason=TIMEOUT openSeconds=60 totalConnections=0` (타임아웃을 60초로 띄운 로컬). reason은 `COMPLETED`·`TIMEOUT`·`ERROR`·`SEND_FAILED`(끊긴 연결에 쓰다 실패)·`REPLACED`(사용자당 3개 초과)·`BACKFILL_FAILED`·`SHUTDOWN`
+
+```bash
+dc logs --since 10m spring | grep "fx alert stream"
+```
+
 ## 6. 데모 데이터
 
 내 PC(Windows)의 `hanstep-backend`에서 실행한다.
@@ -348,13 +366,56 @@ powershell -ExecutionPolicy Bypass -File scripts\demo-setup.ps1 -BaseUrl https:/
 **시연에서 도달 장면을 보여 줄 때만 사용한다.** 평소 도달 판정은 수집기가 새 환율을 저장할 때 자동으로 하고, 알림보다 먼저 저장된 값으로는 바뀌지 않는다("목표 환율 알림 도달 판정").
 
 1. 앱에서 Reyes로 PHP 알림을 만든다. PHP는 송금 환율이 없어 기준환율(BASE) 알림만 닿는다. 예: BASE·이상(GTE)·목표는 현재 환율보다 조금 낮게.
-2. 서버에서 현재 최신 실데이터 값으로 다시 판정한다(`ignoreCreatedAt=true`).
+2. 앱을 켜 둔다(앱이 스트림을 연결한다). 서버 로그에 `fx alert stream opened userId=...`가 보이면 된다.
+
+   ```bash
+   dc logs --since 10m spring | grep "fx alert stream"
+   ```
+
+3. 서버에서 현재 최신 실데이터 값으로 다시 판정한다(`ignoreCreatedAt=true`).
 
    ```bash
    dc exec spring sh -c 'curl -fsS -X POST -H "X-Internal-Token: $SPRING_INTERNAL_API_KEY" "http://127.0.0.1:8080/internal/v1/fx/alerts/evaluate?currency=PHP&ignoreCreatedAt=true"'
    ```
 
-3. 응답의 `currencies[0].alerts[].result`가 `TRIGGERED`면 앱 알림 목록을 새로 고친다(푸시 없음). 목표에 닿지 않았으면 `NOT_REACHED`다.
+4. 응답의 `currencies[0].alerts[].result`가 `TRIGGERED`면 바로 앱에 로컬 알림이 뜬다(로그 `fx alert stream sent alertId=... sent=1`). 앱은 알림을 띄운 뒤 notified를 보내고, 알림 목록의 그 알림에 `notifiedAt`이 채워진다. 목표에 닿지 않았으면 `NOT_REACHED`다.
+   - 앱이 꺼져 있었으면 다음에 앱을 열 때(스트림 연결) 같은 알림이 뜬다.
+
+#### 반복 시연
+
+- 판정 장면부터 다시: 새 알림을 만든다. 도달한 알림은 다시 판정하지 않는다(도달한 알림은 같은 통화·방향 중복에 걸리지 않음).
+- 로컬 알림만 다시: Reyes의 `notified_at`을 비우고 앱을 다시 연다(다시 연결하면 보충으로 다시 온다).
+
+  ```bash
+  dc exec -T mysql sh -c 'mysql --default-character-set=utf8mb4 -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' <<'SQL'
+  UPDATE fx_alerts a JOIN users u ON u.id = a.user_id
+  SET a.notified_at = NULL
+  WHERE u.external_user_key = 'demo-e9-ph-reyes' AND a.status = 'TRIGGERED';
+  SQL
+  ```
+
+#### 앱 없이 curl로 확인
+
+```bash
+TOKEN=$(curl -fsS -X POST https://<도메인>/api/v1/auth/entry -H 'Content-Type: application/json' \
+  -d '{"entryToken":"demo-e9-ph-reyes"}' | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')
+curl -N -H "Authorization: Bearer $TOKEN" https://<도메인>/api/v1/fx/alerts/stream
+```
+
+연결해 둔 채 다른 창에서 3번(다시 판정)을 하면 아래처럼 온다(11/18 로컬 출력). `-N`을 빼면 curl이 출력을 모아 두어 늦게 보인다.
+
+```text
+event:ready
+data:{"pingIntervalSeconds":25}
+
+id:181
+event:fx-alert-triggered
+data:{"alertId":181,"currency":"PHP","rateType":"BASE","comparator":"GTE","targetRate":20.484,"unitAmount":1,"triggeredRate":20.984,"triggeredAt":"2026-11-18T16:26:22+09:00","rateDate":"2026-11-17","source":"MARKET_REF"}
+
+: ping
+```
+
+알렸음 처리(앱이 하는 일): `curl -fsS -o /dev/null -w '%{http_code}\n' -X POST -H "Authorization: Bearer $TOKEN" https://<도메인>/api/v1/fx/alerts/181/notified` → `204`. 그 뒤 다시 연결하면 `event:ready`만 온다.
 
 ## Swagger UI 기본 인증
 
