@@ -17,7 +17,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 /**
- * FX-002 목표 환율 알림 만들기·목록·지우기. 도달 판정(TRIGGERED 로 바꾸기)은 여기서 하지 않는다.
+ * FX-002 목표 환율 알림 만들기·목록·지우기. 도달 판정(TRIGGERED 로 바꾸기)은 FxAlertTriggerService 가 한다.
  *
  * <p>트랜잭션을 걸지 않고 문장마다 커밋한다. 동시에 같은 조합을 만들면 늦은 쪽 INSERT 가 uq_fx_alerts_active 에서
  * 먼저 커밋된 행을 기다렸다가 실패하는데, 그 뒤 기존 알림 id 를 읽을 때 그 행이 보여야 하기 때문(트랜잭션 안이면
