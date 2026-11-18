@@ -3,12 +3,14 @@ package com.hanstep.fx.repository;
 import com.hanstep.fx.domain.FxAlertStatus;
 import com.hanstep.fx.domain.FxComparator;
 import com.hanstep.fx.domain.FxRateType;
+import com.hanstep.fx.domain.FxSource;
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
@@ -28,6 +30,7 @@ public class FxAlertRepository {
     // triggered_rate 는 TRIGGERED 일 때만 도달 판정에 쓴 행의 rate_type 값
     private static final String SELECT_ALERT = """
             SELECT a.id, a.currency, a.rate_type, a.comparator, a.target_rate, a.status, a.created_at, a.triggered_at,
+                   a.notified_at,
                    (SELECT e.unit_amount FROM exchange_rates e WHERE e.currency = a.currency
                     ORDER BY e.rate_date DESC, e.rate_at DESC LIMIT 1) AS unit_amount,
                    CASE WHEN a.status = 'TRIGGERED' THEN
@@ -35,6 +38,15 @@ public class FxAlertRepository {
                    END AS triggered_rate
             FROM fx_alerts a
             LEFT JOIN exchange_rates t ON t.id = a.triggered_rate_id
+            """;
+    // 아직 사용자에게 알리지 않은 도달(TRIGGERED && notified_at IS NULL). 고시 단위·기준일·출처는 도달 판정에 쓴 행 값
+    private static final String SELECT_PENDING_NOTIFICATION = """
+            SELECT a.id, a.user_id, a.currency, a.rate_type, a.comparator, a.target_rate, a.triggered_at,
+                   t.unit_amount, CASE a.rate_type WHEN 'SEND' THEN t.send_rate ELSE t.base_rate END AS triggered_rate,
+                   t.rate_date, t.source
+            FROM fx_alerts a
+            JOIN exchange_rates t ON t.id = a.triggered_rate_id
+            WHERE a.status = 'TRIGGERED' AND a.notified_at IS NULL
             """;
 
     private final JdbcTemplate jdbc;
@@ -45,7 +57,13 @@ public class FxAlertRepository {
 
     public record AlertRow(long id, String currency, FxRateType rateType, FxComparator comparator,
                            BigDecimal targetRate, Integer unitAmount, FxAlertStatus status, Instant createdAt,
-                           Instant triggeredAt, BigDecimal triggeredRate) {
+                           Instant triggeredAt, BigDecimal triggeredRate, Instant notifiedAt) {
+    }
+
+    /** 아직 알리지 않은 도달 1건. 값은 모두 도달 판정에 쓴 환율 행(triggered_rate_id) 기준이다. */
+    public record NotificationRow(long id, long userId, String currency, FxRateType rateType, FxComparator comparator,
+                                  BigDecimal targetRate, int unitAmount, BigDecimal triggeredRate, Instant triggeredAt,
+                                  LocalDate rateDate, FxSource source) {
     }
 
     /** 도달 판정 대상 ACTIVE 알림. */
@@ -163,11 +181,42 @@ public class FxAlertRepository {
                 alertId, userId).isEmpty();
     }
 
+    /** 본인의 아직 알리지 않은 도달. 도달 시각 최신순(같으면 id 큰 순). CANCELLED 는 빠진다. */
+    public List<NotificationRow> pendingNotifications(long userId) {
+        return jdbc.query(SELECT_PENDING_NOTIFICATION + "AND a.user_id = ? ORDER BY a.triggered_at DESC, a.id DESC",
+                FxAlertRepository::notification, userId);
+    }
+
+    /** 알림 1건이 아직 알리지 않은 도달이면 그 행(도달 직후 스트림 전송용). 이미 알렸거나 지웠으면 빈 값. */
+    public Optional<NotificationRow> pendingNotification(long alertId) {
+        return jdbc.query(SELECT_PENDING_NOTIFICATION + "AND a.id = ?", FxAlertRepository::notification, alertId)
+                .stream().findFirst();
+    }
+
+    /**
+     * TRIGGERED 이고 아직 비어 있을 때만 notified_at 을 채운다(조건부 UPDATE). 바꾼 행 수.
+     * 이미 채워졌거나(처음 시각 유지), 없거나, 남의 것이거나, TRIGGERED 가 아니면 0.
+     */
+    public int markNotified(long userId, long alertId, Instant now) {
+        return jdbc.update("UPDATE fx_alerts SET notified_at = ? WHERE id = ? AND user_id = ? "
+                        + "AND status = 'TRIGGERED' AND notified_at IS NULL",
+                LocalDateTime.ofInstant(now, ZoneOffset.UTC), alertId, userId);
+    }
+
     private static AlertRow alert(ResultSet rs, int rowNum) throws SQLException {
         return new AlertRow(rs.getLong("id"), rs.getString("currency"), FxRateType.valueOf(rs.getString("rate_type")),
                 FxComparator.valueOf(rs.getString("comparator")), rs.getBigDecimal("target_rate"),
                 rs.getObject("unit_amount", Integer.class), FxAlertStatus.valueOf(rs.getString("status")),
-                instant(rs, "created_at"), instant(rs, "triggered_at"), rs.getBigDecimal("triggered_rate"));
+                instant(rs, "created_at"), instant(rs, "triggered_at"), rs.getBigDecimal("triggered_rate"),
+                instant(rs, "notified_at"));
+    }
+
+    private static NotificationRow notification(ResultSet rs, int rowNum) throws SQLException {
+        return new NotificationRow(rs.getLong("id"), rs.getLong("user_id"), rs.getString("currency"),
+                FxRateType.valueOf(rs.getString("rate_type")), FxComparator.valueOf(rs.getString("comparator")),
+                rs.getBigDecimal("target_rate"), rs.getInt("unit_amount"), rs.getBigDecimal("triggered_rate"),
+                instant(rs, "triggered_at"), rs.getObject("rate_date", LocalDate.class),
+                FxSource.valueOf(rs.getString("source")));
     }
 
     private static JudgeRate judgeRate(ResultSet rs, int rowNum) throws SQLException {

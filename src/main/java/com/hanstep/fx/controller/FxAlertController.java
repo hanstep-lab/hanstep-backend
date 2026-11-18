@@ -3,8 +3,10 @@ package com.hanstep.fx.controller;
 import com.hanstep.common.error.ErrorResponse;
 import com.hanstep.fx.dto.FxAlertCreateRequest;
 import com.hanstep.fx.dto.FxAlertListResponse;
+import com.hanstep.fx.dto.FxAlertNotificationListResponse;
 import com.hanstep.fx.dto.FxAlertResponse;
 import com.hanstep.fx.service.FxAlertService;
+import com.hanstep.fx.service.FxAlertStreamService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -24,8 +26,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-@Tag(name = "FX Alert", description = "목표 환율 알림 (FX-002). 앱 안에서 상태로만 보여 준다(푸시·자동 송금 없음)")
+@Tag(name = "FX Alert", description = "목표 환율 알림 (FX-002). 원격 푸시·자동 송금은 없다. 앱이 켜져 있는 동안 "
+        + "스트림(GET /stream)으로 도달을 받아 로컬 알림을 띄우고 POST /{alertId}/notified 를 보낸다")
 @RestController
 @RequestMapping("/api/v1/fx/alerts")
 public class FxAlertController {
@@ -34,15 +38,16 @@ public class FxAlertController {
     static final String CREATED_EXAMPLE = """
             {"alertId": 3, "currency": "PHP", "rateType": "SEND", "comparator": "LTE", "targetRate": 22.1,
              "unitAmount": 1, "status": "ACTIVE", "createdAt": "2026-11-17T14:30:00+09:00",
-             "triggeredAt": null, "triggeredRate": null}""";
+             "triggeredAt": null, "triggeredRate": null, "notifiedAt": null}""";
     static final String LIST_EXAMPLE = """
             {"alerts": [
               {"alertId": 3, "currency": "PHP", "rateType": "SEND", "comparator": "LTE", "targetRate": 22.1,
                "unitAmount": 1, "status": "ACTIVE", "createdAt": "2026-11-17T14:30:00+09:00",
-               "triggeredAt": null, "triggeredRate": null},
+               "triggeredAt": null, "triggeredRate": null, "notifiedAt": null},
               {"alertId": 1, "currency": "VND", "rateType": "BASE", "comparator": "GTE", "targetRate": 5.4,
                "unitAmount": 100, "status": "TRIGGERED", "createdAt": "2026-11-10T09:00:00+09:00",
-               "triggeredAt": "2026-11-12T16:02:00+09:00", "triggeredRate": 5.4296}
+               "triggeredAt": "2026-11-12T16:02:00+09:00", "triggeredRate": 5.4296,
+               "notifiedAt": "2026-11-12T16:02:01+09:00"}
             ]}""";
     static final String EMPTY_LIST_EXAMPLE = """
             {"alerts": []}""";
@@ -76,11 +81,38 @@ public class FxAlertController {
     static final String NOT_FOUND_EXAMPLE = """
             {"code": "RESOURCE_NOT_FOUND", "message": "resource not found", "details": {},
              "requestId": "req_3f9a1c2b7d4e"}""";
+    static final String NOTIFICATIONS_EXAMPLE = """
+            {"notifications": [
+              {"alertId": 12, "currency": "PHP", "rateType": "BASE", "comparator": "GTE", "targetRate": 23.5,
+               "unitAmount": 1, "triggeredRate": 23.6154, "triggeredAt": "2026-11-18T15:02:11+09:00",
+               "rateDate": "2026-11-17", "source": "MARKET_REF"},
+              {"alertId": 9, "currency": "USD", "rateType": "SEND", "comparator": "LTE", "targetRate": 1350,
+               "unitAmount": 1, "triggeredRate": 1344.2, "triggeredAt": "2026-11-18T11:05:40+09:00",
+               "rateDate": "2026-11-18", "source": "KOREAEXIM"}
+            ]}""";
+    static final String EMPTY_NOTIFICATIONS_EXAMPLE = """
+            {"notifications": []}""";
+    static final String INVALID_STATE_EXAMPLE = """
+            {"code": "INVALID_STATE", "message": "invalid state", "details": {"status": "ACTIVE"},
+             "requestId": "req_3f9a1c2b7d4e"}""";
+    static final String STREAM_EXAMPLE = """
+            event:ready
+            data:{"pingIntervalSeconds":25}
+
+            id:12
+            event:fx-alert-triggered
+            data:{"alertId":12,"currency":"PHP","rateType":"BASE","comparator":"GTE","targetRate":23.5,"unitAmount":1,"triggeredRate":23.6154,"triggeredAt":"2026-11-18T15:02:11+09:00","rateDate":"2026-11-17","source":"MARKET_REF"}
+
+            : ping
+
+            """;
 
     private final FxAlertService fxAlertService;
+    private final FxAlertStreamService fxAlertStreamService;
 
-    public FxAlertController(FxAlertService fxAlertService) {
+    public FxAlertController(FxAlertService fxAlertService, FxAlertStreamService fxAlertStreamService) {
         this.fxAlertService = fxAlertService;
+        this.fxAlertStreamService = fxAlertStreamService;
     }
 
     @Operation(summary = "목표 환율 알림 만들기 (FX-002)", description = """
@@ -123,7 +155,7 @@ public class FxAlertController {
 
     @Operation(summary = "내 목표 환율 알림 목록 (FX-002)",
             description = "ACTIVE·TRIGGERED 만(지운 CANCELLED 는 빠짐). 만든 시각 최신순, 같으면 alertId 큰 순. "
-                    + "TRIGGERED 는 triggeredAt·triggeredRate 가 함께 온다(푸시 없이 목록 상태로만 보여 준다)")
+                    + "TRIGGERED 는 triggeredAt·triggeredRate 가 함께 오고, 앱이 알렸음을 보냈으면 notifiedAt 도 온다")
     @ApiResponse(responseCode = "200", description = "성공", content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = FxAlertListResponse.class),
             examples = {@ExampleObject(name = "성공", value = LIST_EXAMPLE),
@@ -156,5 +188,75 @@ public class FxAlertController {
     public void delete(@Parameter(hidden = true) @AuthenticationPrincipal Long userId,
                        @Parameter(description = "알림 ID", example = "3") @PathVariable Long alertId) {
         fxAlertService.delete(userId, alertId);
+    }
+
+    @Operation(summary = "아직 알리지 않은 목표 환율 도달 (FX-002)", description = """
+            내 알림 중 TRIGGERED 이고 notifiedAt 이 없는 것. 도달 시각 최신순(같으면 alertId 큰 순). 지운 알림(CANCELLED)은 빠진다.
+            스트림(GET /stream)이 연결될 때 먼저 보내는 보충과 같은 항목·순서다. 스트림을 쓰지 못할 때 앱 시작 시 한 번 확인하는 용도.
+            알림 문장은 서버가 만들지 않는다(앱이 화면 언어로 만든다).""")
+    @ApiResponse(responseCode = "200", description = "성공", content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE,
+            schema = @Schema(implementation = FxAlertNotificationListResponse.class),
+            examples = {@ExampleObject(name = "성공", value = NOTIFICATIONS_EXAMPLE),
+                    @ExampleObject(name = "없음", value = EMPTY_NOTIFICATIONS_EXAMPLE)}))
+    @ApiResponse(responseCode = "401", description = "토큰 없음·만료", content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ErrorResponse.class),
+            examples = @ExampleObject(name = "토큰 없음", value = UNAUTHORIZED_EXAMPLE)))
+    @GetMapping("/notifications")
+    public FxAlertNotificationListResponse notifications(@Parameter(hidden = true) @AuthenticationPrincipal Long userId) {
+        return fxAlertService.notifications(userId);
+    }
+
+    @Operation(summary = "목표 환율 도달 알렸음 (FX-002)", description = """
+            앱이 도달을 받아 로컬 알림을 띄운 뒤 보낸다. notifiedAt 을 채우고, 그 뒤로는 보충(notifications·스트림 연결 시)에 나오지 않는다.
+            서버는 스트림으로 보낸 것만으로 알렸다고 보지 않는다. 이걸 보내지 않으면 다음 연결 때 같은 alertId 가 다시 온다.
+            이미 알렸으면 그대로 204(처음 시각 유지).""")
+    @ApiResponse(responseCode = "204", description = "알렸음 기록(본문 없음). 이미 알린 알림 포함")
+    @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: alertId 가 숫자가 아님(details.fields)",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(name = "alertId 형식 오류", value = ALERT_ID_INVALID_EXAMPLE)))
+    @ApiResponse(responseCode = "401", description = "토큰 없음·만료", content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ErrorResponse.class),
+            examples = @ExampleObject(name = "토큰 없음", value = UNAUTHORIZED_EXAMPLE)))
+    @ApiResponse(responseCode = "404", description = "RESOURCE_NOT_FOUND: 없는 알림이거나 남의 알림(있는지 알려 주지 않음)",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(name = "없음", value = NOT_FOUND_EXAMPLE)))
+    @ApiResponse(responseCode = "409", description = "INVALID_STATE: TRIGGERED 가 아님(details.status 가 지금 상태). "
+            + "ACTIVE 는 아직 도달 전, CANCELLED 는 그사이 지운 알림이라 앱은 알리지 않고 넘어가면 된다",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = ErrorResponse.class),
+                    examples = @ExampleObject(name = "도달 전", value = INVALID_STATE_EXAMPLE)))
+    @PostMapping("/{alertId}/notified")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void notified(@Parameter(hidden = true) @AuthenticationPrincipal Long userId,
+                         @Parameter(description = "알림 ID", example = "12") @PathVariable Long alertId) {
+        fxAlertService.markNotified(userId, alertId);
+    }
+
+    @Operation(summary = "목표 환율 도달 스트림 (FX-002)", description = """
+            text/event-stream. 앱이 켜져 있는 동안 열어 두면 도달 판정 직후 이벤트가 온다. 원격 푸시는 없고, 앱이 꺼져 있을 때 \
+            생긴 도달은 다음 연결 때 보충으로 온다. 이벤트 data 는 JSON 한 줄이고 형식은 아래 Schemas 에 있다.
+            - ready (FxAlertStreamReadyEvent): 연결하자마자 한 번
+            - fx-alert-triggered (FxAlertNotification): id 는 alertId. 연결 직후 아직 알리지 않은 도달을 notifications 와 같은 \
+            항목·순서로 먼저 보내고(보충), 그 뒤로는 도달 판정이 끝날 때마다 보낸다
+            - ": ping" 주석: pingIntervalSeconds(25초, 임시)마다. 연결 유지용이라 무시한다
+            앱은 받으면 로컬 알림을 띄우고 POST /{alertId}/notified 를 보낸다. 서버는 보낸 것만으로 알렸다고 보지 않아, \
+            notified 를 보내지 않으면 다음 연결 때 같은 alertId 가 다시 온다. 연결 직후 판정이 겹치면 같은 alertId 가 두 번 \
+            올 수 있으니 앱은 alertId 로 한 번만 알린다.
+            서버는 30분(임시)이 지나면 연결을 닫는다. 끊기면(타임아웃·재배포·네트워크) 앱이 다시 연결한다. \
+            Last-Event-ID 는 보지 않는다(보충은 notifiedAt 으로 정한다). 한 사용자 연결은 3개까지이고 넘으면 가장 오래된 연결을 닫는다.
+            인증은 다른 API 와 같은 Authorization: Bearer 헤더다(브라우저 EventSource 는 헤더를 못 넣으므로 헤더를 넣을 수 있는 \
+            SSE 클라이언트를 쓴다). 스트림 시작 전 오류(401)는 일반 JSON 오류로 온다.""")
+    @ApiResponse(responseCode = "200", description = "이벤트 스트림",
+            content = @Content(mediaType = MediaType.TEXT_EVENT_STREAM_VALUE, schema = @Schema(type = "string"),
+                    examples = @ExampleObject(name = "연결·보충·ping", value = STREAM_EXAMPLE)))
+    @ApiResponse(responseCode = "401", description = "토큰 없음·만료", content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = ErrorResponse.class),
+            examples = @ExampleObject(name = "토큰 없음", value = UNAUTHORIZED_EXAMPLE)))
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(@Parameter(hidden = true) @AuthenticationPrincipal Long userId) {
+        return fxAlertStreamService.connect(userId);
     }
 }

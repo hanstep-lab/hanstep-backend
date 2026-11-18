@@ -947,6 +947,7 @@ CREATE TABLE fx_alerts (
   active_flag     TINYINT UNSIGNED AS (CASE WHEN status = 'ACTIVE' THEN 1 END) VIRTUAL COMMENT 'ACTIVE면 1, 아니면 NULL. uq_fx_alerts_active 로 같은 사용자·통화·방향의 ACTIVE 알림을 1건만 둔다(NULL끼리는 겹쳐도 됨)',
   triggered_rate_id BIGINT UNSIGNED NULL COMMENT '도달 판정에 쓴 환율 행',
   triggered_at    DATETIME(3)     NULL COMMENT '도달 시각',
+  notified_at     DATETIME(3)     NULL COMMENT '사용자에게 도달을 알린 시각(앱이 로컬 알림을 띄운 뒤 보낸 POST notified. SSE 로 보낸 것만으로는 채우지 않음)',
   created_at      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '생성',
   updated_at      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '수정',
   PRIMARY KEY (id),

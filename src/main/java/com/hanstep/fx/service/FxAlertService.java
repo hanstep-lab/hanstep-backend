@@ -2,11 +2,15 @@ package com.hanstep.fx.service;
 
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
+import com.hanstep.fx.domain.FxAlertStatus;
 import com.hanstep.fx.domain.FxRateType;
 import com.hanstep.fx.dto.FxAlertCreateRequest;
 import com.hanstep.fx.dto.FxAlertListResponse;
+import com.hanstep.fx.dto.FxAlertNotification;
+import com.hanstep.fx.dto.FxAlertNotificationListResponse;
 import com.hanstep.fx.dto.FxAlertResponse;
 import com.hanstep.fx.repository.FxAlertRepository;
+import com.hanstep.fx.repository.FxAlertRepository.AlertRow;
 import com.hanstep.fx.repository.FxAlertRepository.CurrencyRate;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -17,7 +21,8 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 /**
- * FX-002 목표 환율 알림 만들기·목록·지우기. 도달 판정(TRIGGERED 로 바꾸기)은 FxAlertTriggerService 가 한다.
+ * FX-002 목표 환율 알림 만들기·목록·지우기와 도달 알림 보충 조회·알렸음. 도달 판정(TRIGGERED 로 바꾸기)은
+ * FxAlertTriggerService, 도달 순간 앱에 보내는 스트림은 FxAlertStreamService 가 한다.
  *
  * <p>트랜잭션을 걸지 않고 문장마다 커밋한다. 동시에 같은 조합을 만들면 늦은 쪽 INSERT 가 uq_fx_alerts_active 에서
  * 먼저 커밋된 행을 기다렸다가 실패하는데, 그 뒤 기존 알림 id 를 읽을 때 그 행이 보여야 하기 때문(트랜잭션 안이면
@@ -64,6 +69,27 @@ public class FxAlertService {
     public void delete(long userId, long alertId) {
         if (repository.cancel(userId, alertId) == 0 && !repository.exists(userId, alertId)) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+    }
+
+    /** 아직 알리지 않은 도달(TRIGGERED && notified_at IS NULL). 스트림이 연결될 때 보내는 보충과 같은 항목·순서. */
+    public FxAlertNotificationListResponse notifications(long userId) {
+        return new FxAlertNotificationListResponse(repository.pendingNotifications(userId).stream()
+                .map(FxAlertNotification::from).toList());
+    }
+
+    /**
+     * 앱이 도달을 알렸음(로컬 알림을 띄움). 이미 채워졌으면 그대로 성공(처음 시각 유지), 없거나 남의 알림이면 404,
+     * TRIGGERED 가 아니면(ACTIVE, 그사이 지운 CANCELLED) 409 INVALID_STATE(details.status 가 지금 상태).
+     */
+    public void markNotified(long userId, long alertId) {
+        if (repository.markNotified(userId, alertId, Instant.now().truncatedTo(ChronoUnit.MILLIS)) == 1) {
+            return;
+        }
+        AlertRow alert = repository.find(userId, alertId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (alert.status() != FxAlertStatus.TRIGGERED) {
+            throw new BusinessException(ErrorCode.INVALID_STATE, Map.of("status", alert.status().name()));
         }
     }
 
