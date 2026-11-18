@@ -46,6 +46,7 @@ public class RemittanceQuoteCalculator {
     static final String FEE_TABLE_UNAVAILABLE = "FEE_TABLE_UNAVAILABLE";
     static final String LOCAL_PAYOUT_RATE_DIFFERS = "LOCAL_PAYOUT_RATE_DIFFERS";
     static final String PHP_REF_RATE_UNAVAILABLE = "PHP_REF_RATE_UNAVAILABLE";
+    static final String AMOUNT_CAPPED_AT_FEE_BOUNDARY = "AMOUNT_CAPPED_AT_FEE_BOUNDARY";
 
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
     private static final String PHP_LABEL = "ECB 기준환율 기반 참고값";
@@ -129,23 +130,31 @@ public class RemittanceQuoteCalculator {
         long tel = easy.telegraphicFeeKrw();
         BigDecimal usd = floorUsd(amount.subtract(BigDecimal.valueOf(easy.sendFeeAtOrBelowKrw() + tel)), rate);
         long fee = easy.sendFeeAtOrBelowKrw();
+        boolean capped = false;
         if (usd.signum() > 0 && usd.compareTo(easy.feeThresholdUsd()) > 0) {
             BigDecimal higher = floorUsd(amount.subtract(BigDecimal.valueOf(easy.sendFeeAboveKrw() + tel)), rate);
             if (higher.compareTo(easy.feeThresholdUsd()) > 0) {
                 usd = higher;
                 fee = easy.sendFeeAboveKrw();
             } else {
-                // 낮은 수수료로는 기준을 넘고 높은 수수료로는 기준 이하가 되는 구간: 기준 금액까지만 보낸다(낮은 수수료)
+                // 낮은 수수료로는 기준을 넘고 높은 수수료로는 기준 이하가 되는 구간: 기준 금액까지만 보낸다(낮은 수수료).
+                // 남는 원화는 unusedKrw 로 알리고 AMOUNT_CAPPED_AT_FEE_BOUNDARY 를 붙인다
                 usd = easy.feeThresholdUsd().setScale(2);
+                capped = true;
             }
         }
         if (usd.signum() <= 0) {
             return unavailable(SOL_EASY, AMOUNT_TOO_SMALL, pref, count, rate, easy.deliveryType(), notices, sources);
         }
         long principal = krw(usd.multiply(rate));
+        long total = principal + fee + tel;
+        if (capped) {
+            notices.addFirst(AMOUNT_CAPPED_AT_FEE_BOUNDARY);
+        }
         return new ProductQuote(SOL_EASY, true, null, usd, spreadPct(), pref, count, rate, principal,
-                margin(usd, rate, input.usd().rate()), fee, tel, null, principal + fee + tel, usd,
-                phpRef(usd, usdPhp), easy.deliveryType(), notices, sources);
+                margin(usd, rate, input.usd().rate()), fee, tel, null, total,
+                capped ? input.amountKrw() - total : null, usd, phpRef(usd, usdPhp), easy.deliveryType(), notices,
+                sources);
     }
 
     private ProductQuote solFast(Input input, BigDecimal usdPhp) {
@@ -168,14 +177,14 @@ public class RemittanceQuoteCalculator {
         }
         return new ProductQuote(SOL_FAST, true, null, usd, spreadPct(), BigDecimal.ZERO, null, rate,
                 krw(usd.multiply(rate)), margin(usd, rate, input.usd().rate()), null, null,
-                RemittanceQuoteService.plain(fast.feeUsd()), krw(usd.add(fast.feeUsd()).multiply(rate)), usd,
+                RemittanceQuoteService.plain(fast.feeUsd()), krw(usd.add(fast.feeUsd()).multiply(rate)), null, usd,
                 phpRef(usd, usdPhp), fast.deliveryType(), notices, sources);
     }
 
     private ProductQuote unavailable(String product, String reason, BigDecimal pref, Integer count, BigDecimal rate,
                                      String deliveryType, List<String> notices, List<QuoteSource> sources) {
         return new ProductQuote(product, false, reason, null, spreadPct(), pref, count, rate, null, null, null, null,
-                null, null, null, null, deliveryType, notices, sources);
+                null, null, null, null, null, deliveryType, notices, sources);
     }
 
     /** 상품 안내 + PHP 참고값 안내 + 공통 안내. */

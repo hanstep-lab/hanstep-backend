@@ -113,7 +113,9 @@ public record RemittanceQuoteResponse(
             @Schema(description = "송금 USD 의 원화(원 단위 올림)", example = "694995", nullable = true)
             Long krwPrincipal,
 
-            @Schema(description = "환전 마진(원) = 송금 USD × (적용 환율 − 매매기준율), 원 단위 반올림", example = "1983",
+            @Schema(description = "환전 마진(원) = 송금 USD × (적용 환율 − 매매기준율), 원 단위 반올림. "
+                    + "krwPrincipal 에 이미 포함된 참고값이라 합산하지 않는다(totalWithdrawKrw 에 더하지 않음)",
+                    example = "1983",
                     nullable = true)
             Long fxMarginKrw,
 
@@ -133,6 +135,11 @@ public record RemittanceQuoteResponse(
                     example = "699995", nullable = true)
             Long totalWithdrawKrw,
 
+            @Schema(description = "쓰지 않고 남는 원화(요청 amount − totalWithdrawKrw). 쏠편한이 수수료 기준(USD 5,000)에 걸려 "
+                    + "USD 5,000.00 까지만 보낼 때만 값이 있고 notices 에 AMOUNT_CAPPED_AT_FEE_BOUNDARY 가 붙는다. "
+                    + "그 밖에는 null", example = "5750", nullable = true)
+            Long unusedKrw,
+
             @Schema(description = "받는 분이 받는 USD(중계·수취은행 수수료 차감 전)", example = "519.11", nullable = true)
             BigDecimal recipientAmountUsd,
 
@@ -146,7 +153,8 @@ public record RemittanceQuoteResponse(
 
             @ArraySchema(arraySchema = @Schema(description = "안내 코드(금액 없이 문구로 안내). INTERMEDIARY_FEE_MAY_APPLY, "
                     + "LOCAL_PAYOUT_RATE_BY_AGENT, LOCAL_PAYOUT_RATE_DIFFERS, PHP_REF_RATE_UNAVAILABLE, "
-                    + "FEE_TABLE_UNAVAILABLE, FOREIGN_EXCHANGE_BANK_DESIGNATION_REQUIRED"))
+                    + "FEE_TABLE_UNAVAILABLE, AMOUNT_CAPPED_AT_FEE_BOUNDARY(쏠편한 USD 5,000.00 까지만, unusedKrw 참고), "
+                    + "FOREIGN_EXCHANGE_BANK_DESIGNATION_REQUIRED"))
             List<String> notices,
 
             @ArraySchema(arraySchema = @Schema(description = "값마다의 출처"))

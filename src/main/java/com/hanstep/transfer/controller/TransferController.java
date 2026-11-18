@@ -218,6 +218,9 @@ public class TransferController {
             - 쏠편한: 송금 USD = (amount − 송금수수료 − 전신료) ÷ 적용 환율. 우대율은 1년 송금 횟수(이번 건 포함) 구간
             - 쏠빠른: 송금 USD = amount ÷ 적용 환율 − 3.5. 우대 없음, 건당 USD 5,000 초과면 LIMIT_EXCEEDED
             - 송금 USD 는 0.01 내림, 원화는 원 단위 올림. 수수료를 빼고 0 이하면 AMOUNT_TOO_SMALL
+            - 쏠편한 수수료 기준(USD 5,000) 사이에 걸리는 금액이면 USD 5,000.00 까지만 보내고, 남는 원화를 unusedKrw 로 주며 \
+            AMOUNT_CAPPED_AT_FEE_BOUNDARY 를 붙인다
+            - fxMarginKrw(환전 마진)는 krwPrincipal 에 이미 포함된 참고값이라 합산하지 않는다
             수취 국가는 사용자 국적(visa_profiles)으로 정하고, 필리핀이면 PHP 참고값을 붙인다.
             receiveAmount·appliedRate 는 기존 이름·PHP 기준 그대로인 참고값이다(쏠편한 기준, 실제 수령액과 다를 수 있음).
             송금에 쓰는 환율은 quotes[].usdAppliedRate 다. 중계·수취은행 수수료와 현지 환전은 금액 없이 notices 로만 안내한다.""";
