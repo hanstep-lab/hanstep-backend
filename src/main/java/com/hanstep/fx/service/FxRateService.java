@@ -114,7 +114,7 @@ public class FxRateService {
     }
 
     /** USD + 모국 통화(visa_profiles.nationality_code). 국적이 없거나 매핑이 없으면 USD 만. */
-    List<String> screenCurrencies(long userId) {
+    public List<String> screenCurrencies(long userId) {
         List<String> nationality = jdbc.queryForList("SELECT nationality_code FROM visa_profiles WHERE user_id = ?",
                 String.class, userId);
         List<String> screen = new ArrayList<>(List.of(USD));
