@@ -315,13 +315,15 @@ alias dc='docker compose -f deploy/compose.prod.yml'
 수집기가 새 환율을 저장하면(새 행이거나 값이 바뀐 행) 같은 스레드에서 그 통화의 ACTIVE 알림을 판정한다(#125). 따로 켤 설정은 없다. 푸시는 없고, 앱 알림 목록(`GET /api/v1/fx/alerts`)이 `TRIGGERED`와 `triggeredRate`를 보여 준다.
 
 - 비교 값은 `rate_type`이 SEND면 `send_rate`, BASE면 `base_rate`다. PHP(MARKET_REF)는 `send_rate`가 없어 BASE 알림만 닿는다.
-- 알림 `created_at` 이후(같은 시각 포함)의 `rate_at`만 본다. 수출입은행 `rate_at`은 고시일 00:00(KST)이므로, 오늘 만든 USD 알림은 다음 영업일 고시부터 판정한다.
+- 알림을 만든 뒤 처음 저장된 환율 행(`exchange_rates.created_at` > 알림 `created_at`)만 본다. 오전 10시에 만든 USD 알림은 그날 11시 무렵 처음 저장되는 고시값부터 판정한다. 이미 있던 행은 `fetched_at`(마지막 확인 시각)이 갱신되거나 값이 바뀌어도 보지 않는다.
 - Mock 행(`is_mock = TRUE`)으로는 판정하지 않는다.
 - 로그: `fx alert triggered: alertId=... currency=PHP rateId=... value=... by=collect` (백필이면 `by=backfill`)
 
 ### 다시 판정(시연·관리용)
 
-현재 최신 실데이터 값(우선 원천 KOREAEXIM > MARKET_REF)으로 ACTIVE 알림을 다시 판정한다. 기본은 저장 때와 같은 규칙이라, 알림보다 먼저 있던 최신 값으로는 바뀌지 않는다(`RATE_BEFORE_CREATED`). 시연에서 지금 값으로 도달 장면을 보여 주려면 `ignoreCreatedAt=true`를 붙인다.
+현재 최신 실데이터 값(우선 원천 KOREAEXIM > MARKET_REF)으로 ACTIVE 알림을 다시 판정한다. 기본(`ignoreCreatedAt=false`)은 저장 때와 같은 규칙이라, 알림보다 먼저 저장된 최신 값으로는 바뀌지 않는다(`RATE_BEFORE_CREATED`).
+
+`ignoreCreatedAt=true`는 **시연에서 도달 장면을 보여 줄 때만 사용**한다. "알림 뒤에 저장된 행" 규칙을 빼고 지금 값으로 판정한다(실데이터만, 조건부 UPDATE는 같다).
 
 ```bash
 dc exec spring sh -c 'curl -fsS -X POST -H "X-Internal-Token: $SPRING_INTERNAL_API_KEY" "http://127.0.0.1:8080/internal/v1/fx/alerts/evaluate?currency=PHP&ignoreCreatedAt=true"'
@@ -340,6 +342,19 @@ powershell -ExecutionPolicy Bypass -File scripts\demo-setup.ps1 -BaseUrl https:/
 ```
 
 마지막 줄의 여유자금이 **675,317 원**인지 확인한다.
+
+### 목표 환율 알림 도달 장면
+
+**시연에서 도달 장면을 보여 줄 때만 사용한다.** 평소 도달 판정은 수집기가 새 환율을 저장할 때 자동으로 하고, 알림보다 먼저 저장된 값으로는 바뀌지 않는다("목표 환율 알림 도달 판정").
+
+1. 앱에서 Reyes로 PHP 알림을 만든다. PHP는 송금 환율이 없어 기준환율(BASE) 알림만 닿는다. 예: BASE·이상(GTE)·목표는 현재 환율보다 조금 낮게.
+2. 서버에서 현재 최신 실데이터 값으로 다시 판정한다(`ignoreCreatedAt=true`).
+
+   ```bash
+   dc exec spring sh -c 'curl -fsS -X POST -H "X-Internal-Token: $SPRING_INTERNAL_API_KEY" "http://127.0.0.1:8080/internal/v1/fx/alerts/evaluate?currency=PHP&ignoreCreatedAt=true"'
+   ```
+
+3. 응답의 `currencies[0].alerts[].result`가 `TRIGGERED`면 앱 알림 목록을 새로 고친다(푸시 없음). 목표에 닿지 않았으면 `NOT_REACHED`다.
 
 ## Swagger UI 기본 인증
 
