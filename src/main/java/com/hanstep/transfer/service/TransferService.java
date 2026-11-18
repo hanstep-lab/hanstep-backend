@@ -58,8 +58,8 @@ public class TransferService {
                 selected.mock() || account.mock());
     }
 
-    /** TRF-02. 견적 후 보낼 원화가 출금 계좌 잔액보다 크면 422 INSUFFICIENT_BALANCE. */
-    public RemittanceQuoteResponse quote(long userId, long recipientId, long amount, String currency) {
+    /** TRF-02. 견적 후 출금할 원화 총액(요청 amount)이 출금 계좌 잔액보다 크면 422 INSUFFICIENT_BALANCE. */
+    public RemittanceQuoteResponse quote(long userId, Long recipientId, long amount, String currency) {
         RemittanceQuoteResponse quote = quoteService.quote(userId, recipientId, amount, currency);
         Money balance = account(userId).balance();
         if (quote.sendAmount().amount() > balance.amount()) {
