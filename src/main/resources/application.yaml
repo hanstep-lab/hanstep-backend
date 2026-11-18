@@ -74,6 +74,9 @@ hanstep:
     stream-executor: virtual
     # platform 일 때만 쓰는 고정 풀 크기
     stream-pool-size: 16
+  demo:
+    # 데모 계정 초기화(POST /api/v1/demo/reset, #131). 꺼져 있으면 404. 시연이 끝나면 false
+    reset-enabled: ${DEMO_RESET_ENABLED:false}
   e74:
     # 승인 전(DRAFT) 규칙 버전으로 계산한 결과도 저장할지. AI 서버 .env 와 같은 값. 운영은 false, 로컬·시연에서만 true
     include-draft-rules: ${E74_INCLUDE_DRAFT_RULES:false}
