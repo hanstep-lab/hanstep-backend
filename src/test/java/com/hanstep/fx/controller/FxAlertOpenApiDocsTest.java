@@ -56,17 +56,52 @@ class FxAlertOpenApiDocsTest {
     }
 
     @Test
+    void 보충_조회와_알렸음_응답_코드마다_예시가_있다() throws Exception {
+        JsonNode paths = docs().path("paths");
+        JsonNode notifications = paths.path("/api/v1/fx/alerts/notifications").path("get").path("responses");
+        JsonNode notified = paths.path("/api/v1/fx/alerts/{alertId}/notified").path("post").path("responses");
+
+        assertThat(notifications.propertyNames()).containsExactlyInAnyOrder("200", "401");
+        assertThat(examples(notifications, "200").propertyNames()).containsExactlyInAnyOrder("성공", "없음");
+        assertThat(examples(notifications, "200").path("성공").path("value").path("notifications").get(0)
+                .propertyNames()).containsExactly("alertId", "currency", "rateType", "comparator", "targetRate",
+                "unitAmount", "triggeredRate", "triggeredAt", "rateDate", "source");
+        assertThat(notified.propertyNames()).containsExactlyInAnyOrder("204", "400", "401", "404", "409");
+        assertThat(examples(notified, "409").path("도달 전").path("value").path("code").stringValue())
+                .isEqualTo("INVALID_STATE");
+    }
+
+    @Test
+    void 스트림_이벤트_형식과_예시가_있다() throws Exception {
+        JsonNode docs = docs();
+        JsonNode schemas = docs.path("components").path("schemas");
+        JsonNode stream = docs.path("paths").path("/api/v1/fx/alerts/stream").path("get").path("responses");
+
+        assertThat(schemas.propertyNames()).contains("FxAlertStreamReadyEvent", "FxAlertNotification");
+        assertThat(schemas.path("FxAlertNotification").path("properties").path("source").path("enum").toString())
+                .contains("KOREAEXIM", "MARKET_REF");
+        assertThat(schemas.path("FxAlertResponse").path("properties").has("notifiedAt")).isTrue();
+        assertThat(stream.path("200").path("content").path("text/event-stream").path("examples").toString())
+                .contains("event:ready", "event:fx-alert-triggered", "id:12", ": ping");
+        assertThat(examples(stream, "401").isEmpty()).isFalse();
+    }
+
+    @Test
     void 실시간_문구가_없다() throws Exception {
         JsonNode docs = docs();
         JsonNode schemas = docs.path("components").path("schemas");
-        String fxDocs = docs.path("paths").path("/api/v1/fx/alerts").toString()
-                + docs.path("paths").path("/api/v1/fx/alerts/{alertId}").toString()
-                + schemas.path("FxAlertCreateRequest") + schemas.path("FxAlertResponse")
-                + schemas.path("FxAlertListResponse");
+        StringBuilder fxDocs = new StringBuilder();
+        for (String path : new String[] {"/api/v1/fx/alerts", "/api/v1/fx/alerts/{alertId}",
+                "/api/v1/fx/alerts/notifications", "/api/v1/fx/alerts/{alertId}/notified", "/api/v1/fx/alerts/stream"}) {
+            fxDocs.append(docs.path("paths").path(path));
+        }
+        for (String schema : new String[] {"FxAlertCreateRequest", "FxAlertResponse", "FxAlertListResponse",
+                "FxAlertNotification", "FxAlertNotificationListResponse", "FxAlertStreamReadyEvent"}) {
+            assertThat(schemas.path(schema).isMissingNode()).as(schema).isFalse();
+            fxDocs.append(schemas.path(schema));
+        }
 
-        assertThat(schemas.path("FxAlertResponse").isMissingNode()).isFalse();
-
-        assertThat(fxDocs).doesNotContain("실시간", "real-time", "realtime");
+        assertThat(fxDocs.toString()).doesNotContain("실시간", "real-time", "realtime");
     }
 
     private static JsonNode examples(JsonNode responses, String code) {
