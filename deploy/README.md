@@ -310,6 +310,27 @@ alias dc='docker compose -f deploy/compose.prod.yml'
 - 백필은 하루 1번만 돌린다. 12개월이면 수출입은행을 약 260번 부른다(일일 한도 1000회로 알려져 있으나 미확인. 같은 키를 쓰는 다른 환경과 한도를 나눠 쓴다).
 - 테스트는 04 시드에 기대지 않아(환율 행을 테스트 안에서 넣음) 정리한 뒤에도 그대로 통과한다.
 
+## 목표 환율 알림 도달 판정
+
+수집기가 새 환율을 저장하면(새 행이거나 값이 바뀐 행) 같은 스레드에서 그 통화의 ACTIVE 알림을 판정한다(#125). 따로 켤 설정은 없다. 푸시는 없고, 앱 알림 목록(`GET /api/v1/fx/alerts`)이 `TRIGGERED`와 `triggeredRate`를 보여 준다.
+
+- 비교 값은 `rate_type`이 SEND면 `send_rate`, BASE면 `base_rate`다. PHP(MARKET_REF)는 `send_rate`가 없어 BASE 알림만 닿는다.
+- 알림 `created_at` 이후(같은 시각 포함)의 `rate_at`만 본다. 수출입은행 `rate_at`은 고시일 00:00(KST)이므로, 오늘 만든 USD 알림은 다음 영업일 고시부터 판정한다.
+- Mock 행(`is_mock = TRUE`)으로는 판정하지 않는다.
+- 로그: `fx alert triggered: alertId=... currency=PHP rateId=... value=... by=collect` (백필이면 `by=backfill`)
+
+### 다시 판정(시연·관리용)
+
+현재 최신 실데이터 값(우선 원천 KOREAEXIM > MARKET_REF)으로 ACTIVE 알림을 다시 판정한다. 기본은 저장 때와 같은 규칙이라, 알림보다 먼저 있던 최신 값으로는 바뀌지 않는다(`RATE_BEFORE_CREATED`). 시연에서 지금 값으로 도달 장면을 보여 주려면 `ignoreCreatedAt=true`를 붙인다.
+
+```bash
+dc exec spring sh -c 'curl -fsS -X POST -H "X-Internal-Token: $SPRING_INTERNAL_API_KEY" "http://127.0.0.1:8080/internal/v1/fx/alerts/evaluate?currency=PHP&ignoreCreatedAt=true"'
+```
+
+- `currency`를 빼면 ACTIVE 알림이 있는 통화를 모두 본다.
+- 응답의 `alerts[].result`는 알림마다 `TRIGGERED`·`NOT_REACHED`·`NO_RATE_VALUE`·`RATE_BEFORE_CREATED`·`NO_RATE`·`ALREADY_CHANGED` 중 하나다.
+- 외부(Caddy)에서는 `/internal`이 막혀 있다.
+
 ## 6. 데모 데이터
 
 내 PC(Windows)의 `hanstep-backend`에서 실행한다.
