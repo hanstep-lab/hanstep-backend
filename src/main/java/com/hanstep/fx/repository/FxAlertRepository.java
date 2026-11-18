@@ -150,17 +150,6 @@ public class FxAlertRepository {
     }
 
     /**
-     * 그 통화 우선 원천(KOREAEXIM > MARKET_REF)의 최신 실데이터 행. 환율 화면(#123 ExchangeRateReader.latest)과 같은 순서이고,
-     * #123 이 develop 에 들어가면 그쪽으로 모은다.
-     */
-    public Optional<JudgeRate> latestRealRate(String currency) {
-        return jdbc.query("SELECT id, currency, rate_at, base_rate, send_rate, created_at FROM exchange_rates "
-                        + "WHERE currency = ? AND NOT is_mock "
-                        + "ORDER BY FIELD(source, 'KOREAEXIM', 'MARKET_REF', 'MOCK'), rate_date DESC, rate_at DESC, id DESC "
-                        + "LIMIT 1", FxAlertRepository::judgeRate, currency).stream().findFirst();
-    }
-
-    /**
      * ACTIVE 일 때만 TRIGGERED 로 바꾼다(조건부 UPDATE). 바꾼 행 수. 두 판정이 동시에 와도 InnoDB 가 행을 잠그고 늦은 쪽은
      * 최신 커밋 값(TRIGGERED)으로 조건을 다시 봐서 0 이 된다. 그사이 지워졌어도(CANCELLED) 0.
      */

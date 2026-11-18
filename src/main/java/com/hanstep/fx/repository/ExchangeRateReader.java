@@ -26,7 +26,7 @@ import org.springframework.stereotype.Repository;
 public class ExchangeRateReader {
 
     private static final String COLUMNS = "id, currency, source, provider, unit_amount, rate_date, rate_at, base_rate, "
-            + "send_rate, receive_rate, is_mock, fetched_at";
+            + "send_rate, receive_rate, is_mock, fetched_at, created_at";
     // 원천 우선순위. FIELD 는 목록에 없는 값에 0 을 주지만 source 는 이 세 값뿐이다(ENUM)
     private static final String PRIORITY = "FIELD(source, 'KOREAEXIM', 'MARKET_REF', 'MOCK')";
 
@@ -38,10 +38,10 @@ public class ExchangeRateReader {
         this.properties = properties;
     }
 
-    /** 환율 1행. 환율은 unitAmount 외화당 원화. */
+    /** 환율 1행. 환율은 unitAmount 외화당 원화. createdAt 은 처음 저장 시각(값이 바뀌어도 그대로, 알림 도달 판정 기준). */
     public record DailyRate(long id, String currency, String source, String provider, int unitAmount,
                             LocalDate rateDate, Instant rateAt, BigDecimal baseRate, BigDecimal sendRate,
-                            BigDecimal receiveRate, boolean mock, Instant fetchedAt) {
+                            BigDecimal receiveRate, boolean mock, Instant fetchedAt, Instant createdAt) {
 
         /** 출처 표시 문구. USD 는 은행이 정한 값이 아니라 수출입은행 고시 기준이다. */
         public String sourceLabel() {
@@ -80,7 +80,8 @@ public class ExchangeRateReader {
         return new DailyRate(rs.getLong("id"), rs.getString("currency"), rs.getString("source"),
                 rs.getString("provider"), rs.getInt("unit_amount"), rs.getObject("rate_date", LocalDate.class),
                 utc(rs, "rate_at"), rs.getBigDecimal("base_rate"), rs.getBigDecimal("send_rate"),
-                rs.getBigDecimal("receive_rate"), rs.getBoolean("is_mock"), utc(rs, "fetched_at"));
+                rs.getBigDecimal("receive_rate"), rs.getBoolean("is_mock"), utc(rs, "fetched_at"),
+                utc(rs, "created_at"));
     }
 
     private static Instant utc(ResultSet rs, String column) throws SQLException {

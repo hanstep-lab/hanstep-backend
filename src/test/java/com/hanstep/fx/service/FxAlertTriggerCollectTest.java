@@ -64,16 +64,20 @@ class FxAlertTriggerCollectTest {
     }
 
     @Test
-    void 이미_있던_행은_다시_수집해도_판정하지_않는다() {
+    void 이미_있던_행은_다시_수집해_fetched_at만_갱신돼도_판정하지_않는다() throws Exception {
         long userId = TestUsers.create(jdbc, "test-fx-trigger-collect-2", "TEST FX COLLECT 2");
         collectService.collectLatest(MONDAY);
         // 첫 수집 뒤에 만든 알림. 값은 닿지만 행이 알림보다 먼저 저장됐고, 같은 값 재수집은 "저장됨"이 아니다
         jdbc.update("INSERT INTO fx_alerts (user_id, currency, rate_type, comparator, target_rate, created_at) "
                 + "VALUES (?, 'USD', 'SEND', 'LTE', 2000, NOW(3))", userId);
         long alertId = jdbc.queryForObject("SELECT id FROM fx_alerts WHERE user_id = ?", Long.class, userId);
+        String fetchedAt = usdFetchedAt();
+        Thread.sleep(5);
 
         collectService.collectLatest(MONDAY);
 
+        // 1시간 수집은 같은 값이면 fetched_at(마지막 확인 시각)만 갱신한다(#124). 그래도 판정 대상이 아니다
+        assertThat(usdFetchedAt()).isGreaterThan(fetchedAt);
         assertThat(state(alertId)).isEqualTo("ACTIVE:null:null");
     }
 
@@ -84,6 +88,11 @@ class FxAlertTriggerCollectTest {
                        IFNULL(CASE a.rate_type WHEN 'SEND' THEN t.send_rate ELSE t.base_rate END, 'null'))
                 FROM fx_alerts a LEFT JOIN exchange_rates t ON t.id = a.triggered_rate_id WHERE a.id = ?""",
                 String.class, alertId);
+    }
+
+    private String usdFetchedAt() {
+        return jdbc.queryForObject("SELECT fetched_at FROM exchange_rates WHERE currency = 'USD' AND source = 'KOREAEXIM' "
+                + "AND rate_date = '2031-01-06'", String.class);
     }
 
     private long rateId(String currency, String source, String rateDate) {

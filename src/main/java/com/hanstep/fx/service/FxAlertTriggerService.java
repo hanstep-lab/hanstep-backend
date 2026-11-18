@@ -7,6 +7,7 @@ import com.hanstep.fx.domain.FxRateType;
 import com.hanstep.fx.dto.FxAlertEvaluateResponse;
 import com.hanstep.fx.dto.FxAlertEvaluateResponse.AlertResult;
 import com.hanstep.fx.dto.FxAlertEvaluateResponse.CurrencyResult;
+import com.hanstep.fx.repository.ExchangeRateReader;
 import com.hanstep.fx.repository.FxAlertRepository;
 import com.hanstep.fx.repository.FxAlertRepository.ActiveAlert;
 import com.hanstep.fx.repository.FxAlertRepository.JudgeRate;
@@ -61,9 +62,11 @@ public class FxAlertTriggerService {
     private static final Logger log = LoggerFactory.getLogger(FxAlertTriggerService.class);
 
     private final FxAlertRepository repository;
+    private final ExchangeRateReader rateReader;
 
-    public FxAlertTriggerService(FxAlertRepository repository) {
+    public FxAlertTriggerService(FxAlertRepository repository, ExchangeRateReader rateReader) {
         this.repository = repository;
+        this.rateReader = rateReader;
     }
 
     /** 수집기 저장 직후 같은 스레드에서 돈다. 오류는 수집기가 WARN 으로 남기고 저장에는 영향이 없다. */
@@ -93,7 +96,7 @@ public class FxAlertTriggerService {
         List<CurrencyResult> results = new ArrayList<>();
         int triggered = 0;
         for (String c : currencies) {
-            Optional<JudgeRate> latest = repository.latestRealRate(c);
+            Optional<JudgeRate> latest = latestRealRate(c);
             if (latest.isEmpty() && currency != null) {
                 throw new BusinessException(ErrorCode.FX_RATE_NOT_FOUND);
             }
@@ -138,6 +141,15 @@ public class FxAlertTriggerService {
         Result result = !afterCreated ? Result.RATE_BEFORE_CREATED
                 : !hasValue ? Result.NO_RATE_VALUE : Result.NOT_REACHED;
         return new Judgement(alert.id(), result, null, null);
+    }
+
+    /**
+     * 환율 화면·송금 견적과 같은 최신 값(ExchangeRateReader.latest, 우선 원천 KOREAEXIM > MARKET_REF). 로컬에서 Mock 포함
+     * (hanstep.fx-rates.include-mock)을 켜도 Mock 행으로는 판정하지 않는다(그때 최신 값이 Mock 이면 실데이터 없음으로 본다).
+     */
+    private Optional<JudgeRate> latestRealRate(String currency) {
+        return rateReader.latest(currency).filter(r -> !r.mock())
+                .map(r -> new JudgeRate(r.id(), r.currency(), r.rateAt(), r.baseRate(), r.sendRate(), r.createdAt()));
     }
 
     /** 같은 값이면 닿은 것으로 본다(LTE 는 이하, GTE 는 이상). */
