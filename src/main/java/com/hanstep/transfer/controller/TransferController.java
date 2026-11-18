@@ -23,8 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/transfers")
 public class TransferController {
 
-    // Reyes 700,000원 견적 응답(로컬 실제 출력, 2026-11-18). 환율은 수출입은행 USD 2026-11-17·ECB PHP 2026-11-17 실데이터,
-    // 1년 송금 횟수는 Mock 거래 22건 + 이번 1건
+    // Reyes 700,000원 견적 응답(로컬 실제 출력, 2026-11-18). #120 정리 SQL → 백필(수출입은행 USD 2026-11-18, ECB PHP
+    // 2026-11-17 실데이터) 뒤에 찍었다. 1년 송금 횟수는 Mock 거래 22건 + 이번 1건
     static final String QUOTE_EXAMPLE = """
             {
               "recipientId": 1,
@@ -50,32 +50,33 @@ public class TransferController {
               "defaultProduct": "SOL_EASY",
               "isEstimated": true,
               "rates": {
-                "usdBaseRate": 1335,
-                "usdRateDate": "2026-11-17",
+                "usdBaseRate": 1338.8,
+                "usdRateDate": "2026-11-18",
                 "usdSource": "KOREAEXIM",
                 "phpRefRate": 20.984,
                 "phpRateDate": "2026-11-17",
                 "phpSource": "frankfurter-ecb",
-                "usdPhpRefRate": 63.6199
+                "usdPhpRefRate": 63.801
               },
               "quotes": [
                 {
                   "product": "SOL_EASY",
                   "available": true,
                   "unavailableReason": null,
-                  "sendAmountUsd": 519.11,
+                  "sendAmountUsd": 517.64,
                   "spreadPct": 0.954,
                   "preferentialPct": 70,
                   "remittanceCount1y": 23,
-                  "usdAppliedRate": 1338.82,
-                  "krwPrincipal": 694995,
+                  "usdAppliedRate": 1342.63,
+                  "krwPrincipal": 694999,
                   "fxMarginKrw": 1983,
                   "sendFeeKrw": 0,
                   "telegraphicFeeKrw": 5000,
                   "feeUsd": null,
-                  "totalWithdrawKrw": 699995,
-                  "recipientAmountUsd": 519.11,
-                  "recipientAmountPhpRef": 33025.73,
+                  "totalWithdrawKrw": 699999,
+                  "unusedKrw": null,
+                  "recipientAmountUsd": 517.64,
+                  "recipientAmountPhpRef": 33025.95,
                   "deliveryType": "SWIFT_ACCOUNT",
                   "notices": [
                     "INTERMEDIARY_FEE_MAY_APPLY",
@@ -87,7 +88,7 @@ public class TransferController {
                       "item": "usdBaseRate",
                       "title": "한국수출입은행 현재환율 Open API 매매기준율(USD)",
                       "approvalNo": null,
-                      "checkedOn": "2026-11-17"
+                      "checkedOn": "2026-11-18"
                     },
                     {
                       "item": "spreadPct",
@@ -131,19 +132,20 @@ public class TransferController {
                   "product": "SOL_FAST",
                   "available": true,
                   "unavailableReason": null,
-                  "sendAmountUsd": 515.88,
+                  "sendAmountUsd": 514.41,
                   "spreadPct": 0.954,
                   "preferentialPct": 0,
                   "remittanceCount1y": null,
-                  "usdAppliedRate": 1347.74,
-                  "krwPrincipal": 695273,
-                  "fxMarginKrw": 6572,
+                  "usdAppliedRate": 1351.57,
+                  "krwPrincipal": 695262,
+                  "fxMarginKrw": 6569,
                   "sendFeeKrw": null,
                   "telegraphicFeeKrw": null,
                   "feeUsd": 3.5,
-                  "totalWithdrawKrw": 699990,
-                  "recipientAmountUsd": 515.88,
-                  "recipientAmountPhpRef": 32820.23,
+                  "totalWithdrawKrw": 699992,
+                  "unusedKrw": null,
+                  "recipientAmountUsd": 514.41,
+                  "recipientAmountPhpRef": 32819.87,
                   "deliveryType": "WESTERN_UNION",
                   "notices": [
                     "LOCAL_PAYOUT_RATE_BY_AGENT",
@@ -155,7 +157,7 @@ public class TransferController {
                       "item": "usdBaseRate",
                       "title": "한국수출입은행 현재환율 Open API 매매기준율(USD)",
                       "approvalNo": null,
-                      "checkedOn": "2026-11-17"
+                      "checkedOn": "2026-11-18"
                     },
                     {
                       "item": "spreadPct",

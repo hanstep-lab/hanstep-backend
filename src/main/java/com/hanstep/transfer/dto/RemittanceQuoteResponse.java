@@ -55,10 +55,10 @@ public record RemittanceQuoteResponse(
 
     @Schema(name = "RemittanceQuoteRates", description = "견적에 쓴 환율. 원화 값은 1 외화 당 원")
     public record QuoteRates(
-            @Schema(description = "USD 매매기준율(수출입은행 고시 실데이터)", example = "1335")
+            @Schema(description = "USD 매매기준율(수출입은행 고시 실데이터)", example = "1338.8")
             BigDecimal usdBaseRate,
 
-            @Schema(description = "USD 매매기준율 기준일", example = "2026-11-17")
+            @Schema(description = "USD 매매기준율 기준일", example = "2026-11-18")
             LocalDate usdRateDate,
 
             @Schema(description = "USD 출처", example = "KOREAEXIM")
@@ -74,7 +74,7 @@ public record RemittanceQuoteResponse(
             String phpSource,
 
             @Schema(description = "USD/PHP 참고 환율 = usdBaseRate ÷ phpRefRate(소수 4자리 반올림). 없으면 null",
-                    example = "63.6199", nullable = true)
+                    example = "63.801", nullable = true)
             BigDecimal usdPhpRefRate
     ) {
     }
@@ -92,7 +92,7 @@ public record RemittanceQuoteResponse(
                     nullable = true)
             String unavailableReason,
 
-            @Schema(description = "송금 USD(0.01 내림)", example = "519.11", nullable = true)
+            @Schema(description = "송금 USD(0.01 내림)", example = "517.64", nullable = true)
             BigDecimal sendAmountUsd,
 
             @Schema(description = "USD 송금 스프레드(%)", example = "0.954")
@@ -107,10 +107,10 @@ public record RemittanceQuoteResponse(
             Integer remittanceCount1y,
 
             @Schema(description = "적용 송금 환율(1 USD 당 원화, 소수 2자리 반올림) = 매매기준율 × (1 + 스프레드 × (1 − 우대율))",
-                    example = "1338.82")
+                    example = "1342.63")
             BigDecimal usdAppliedRate,
 
-            @Schema(description = "송금 USD 의 원화(원 단위 올림)", example = "694995", nullable = true)
+            @Schema(description = "송금 USD 의 원화(원 단위 올림)", example = "694999", nullable = true)
             Long krwPrincipal,
 
             @Schema(description = "환전 마진(원) = 송금 USD × (적용 환율 − 매매기준율), 원 단위 반올림. "
@@ -132,7 +132,7 @@ public record RemittanceQuoteResponse(
 
             @Schema(description = "출금 총액(원). 쏠편한 = 원화 송금액 + 송금수수료 + 전신료, "
                     + "쏠빠른 = (송금 USD + 3.5) × 적용 환율(원 단위 올림). 요청 amount 를 넘지 않는다",
-                    example = "699995", nullable = true)
+                    example = "699999", nullable = true)
             Long totalWithdrawKrw,
 
             @Schema(description = "쓰지 않고 남는 원화(요청 amount − totalWithdrawKrw). 쏠편한이 수수료 기준(USD 5,000)에 걸려 "
@@ -140,11 +140,11 @@ public record RemittanceQuoteResponse(
                     + "그 밖에는 null", example = "5750", nullable = true)
             Long unusedKrw,
 
-            @Schema(description = "받는 분이 받는 USD(중계·수취은행 수수료 차감 전)", example = "519.11", nullable = true)
+            @Schema(description = "받는 분이 받는 USD(중계·수취은행 수수료 차감 전)", example = "517.64", nullable = true)
             BigDecimal recipientAmountUsd,
 
             @Schema(description = "참고값. 받는 USD × USD/PHP 참고 환율(0.01 반올림). 실제로는 현지 환율로 바뀐다. "
-                    + "PHP 참고 환율이 없으면 null", example = "33025.73", nullable = true)
+                    + "PHP 참고 환율이 없으면 null", example = "33025.95", nullable = true)
             BigDecimal recipientAmountPhpRef,
 
             @Schema(description = "받는 방법. SWIFT_ACCOUNT(해외 계좌 입금) / WESTERN_UNION(캐시픽업 수분 또는 계좌 1~2영업일)",
