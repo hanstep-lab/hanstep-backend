@@ -10,9 +10,12 @@ import com.hanstep.fx.dto.FxBackfillResponse;
 import com.hanstep.fx.dto.FxCollectResult;
 import com.hanstep.fx.dto.FxCollectResult.CurrencyCount;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
@@ -96,18 +99,24 @@ class FxCollectServiceTest {
     }
 
     @Test
-    void 같은_값을_다시_받으면_새_행도_수정도_없다() {
+    void 일시간_수집에서_같은_값을_다시_받으면_새_행_없이_두_통화의_fetched_at만_고친다() throws Exception {
         service.collectLatest(MONDAY);
-        String fetchedAt = jdbc.queryForObject("SELECT MAX(fetched_at) FROM exchange_rates WHERE rate_date "
-                + "BETWEEN '2031-01-01' AND '2031-12-31'", String.class);
+        Map<String, String> before = snapshot2031(false);
+        Map<String, Object> firstSeen = fetchedAtByCurrency();
+        Thread.sleep(5);
 
         List<FxCollectResult> again = service.collectLatest(MONDAY);
 
         assertThat(count(again, FxSource.KOREAEXIM, "USD")).isEqualTo(new CurrencyCount("USD", 0, 0, 1, 0, 0));
         assertThat(count(again, FxSource.MARKET_REF, "PHP")).isEqualTo(new CurrencyCount("PHP", 0, 0, 1, 0, 0));
         assertThat(rows2031()).isEqualTo(2);
-        assertThat(jdbc.queryForObject("SELECT MAX(fetched_at) FROM exchange_rates WHERE rate_date "
-                + "BETWEEN '2031-01-01' AND '2031-12-31'", String.class)).isEqualTo(fetchedAt);
+        // 값·키는 그대로이고 fetched_at(마지막 확인 시각)만 늦어진다. USD·PHP 둘 다
+        assertThat(snapshot2031(false)).isEqualTo(before);
+        Map<String, Object> touched = fetchedAtByCurrency();
+        assertThat((LocalDateTime) touched.get("USD")).isAfter((LocalDateTime) firstSeen.get("USD"));
+        assertThat((LocalDateTime) touched.get("PHP")).isAfter((LocalDateTime) firstSeen.get("PHP"));
+        // 저장 이벤트는 새 행·값이 바뀐 행에만 낸다
+        assertThat(events.stream(ExchangeRatesSavedEvent.class)).hasSize(2);
     }
 
     @Test
@@ -183,8 +192,10 @@ class FxCollectServiceTest {
         List<FxCollectResult> results = service.collectLatest(MONDAY);
 
         assertThat(count(results, FxSource.KOREAEXIM, "USD")).isEqualTo(new CurrencyCount("USD", 0, 0, 0, 1, 0));
-        assertThat(jdbc.queryForObject("SELECT CONCAT(base_rate, ':', is_mock) FROM exchange_rates "
-                + "WHERE currency = 'USD' AND rate_date = '2031-01-06'", String.class)).isEqualTo("999.0000:1");
+        // Mock 행은 값도 fetched_at 도 고치지 않는다
+        assertThat(jdbc.queryForObject("SELECT CONCAT(base_rate, ':', is_mock, ':', fetched_at) FROM exchange_rates "
+                + "WHERE currency = 'USD' AND rate_date = '2031-01-06'", String.class))
+                .isEqualTo("999.0000:1:2031-01-06 02:05:00.000");
     }
 
     @Test
@@ -212,7 +223,7 @@ class FxCollectServiceTest {
     // ---- 백필 ----
 
     @Test
-    void 백필은_평일만_부르고_다시_해도_새_행이_없다() {
+    void 백필은_평일만_부르고_다시_해도_새_행도_fetched_at_변경도_없다() throws Exception {
         LocalDate from = MONDAY;
         LocalDate to = MONDAY.plusDays(13); // 2주(평일 10일)
 
@@ -230,11 +241,15 @@ class FxCollectServiceTest {
         assertThat(rows2031()).isEqualTo(20);
         assertThat(events.stream(ExchangeRatesSavedEvent.class)).allMatch(ExchangeRatesSavedEvent::backfill);
 
+        Map<String, String> before = snapshot2031(true);
+        Thread.sleep(5);
         FxBackfillResponse second = service.backfill(from, to, EnumSet.allOf(FxSource.class), 400);
 
         assertThat(second.sources()).flatExtracting(FxCollectResult::currencies).containsExactly(
                 new CurrencyCount("PHP", 0, 0, 10, 0, 0), new CurrencyCount("USD", 0, 0, 10, 0, 0));
         assertThat(rows2031()).isEqualTo(20);
+        // 백필 재실행은 아무것도 쓰지 않는다: 새 행 0, 값·fetched_at 변경 0
+        assertThat(snapshot2031(true)).isEqualTo(before);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM exchange_rates WHERE rate_date BETWEEN '2031-01-01' "
                 + "AND '2031-12-31' AND (source = 'MOCK' OR is_mock)", Integer.class)).isZero();
     }
@@ -299,6 +314,28 @@ class FxCollectServiceTest {
             release.countDown();
             first.join(10_000);
         }
+    }
+
+    /** 2031년 행 전부의 id → 값(withFetchedAt 이면 fetched_at 도). 그 칸이 바뀌면 달라진다. */
+    private Map<String, String> snapshot2031(boolean withFetchedAt) {
+        Map<String, String> rows = new TreeMap<>();
+        jdbc.query("SELECT id, currency, source, rate_at, base_rate, send_rate, receive_rate, fetched_at "
+                        + "FROM exchange_rates WHERE rate_date BETWEEN '2031-01-01' AND '2031-12-31'",
+                rs -> {
+                    rows.put(rs.getString("id"), rs.getString("currency") + "|" + rs.getString("source") + "|"
+                            + rs.getString("rate_at") + "|" + rs.getString("base_rate") + "|" + rs.getString("send_rate")
+                            + "|" + rs.getString("receive_rate") + (withFetchedAt ? "|" + rs.getString("fetched_at") : ""));
+                });
+        return rows;
+    }
+
+    private Map<String, Object> fetchedAtByCurrency() {
+        Map<String, Object> result = new HashMap<>();
+        jdbc.query("SELECT currency, fetched_at FROM exchange_rates WHERE rate_date BETWEEN '2031-01-01' AND "
+                + "'2031-12-31'", rs -> {
+                    result.put(rs.getString("currency"), rs.getObject("fetched_at", LocalDateTime.class));
+                });
+        return result;
     }
 
     private int rows2031() {

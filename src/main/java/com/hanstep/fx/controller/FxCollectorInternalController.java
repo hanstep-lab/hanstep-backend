@@ -52,7 +52,7 @@ public class FxCollectorInternalController {
                     호출 사이 hanstep.fx-collector.backfill.call-interval 만큼 쉰다).
                     Frankfurter(PHP)는 통화마다 1번, 수출입은행(USD 등)은 평일마다 1번 부른다. 수출입은행은 maxCalls 번에서 멈추고 \
                     nextFrom 을 준다(그 날짜를 from 으로 다시 부르면 이어서 한다). 인증키 오류·일일 한도도 거기서 멈춘다.
-                    같은 값은 새 행을 만들지 않아 다시 실행해도 된다. 같은 키에 Mock 행이 있으면 건드리지 않고 keptMock 으로 센다.""")
+                    같은 값은 새 행을 만들지 않고 fetched_at 도 고치지 않아 다시 실행해도 된다. 같은 키에 Mock 행이 있으면 건드리지 않고 keptMock 으로 센다.""")
     @ApiResponse(responseCode = "200", description = "실행함(원천별 status·failures 로 성공 여부를 본다)")
     @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: from 이 to 보다 늦음, to 가 오늘(KST) 이후, "
             + "maxCalls 가 1~1000 밖, 날짜·source 형식 오류(details.fields)",
