@@ -65,8 +65,13 @@ public class RemittanceQuoteCalculator {
     public record Input(long recipientId, long amountKrw, Rate usd, Rate php, int pastRemittances, LocalDate asOf) {
     }
 
-    /** 환율 1개(원/1 외화)와 기준일. */
-    public record Rate(BigDecimal rate, LocalDate rateDate) {
+    /** 환율 1개(원/1 외화)와 기준일, 출처 이름(KOREAEXIM·frankfurter-ecb·MOCK), Mock 여부. */
+    public record Rate(BigDecimal rate, LocalDate rateDate, String source, boolean mock) {
+
+        /** 테스트용: 출처는 운영 기본값(USD KOREAEXIM, PHP frankfurter-ecb), 실데이터. */
+        public Rate(BigDecimal rate, LocalDate rateDate) {
+            this(rate, rateDate, null, false);
+        }
     }
 
     public RemittanceQuoteResponse calculate(Input input) {
@@ -80,14 +85,19 @@ public class RemittanceQuoteCalculator {
                 : new Money(easy.recipientAmountPhpRef().setScale(0, RoundingMode.DOWN).longValueExact(), PHP);
         AppliedRate phpRate = input.php() == null ? null
                 : new AppliedRate(PHP, 1, RemittanceQuoteService.plain(input.php().rate()), PHP_LABEL,
-                input.php().rateDate(), false);
-        QuoteRates rates = new QuoteRates(RemittanceQuoteService.plain(base), input.usd().rateDate(), USD_SOURCE,
+                input.php().rateDate(), input.php().mock());
+        QuoteRates rates = new QuoteRates(RemittanceQuoteService.plain(base), input.usd().rateDate(),
+                sourceOr(input.usd(), USD_SOURCE),
                 input.php() == null ? null : RemittanceQuoteService.plain(input.php().rate()),
-                input.php() == null ? null : input.php().rateDate(), input.php() == null ? null : PHP_SOURCE,
-                usdPhp);
+                input.php() == null ? null : input.php().rateDate(),
+                input.php() == null ? null : sourceOr(input.php(), PHP_SOURCE), usdPhp);
         return new RemittanceQuoteResponse(input.recipientId(), Money.krw(input.amountKrw()), receive, phpRate, true,
                 input.php() == null ? PHP_REF_RATE_UNAVAILABLE : LOCAL_PAYOUT_RATE_DIFFERS, SEND_CURRENCY, SOL_EASY,
                 true, rates, List.of(easy, fast));
+    }
+
+    private static String sourceOr(Rate rate, String fallback) {
+        return rate.source() != null ? rate.source() : fallback;
     }
 
     /** 우대율(%). 이번 건 포함 건수가 minCount 이상인 가장 높은 구간. 없으면 0. */

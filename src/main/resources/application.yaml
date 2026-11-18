@@ -77,6 +77,15 @@ hanstep:
   e74:
     # 승인 전(DRAFT) 규칙 버전으로 계산한 결과도 저장할지. AI 서버 .env 와 같은 값. 운영은 false, 로컬·시연에서만 true
     include-draft-rules: ${E74_INCLUDE_DRAFT_RULES:false}
+  # 환율 조회(#123). 화면(FX-001)·송금 견적(TRF-02·INT-18)·챗봇 참고 환율(INT-14)이 같은 조회(ExchangeRateReader)를 쓴다.
+  # 통화마다 우선 원천 하나(KOREAEXIM > MARKET_REF > MOCK)의 값만 쓰고 원천을 섞지 않는다
+  fx-rates:
+    # Mock 환율(04 시드, is_mock=TRUE)도 읽을지. 운영은 false(실데이터만). 로컬 개발에서만 .env 의 FX_INCLUDE_MOCK_RATES=true
+    include-mock: ${FX_INCLUDE_MOCK_RATES:false}
+    # 화면 통화 = USD + 모국 통화. 모국 통화는 visa_profiles.nationality_code 로 정하고, 없거나 매핑이 없으면 USD 만
+    home-currencies:
+      - { nationality: PHL, currency: PHP }
+      - { nationality: VNM, currency: VND }
   # 환율 수집기(#119). 외부 환율 API 를 부르는 곳은 이 수집기뿐이다(화면·챗봇은 exchange_rates 만 읽음). 실데이터만 저장한다
   fx-collector:
     # 1시간 주기 수집. 꺼져 있어도 백필(POST /internal/v1/fx/backfill)은 된다. 테스트는 기본값(false) 그대로
