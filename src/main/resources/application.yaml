@@ -86,6 +86,14 @@ hanstep:
     home-currencies:
       - { nationality: PHL, currency: PHP }
       - { nationality: VNM, currency: VND }
+  # 목표 환율 도달 스트림(GET /api/v1/fx/alerts/stream, #129). 앱이 켜져 있는 동안 열어 두는 SSE. 연결 목록은 메모리(단일 인스턴스)
+  fx-alert-stream:
+    # keep-alive 주석(": ping") 간격. 프록시·로드밸런서가 조용한 연결을 끊지 않게(임시값)
+    ping-interval: 25s
+    # 연결 1개를 열어 두는 최대 시간. 지나면 서버가 닫고 앱이 다시 연결한다(임시값)
+    timeout: 30m
+    # 한 사용자의 동시 연결 수(여러 기기). 넘으면 가장 오래된 연결을 닫는다
+    max-connections-per-user: 3
   # 환율 수집기(#119). 외부 환율 API 를 부르는 곳은 이 수집기뿐이다(화면·챗봇은 exchange_rates 만 읽음). 실데이터만 저장한다
   fx-collector:
     # 1시간 주기 수집. 꺼져 있어도 백필(POST /internal/v1/fx/backfill)은 된다. 테스트는 기본값(false) 그대로
