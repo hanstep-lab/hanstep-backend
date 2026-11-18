@@ -1,17 +1,22 @@
 package com.hanstep.aicontext.service;
 
 import com.hanstep.aicontext.dto.AiFinanceContextResponse;
+import com.hanstep.aicontext.dto.AiFxSummaryResponse;
+import com.hanstep.aicontext.dto.AiFxSummaryResponse.CurrencySummary;
 import com.hanstep.aicontext.dto.AiProductProfileResponse;
 import com.hanstep.commitment.service.CommitmentService;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
 import com.hanstep.common.time.KstDates;
 import com.hanstep.finance.service.FinanceAnalysisService;
+import com.hanstep.fx.service.FxRateService;
 import com.hanstep.goal.service.GoalService;
 import com.hanstep.user.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.Period;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -24,15 +29,17 @@ public class AiContextService {
     private final CommitmentService commitmentService;
     private final GoalService goalService;
     private final JdbcTemplate jdbcTemplate;
+    private final FxRateService fxRateService;
 
     public AiContextService(UserRepository userRepository, FinanceAnalysisService financeAnalysisService,
                             CommitmentService commitmentService, GoalService goalService,
-                            JdbcTemplate jdbcTemplate) {
+                            JdbcTemplate jdbcTemplate, FxRateService fxRateService) {
         this.userRepository = userRepository;
         this.financeAnalysisService = financeAnalysisService;
         this.commitmentService = commitmentService;
         this.goalService = goalService;
         this.jdbcTemplate = jdbcTemplate;
+        this.fxRateService = fxRateService;
     }
 
     public AiFinanceContextResponse finance(Long userId) {
@@ -43,6 +50,39 @@ public class AiContextService {
                 financeAnalysisService.findLatestCompleted(userId).orElse(null),
                 commitmentService.getCommitments(userId).totals(),
                 goalService.getGoals(userId).goals());
+    }
+
+    /**
+     * 챗봇 환율 진단(AI fx_rate_summary). 통화별 값은 환율 화면과 같은 계산(FxRateService.rate)을 그대로 쓴다.
+     * currency 를 주면 그 통화만(화면 통화가 아니면 400, 실데이터가 없으면 404 FX_RATE_NOT_FOUND). 생략하면 화면 통화 전부이고,
+     * 실데이터가 없는 통화는 unavailableCurrencies 로 빼며 하나도 없으면 404. 없는 사용자는 404 USER_NOT_FOUND.
+     */
+    public AiFxSummaryResponse fxSummary(Long userId, String currency) {
+        if (!userRepository.existsById(userId)) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+        List<String> screen = fxRateService.screenCurrencies(userId);
+        if (currency != null && !currency.isBlank()) {
+            String target = currency.trim().toUpperCase(Locale.ROOT);
+            return new AiFxSummaryResponse(userId, screen, List.of(CurrencySummary.from(fxRateService.rate(userId, target))),
+                    List.of());
+        }
+        List<CurrencySummary> found = new ArrayList<>();
+        List<String> unavailable = new ArrayList<>();
+        for (String c : screen) {
+            try {
+                found.add(CurrencySummary.from(fxRateService.rate(userId, c)));
+            } catch (BusinessException e) {
+                if (e.getErrorCode() != ErrorCode.FX_RATE_NOT_FOUND) {
+                    throw e;
+                }
+                unavailable.add(c);
+            }
+        }
+        if (found.isEmpty()) {
+            throw new BusinessException(ErrorCode.FX_RATE_NOT_FOUND);
+        }
+        return new AiFxSummaryResponse(userId, screen, found, unavailable);
     }
 
     /** 비자 프로필이 없으면 asOf 외 모든 값이 null(404 아님). 생년월일은 만 나이로만 내보낸다. */
