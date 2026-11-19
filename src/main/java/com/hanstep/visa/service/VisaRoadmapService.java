@@ -41,7 +41,9 @@ import tools.jackson.databind.node.ObjectNode;
 
 /**
  * 비자 로드맵. 단계·점수·날짜는 AI 로드맵 API(규칙 엔진, 문장만 LLM)가 만들고, 여기서는 같은 프로필로 E-7-4 평가를
- * 확보한 뒤 로드맵을 받아 그대로 쌓는다(append-only). 평가와 체류 만료일이 같으면 저장된 로드맵을 돌려준다(AI 호출 없음).
+ * 확보한 뒤 로드맵을 받아 그대로 쌓는다. 평가와 체류 만료일이 같으면 저장된 로드맵을 돌려준다.
+ * 저장된 로드맵이 LLM 문장(model_id 있음)이면 AI 를 부르지 않는다. 템플릿 문장(model_id NULL)이면 AI 를
+ * 다시 불러 LLM 문장이 오면 같은 행(roadmapId 그대로)을 바꾸고, 또 템플릿이면 저장된 것을 그대로 준다(#139).
  * AI 응답을 기다리는 동안 DB 커넥션을 잡지 않도록 AI 호출은 트랜잭션 밖에서 하고 저장만 짧게 묶는다.
  */
 @Service
@@ -59,6 +61,11 @@ public class VisaRoadmapService {
             INSERT INTO visa_roadmap_steps (roadmap_id, step_order, title, description, related_rule_code,
                 estimated_additional_score, target_date, actor, required_evidence_json, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'RECOMMENDED')""";
+    // 아직 템플릿 문장일 때만 바꾼다. 같은 행을 동시에 바꾸는 요청은 행 잠금을 기다렸다가 0행이 된다
+    private static final String REPLACE_ROADMAP = """
+            UPDATE visa_roadmaps SET goal_visa_code = ?, warnings_json = ?, model_id = ?, prompt_version = ?,
+                result_json = ?
+            WHERE id = ? AND model_id IS NULL""";
 
     // visa_roadmap_steps.actor 의 ENUM(01_hanstep_schema.sql). AI 의 RuleActor 와 같은 값이다
     private static final Set<String> ACTORS = Set.of("USER", "EMPLOYER", "GOVERNMENT");
@@ -81,8 +88,19 @@ public class VisaRoadmapService {
         this.userRepository = userRepository;
     }
 
-    /** created=false 면 같은 평가·체류 만료일로 저장된 로드맵을 돌려준 것(200, 새 행 없음). */
+    /**
+     * created=true 면 새로 저장했거나 템플릿 문장 로드맵을 LLM 문장으로 바꾼 것(201). false 면 같은 평가·체류 만료일로
+     * 저장된 로드맵을 그대로 돌려준 것(200, 쓰기 없음).
+     */
     public record Result(VisaRoadmapResponse body, boolean created) {
+    }
+
+    /** 저장된 행. template 은 model_id 가 NULL(템플릿 문장)인지. */
+    private record Stored(long id, boolean template, JsonNode roadmap) {
+
+        Result reused() {
+            return new Result(new VisaRoadmapResponse(id, true, roadmap), false);
+        }
     }
 
     /** 채팅 도구용 내부 API. 없는 사용자면 404. */
@@ -112,15 +130,44 @@ public class VisaRoadmapService {
         ObjectNode profile = E74AssessmentService.withLegalDeclaration(snapshot.profile(), legalDeclaration);
         E74AssessmentResponse assessment = e74AssessmentService.assessProfile(userId, profile, asOf).body();
         long assessmentId = assessment.assessmentId();
-        Optional<VisaRoadmapResponse> existing = find(userId, assessmentId, stayExpiresOn);
-        if (existing.isPresent()) {
-            return new Result(existing.get(), false);
-        }
-
         ObjectNode request = JsonNodeFactory.instance.objectNode();
         request.put("asOfDate", asOf.toString());
         request.put("stayExpiresOn", stayExpiresOn.toString());
         request.set("profile", profile);
+
+        Optional<Stored> existing = find(userId, assessmentId, stayExpiresOn);
+        if (existing.isPresent()) {
+            Stored stored = existing.get();
+            if (!stored.template()) {
+                return stored.reused();
+            }
+            return retryLlmText(userId, assessment, stayExpiresOn, request, stored);
+        }
+        return save(userId, assessmentId, stayExpiresOn, requestRoadmap(userId, assessment, stayExpiresOn, request));
+    }
+
+    /**
+     * 템플릿 문장 로드맵에 AI 를 다시 불러 LLM 문장이 오면 같은 행을 바꾼다. 또 템플릿이면 쓰지 않고 저장된 것을 준다.
+     * AI 오류·키 불일치·저장할 수 없는 응답이면 저장된 행을 건드리지 않고 새로 만들 때와 같은 오류(502)를 올린다.
+     */
+    private Result retryLlmText(Long userId, E74AssessmentResponse assessment, LocalDate stayExpiresOn,
+                                ObjectNode request, Stored stored) {
+        JsonNode roadmap = requestRoadmap(userId, assessment, stayExpiresOn, request);
+        if (isTemplate(roadmap)) {
+            return stored.reused();
+        }
+        if (!Boolean.TRUE.equals(transactionTemplate.execute(status -> replace(stored.id(), roadmap)))) {
+            // 다른 요청이 먼저 바꿨다. 지금 저장된 것을 준다(그사이 지워졌으면 새로 저장)
+            return find(userId, assessment.assessmentId(), stayExpiresOn).map(Stored::reused)
+                    .orElseGet(() -> save(userId, assessment.assessmentId(), stayExpiresOn, roadmap));
+        }
+        log.info("visa roadmap text replaced with LLM: userId={} roadmapId={}", userId, stored.id());
+        return new Result(new VisaRoadmapResponse(stored.id(), false, roadmap), true);
+    }
+
+    /** AI 로드맵을 받아 이 평가에 묶을 수 있고 테이블에 들어가는지 확인한다. 아니면 502. */
+    private JsonNode requestRoadmap(Long userId, E74AssessmentResponse assessment, LocalDate stayExpiresOn,
+                                    ObjectNode request) {
         JsonNode roadmap;
         try {
             roadmap = aiRoadmapClient.create(request);
@@ -143,12 +190,16 @@ public class VisaRoadmapService {
             log.warn("visa roadmap does not fit the tables: userId={} field={}", userId, mismatch);
             throw new BusinessException(ErrorCode.AI_UPSTREAM_ERROR);
         }
+        return roadmap;
+    }
+
+    private Result save(Long userId, long assessmentId, LocalDate stayExpiresOn, JsonNode roadmap) {
         try {
             Long roadmapId = transactionTemplate.execute(status -> insert(userId, assessmentId, stayExpiresOn, roadmap));
             return new Result(new VisaRoadmapResponse(roadmapId, false, roadmap), true);
         } catch (DuplicateKeyException e) {
             // 같은 평가·체류 만료일이 동시에 들어오면 먼저 저장된 행을 돌려준다
-            return new Result(find(userId, assessmentId, stayExpiresOn).orElseThrow(() -> e), false);
+            return find(userId, assessmentId, stayExpiresOn).map(Stored::reused).orElseThrow(() -> e);
         }
     }
 
@@ -168,13 +219,33 @@ public class VisaRoadmapService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
     }
 
-    private Optional<VisaRoadmapResponse> find(Long userId, long assessmentId, LocalDate stayExpiresOn) {
+    private Optional<Stored> find(Long userId, long assessmentId, LocalDate stayExpiresOn) {
         return jdbcTemplate.query("""
-                                SELECT id, result_json FROM visa_roadmaps
+                                SELECT id, model_id, result_json FROM visa_roadmaps
                                 WHERE user_id = ? AND assessment_id = ? AND stay_expires_on = ?""",
-                        (rs, i) -> new VisaRoadmapResponse(rs.getLong("id"), true, json(rs.getString("result_json"))),
+                        (rs, i) -> new Stored(rs.getLong("id"), rs.getString("model_id") == null,
+                                json(rs.getString("result_json"))),
                         userId, assessmentId, stayExpiresOn)
                 .stream().findFirst();
+    }
+
+    // 템플릿 문장이면 AI 가 text.modelId 를 null 로 준다(저장하면 model_id NULL)
+    private static boolean isTemplate(JsonNode roadmap) {
+        return text(roadmap.path("text").path("modelId")) == null;
+    }
+
+    /** 저장된 템플릿 행을 새 응답으로 바꾸고 단계를 다시 넣는다. 이미 LLM 문장으로 바뀌었으면 false(아무것도 안 씀). */
+    private boolean replace(long roadmapId, JsonNode roadmap) {
+        JsonNode text = roadmap.path("text");
+        int updated = jdbcTemplate.update(REPLACE_ROADMAP, roadmap.path("goalVisaCode").stringValue(),
+                jsonText(roadmap.path("warnings")), text(text.path("modelId")), text(text.path("promptVersion")),
+                MAPPER.writeValueAsString(roadmap), roadmapId);
+        if (updated == 0) {
+            return false;
+        }
+        jdbcTemplate.update("DELETE FROM visa_roadmap_steps WHERE roadmap_id = ?", roadmapId);
+        insertSteps(roadmapId, roadmap);
+        return true;
     }
 
     private Long insert(Long userId, long assessmentId, LocalDate stayExpiresOn, JsonNode roadmap) {
@@ -194,7 +265,11 @@ public class VisaRoadmapService {
             return ps;
         }, keyHolder);
         long roadmapId = keyHolder.getKey().longValue();
+        insertSteps(roadmapId, roadmap);
+        return roadmapId;
+    }
 
+    private void insertSteps(long roadmapId, JsonNode roadmap) {
         List<Object[]> steps = new ArrayList<>();
         for (JsonNode step : roadmap.path("steps")) {
             String targetDate = text(step.path("targetDate"));
@@ -207,7 +282,6 @@ public class VisaRoadmapService {
         if (!steps.isEmpty()) {
             jdbcTemplate.batchUpdate(INSERT_STEP, steps);
         }
-        return roadmapId;
     }
 
     // 저장할 수 없는 로드맵이면 걸린 필드 경로(로그용), 맞으면 null. 길이는 컬럼 길이(문자 수)
