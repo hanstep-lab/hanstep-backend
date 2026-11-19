@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.hanstep.common.security.JwtTokenProvider;
+import com.hanstep.demo.service.DemoResetService;
 import com.hanstep.document.ArcImages;
 import com.hanstep.document.FakeArcStorageConfig;
 import com.hanstep.document.FakeArcStorageConfig.FakeArcImageStorage;
@@ -28,6 +29,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
@@ -38,6 +40,7 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * 데모 계정 초기화(POST /api/v1/demo/reset, #131). 켜진 상태(hanstep.demo.reset-enabled=true).
  * 실제 DB, 테스트마다 롤백. R2 대신 메모리 저장소. 데모 시드 사용자 대신 demo- 로 시작하는 테스트 사용자를 만든다.
+ * 비자 프로필 복원만 시드 사용자(Reyes)로 확인한다(롤백되므로 시드 데이터는 바뀌지 않음).
  */
 @SpringBootTest(properties = "hanstep.demo.reset-enabled=true")
 @AutoConfigureMockMvc
@@ -97,7 +100,9 @@ class DemoResetApiTest {
                 .andExpect(jsonPath("$.deletedOcrJobs").value(1))
                 .andExpect(jsonPath("$.deletedOnboardingSteps").value(2))
                 .andExpect(jsonPath("$.deletedOriginals").value(1))
-                .andExpect(jsonPath("$.failedOriginals").value(0));
+                .andExpect(jsonPath("$.failedOriginals").value(0))
+                // Reyes 가 아닌 데모 계정은 프로필을 되돌리지 않는다
+                .andExpect(jsonPath("$.profileRestored").value(false));
 
         assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?", userId)).isZero();
         assertThat(count(OCR_JOBS, userId)).isZero();
@@ -143,7 +148,112 @@ class DemoResetApiTest {
                 .andExpect(jsonPath("$.deletedOcrJobs").value(0))
                 .andExpect(jsonPath("$.deletedOnboardingSteps").value(0))
                 .andExpect(jsonPath("$.deletedOriginals").value(0))
-                .andExpect(jsonPath("$.failedOriginals").value(0));
+                .andExpect(jsonPath("$.failedOriginals").value(0))
+                .andExpect(jsonPath("$.alertsCancelled").value(0))
+                .andExpect(jsonPath("$.profileRestored").value(false))
+                .andExpect(jsonPath("$.e74AssessmentsDeleted").value(0))
+                .andExpect(jsonPath("$.roadmapsDeleted").value(0))
+                .andExpect(jsonPath("$.languageRestored").value(false));
+    }
+
+    @Test
+    void Reyes가_아닌_데모_계정은_언어를_건드리지_않는다() throws Exception {
+        long userId = TestUsers.create(jdbcTemplate, "demo-test-" + UUID.randomUUID(), "DEMO USER");
+        jdbcTemplate.update("UPDATE users SET preferred_language = 'ko' WHERE id = ?", userId);
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.languageRestored").value(false));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT preferred_language FROM users WHERE id = ?", String.class,
+                userId)).isEqualTo("ko");
+    }
+
+    @Test
+    void ACTIVE_알림은_CANCELLED로_바꾸고_같은_조건으로_다시_만들_수_있다() throws Exception {
+        long userId = TestUsers.create(jdbcTemplate, "demo-test-" + UUID.randomUUID(), "DEMO USER");
+        String bearer = bearer(userId);
+        insertRate("XTS");
+        String alert = "{\"currency\":\"XTS\",\"rateType\":\"SEND\",\"comparator\":\"LTE\",\"targetRate\":1350}";
+        createAlert(bearer, alert).andExpect(status().isCreated());
+        createAlert(bearer, alert).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_REQUEST"));
+        long triggered = insertAlert(userId, "GTE", "TRIGGERED");
+
+        mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alertsCancelled").value(1));
+
+        assertThat(count("SELECT COUNT(*) FROM fx_alerts WHERE user_id = ? AND status = 'ACTIVE'", userId)).isZero();
+        // 행은 남는다. 도달한 알림은 그대로
+        assertThat(count("SELECT COUNT(*) FROM fx_alerts WHERE user_id = ? AND status = 'CANCELLED'", userId))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM fx_alerts WHERE id = ?", String.class, triggered))
+                .isEqualTo("TRIGGERED");
+
+        createAlert(bearer, alert).andExpect(status().isCreated());
+    }
+
+    @Test
+    void E74_평가와_로드맵을_지운다() throws Exception {
+        long userId = TestUsers.create(jdbcTemplate, "demo-test-" + UUID.randomUUID(), "DEMO USER");
+        long assessmentId = insertAssessment(userId, "first");
+        long scenarioId = insertAssessment(userId, "scenario");
+        long roadmapId = insertRoadmap(userId, assessmentId, scenarioId);
+
+        mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.e74AssessmentsDeleted").value(2))
+                .andExpect(jsonPath("$.roadmapsDeleted").value(1));
+
+        assertThat(count("SELECT COUNT(*) FROM e74_assessments WHERE user_id = ?", userId)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM e74_assessment_items WHERE assessment_id = ?", assessmentId)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM visa_roadmaps WHERE user_id = ?", userId)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM visa_roadmap_steps WHERE roadmap_id = ?", roadmapId)).isZero();
+    }
+
+    @Test
+    void Reyes는_비자_프로필을_시드_값으로_되돌리고_입국일과_이전_체류_개월은_그대로_둔다() throws Exception {
+        long reyesId = jdbcTemplate.queryForObject("SELECT id FROM users WHERE external_user_key = ?", Long.class,
+                DemoResetService.ReyesSeed.EXTERNAL_USER_KEY);
+        Map<String, Object> before = jdbcTemplate.queryForMap(
+                "SELECT current_stay_started_on, prior_stay_months FROM visa_profiles WHERE user_id = ?", reyesId);
+        // 샘플 등록증으로 DOC-04 확정한 것처럼 덮어쓴다
+        long documentId = insertConfirmedDocument(reyesId);
+        jdbcTemplate.update("""
+                UPDATE visa_profiles SET visa_type_id = (SELECT id FROM visa_types WHERE code = 'H-2'),
+                  stay_expires_on = '2028-01-31', nationality_code = 'VNM', birth_date = '1990-01-01',
+                  source_document_id = ?, evidence_status = 'DECLARED' WHERE user_id = ?""", documentId, reyesId);
+        // 온보딩 언어 화면에서 ko 로 바꾼 것처럼
+        jdbcTemplate.update("UPDATE users SET preferred_language = 'ko' WHERE id = ?", reyesId);
+        insertAssessment(reyesId, "reyes");
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer(reyesId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profileRestored").value(true))
+                .andExpect(jsonPath("$.languageRestored").value(true));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT preferred_language FROM users WHERE id = ?", String.class,
+                reyesId)).isEqualTo(DemoResetService.ReyesSeed.PREFERRED_LANGUAGE);
+
+        Map<String, Object> profile = jdbcTemplate.queryForMap("""
+                SELECT vt.code, vp.stay_expires_on, vp.nationality_code, vp.birth_date, vp.source_document_id,
+                  vp.evidence_status, vp.current_stay_started_on, vp.prior_stay_months
+                FROM visa_profiles vp JOIN visa_types vt ON vt.id = vp.visa_type_id WHERE vp.user_id = ?""", reyesId);
+        assertThat(profile.get("code")).isEqualTo(DemoResetService.ReyesSeed.VISA_TYPE_CODE);
+        assertThat(profile.get("stay_expires_on").toString()).isEqualTo(DemoResetService.ReyesSeed.STAY_EXPIRES_ON);
+        assertThat(profile.get("nationality_code")).isEqualTo(DemoResetService.ReyesSeed.NATIONALITY_CODE);
+        assertThat(profile.get("birth_date").toString()).isEqualTo(DemoResetService.ReyesSeed.BIRTH_DATE);
+        assertThat(profile.get("source_document_id")).isNull();
+        assertThat(profile.get("evidence_status")).isEqualTo(DemoResetService.ReyesSeed.EVIDENCE_STATUS);
+        assertThat(profile.get("current_stay_started_on")).isEqualTo(before.get("current_stay_started_on"));
+        assertThat(profile.get("prior_stay_months")).isEqualTo(before.get("prior_stay_months"));
+        assertThat(count("SELECT COUNT(*) FROM e74_assessments WHERE user_id = ?", reyesId)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM visa_roadmaps WHERE user_id = ?", reyesId)).isZero();
     }
 
     @Test
@@ -179,6 +289,8 @@ class DemoResetApiTest {
         long userId = TestUsers.create(jdbcTemplate, "test-demo-reset-" + UUID.randomUUID(), "OTHER USER");
         long documentId = insertConfirmedDocument(userId);
         finishSteps(userId, "LANGUAGE");
+        long alertId = insertAlert(userId, "LTE", "ACTIVE");
+        insertAssessment(userId, "not-demo");
 
         mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer(userId)))
                 .andExpect(status().isForbidden())
@@ -186,6 +298,9 @@ class DemoResetApiTest {
 
         assertThat(count("SELECT COUNT(*) FROM documents WHERE id = ?", documentId)).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM onboarding_progress WHERE user_id = ?", userId)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM fx_alerts WHERE id = ?", String.class, alertId))
+                .isEqualTo("ACTIVE");
+        assertThat(count("SELECT COUNT(*) FROM e74_assessments WHERE user_id = ?", userId)).isEqualTo(1);
     }
 
     @Test
@@ -196,11 +311,20 @@ class DemoResetApiTest {
         finishSteps(otherId, "LANGUAGE");
         insertAiJob(otherId, "OCR");
         insertAiJob(demoId, "OCR");
+        long otherAlert = insertAlert(otherId, "LTE", "ACTIVE");
+        insertRoadmap(otherId, insertAssessment(otherId, "other"), null);
 
         mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer(demoId)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.deletedOcrJobs").value(1));
+                .andExpect(jsonPath("$.deletedOcrJobs").value(1))
+                .andExpect(jsonPath("$.alertsCancelled").value(0))
+                .andExpect(jsonPath("$.e74AssessmentsDeleted").value(0))
+                .andExpect(jsonPath("$.roadmapsDeleted").value(0));
         assertThat(count(OCR_JOBS, otherId)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM fx_alerts WHERE id = ?", String.class, otherAlert))
+                .isEqualTo("ACTIVE");
+        assertThat(count("SELECT COUNT(*) FROM e74_assessments WHERE user_id = ?", otherId)).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM visa_roadmaps WHERE user_id = ?", otherId)).isEqualTo(1);
 
         assertThat(count("SELECT COUNT(*) FROM documents WHERE id = ?", otherDocument)).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM onboarding_progress WHERE user_id = ?", otherId)).isEqualTo(1);
@@ -220,6 +344,55 @@ class DemoResetApiTest {
         jdbcTemplate.update("INSERT INTO ai_jobs (user_id, job_type, resource_type, resource_id, idempotency_key, "
                 + "correlation_id) VALUES (?, ?, 'DOCUMENT', 1, ?, 'test')", userId, jobType,
                 "test-" + UUID.randomUUID());
+    }
+
+    /** 알림을 만들 때 단위(unit_amount)를 읽는 환율 행. */
+    private void insertRate(String currency) {
+        jdbcTemplate.update("INSERT INTO exchange_rates (currency, unit_amount, rate_date, rate_at, base_rate, send_rate, "
+                + "source, is_mock, fetched_at) VALUES (?, 1, '2099-06-01', '2099-05-31 15:00:00', 1300.0000, "
+                + "1313.0000, 'KOREAEXIM', FALSE, NOW(3))", currency);
+    }
+
+    private ResultActions createAlert(String bearer, String body) throws Exception {
+        ResultActions result = mockMvc.perform(post("/api/v1/fx/alerts").header(HttpHeaders.AUTHORIZATION, bearer)
+                .contentType(MediaType.APPLICATION_JSON).content(body));
+        // 초기화는 JDBC 로 바꾸므로 요청 경계처럼 영속성 컨텍스트를 비운다
+        entityManager.flush();
+        entityManager.clear();
+        return result;
+    }
+
+    private long insertAlert(long userId, String comparator, String status) {
+        jdbcTemplate.update("""
+                INSERT INTO fx_alerts (user_id, currency, comparator, target_rate, status, triggered_at)
+                VALUES (?, 'XTS', ?, 1350.0000, ?, IF(? = 'TRIGGERED', NOW(3), NULL))""",
+                userId, comparator, status, status);
+        return jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    /** 평가 1건과 항목 1건. 규칙셋은 기준 시드의 첫 행. */
+    private long insertAssessment(long userId, String requestKey) {
+        jdbcTemplate.update("""
+                INSERT INTO e74_assessments (user_id, rule_set_id, request_key, as_of_date, input_snapshot,
+                  eligibility_status)
+                SELECT ?, id, ?, CURDATE(), JSON_OBJECT(), 'NEEDS_EVIDENCE' FROM e74_rule_sets ORDER BY id LIMIT 1""",
+                userId, requestKey + "-" + UUID.randomUUID());
+        long id = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbcTemplate.update("""
+                INSERT INTO e74_assessment_items (assessment_id, rule_code, category, status, earned_points)
+                VALUES (?, 'TEST_RULE', 'BONUS', 'MET', 10)""", id);
+        return id;
+    }
+
+    /** 로드맵 1건과 단계 1건. scenarioAssessmentId 는 단계의 시나리오 평가(없으면 null). */
+    private long insertRoadmap(long userId, long assessmentId, Long scenarioAssessmentId) {
+        jdbcTemplate.update("INSERT INTO visa_roadmaps (user_id, assessment_id, stay_expires_on) VALUES (?, ?, "
+                + "'2027-10-04')", userId, assessmentId);
+        long id = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbcTemplate.update("""
+                INSERT INTO visa_roadmap_steps (roadmap_id, step_order, title, scenario_assessment_id)
+                VALUES (?, 1, 'TEST STEP', ?)""", id, scenarioAssessmentId);
+        return id;
     }
 
     private String bearer(long userId) {

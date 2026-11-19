@@ -14,14 +14,35 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 데모 계정 초기화(#131). 테스트·시연 리허설 때 온보딩·등록증 촬영을 처음부터 다시 할 수 있게 한다.
- * 지우는 것: onboarding_progress, documents(document_fields 는 CASCADE), 그 사용자의 OCR 작업(ai_jobs), 확정 전 문서의 R2 원본.
- * 남기는 것: visa_profiles(입국일·이전 체류 개월이 함께 있음, source_document_id 는 SET NULL), 목표·마이데이터·금융 분석 등.
+ * 지우는 것: onboarding_progress, documents(document_fields 는 CASCADE), 그 사용자의 OCR 작업(ai_jobs), 확정 전 문서의 R2 원본,
+ * visa_roadmaps(visa_roadmap_steps 는 CASCADE), e74_assessments(e74_assessment_items 는 CASCADE).
+ * 바꾸는 것: ACTIVE 목표 환율 알림은 CANCELLED 로(행은 남김). Reyes 는 visa_profiles 의 등록증 항목과 users.preferred_language 를
+ * 데모 시드 값으로 되돌린다.
+ * 남기는 것: 다른 데모 계정의 visa_profiles(source_document_id 는 SET NULL), 입국일·이전 체류 개월, 목표·마이데이터·금융 분석 등.
  */
 @Service
 public class DemoResetService {
 
     /** 데모 계정의 external_user_key 접두사(03 데모 시드 demo-e9-ph-reyes). */
     static final String DEMO_KEY_PREFIX = "demo-";
+
+    /**
+     * Reyes 의 visa_profiles 데모 시드 값. db/init/03_hanstep_demo_seed.sql 의 visa_profiles INSERT 와 같게 둔다.
+     * DOC-04 확정이 등록증 값으로 덮어쓴 체류자격·만료일·국적·생년월일을 되돌린다(입국일·이전 체류 개월은 그대로).
+     */
+    public static final class ReyesSeed {
+        public static final String EXTERNAL_USER_KEY = "demo-e9-ph-reyes";
+        public static final String VISA_TYPE_CODE = "E-9";
+        public static final String STAY_EXPIRES_ON = "2027-10-04";
+        public static final String NATIONALITY_CODE = "PHL";
+        public static final String BIRTH_DATE = "1995-08-15";
+        public static final String EVIDENCE_STATUS = "VERIFIED";
+        /** users.preferred_language(같은 시드 파일의 users INSERT). 온보딩 언어 화면이 바꾼 값을 되돌린다(시연은 en) */
+        public static final String PREFERRED_LANGUAGE = "en";
+
+        private ReyesSeed() {
+        }
+    }
 
     private static final Logger log = LoggerFactory.getLogger(DemoResetService.class);
 
@@ -64,11 +85,14 @@ public class DemoResetService {
         }
 
         log.info("demo reset: userId={}, documents={}, documentFields={}, ocrJobs={}, onboardingSteps={}, "
-                        + "originalsDeleted={}, originalsFailed={}", userId, deleted.documents(),
+                        + "originalsDeleted={}, originalsFailed={}, alertsCancelled={}, profileRestored={}, "
+                        + "languageRestored={}, e74Assessments={}, roadmaps={}", userId, deleted.documents(),
                 deleted.documentFields(), deleted.ocrJobs(), deleted.onboardingSteps(), originalsDeleted,
-                originalsFailed);
+                originalsFailed, deleted.alertsCancelled(), deleted.profileRestored(), deleted.languageRestored(),
+                deleted.e74Assessments(), deleted.roadmaps());
         return new DemoResetResponse(deleted.documents(), deleted.documentFields(), deleted.ocrJobs(),
-                deleted.onboardingSteps(), originalsDeleted, originalsFailed);
+                deleted.onboardingSteps(), originalsDeleted, originalsFailed, deleted.alertsCancelled(),
+                deleted.profileRestored(), deleted.e74Assessments(), deleted.roadmaps(), deleted.languageRestored());
     }
 
     private Deleted deleteRows(Long userId) {
@@ -78,7 +102,8 @@ public class DemoResetService {
         if (keys.isEmpty()) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
-        if (!keys.getFirst().startsWith(DEMO_KEY_PREFIX)) {
+        String externalUserKey = keys.getFirst();
+        if (!externalUserKey.startsWith(DEMO_KEY_PREFIX)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "demo account only", null);
         }
 
@@ -93,13 +118,38 @@ public class DemoResetService {
         int ocrJobs = jdbc.update(
                 "DELETE FROM ai_jobs WHERE user_id = ? AND job_type = 'OCR' AND resource_type = 'DOCUMENT'", userId);
         int onboardingSteps = jdbc.update("DELETE FROM onboarding_progress WHERE user_id = ?", userId);
-        return new Deleted(documents, documentFields, ocrJobs, onboardingSteps, originals);
+        // 같은 조건으로 다시 만들 수 있게(uq_fx_alerts_active). 지우지 않고 사용자가 지운 것과 같은 CANCELLED 로 둔다
+        int alertsCancelled = jdbc.update(
+                "UPDATE fx_alerts SET status = 'CANCELLED' WHERE user_id = ? AND status = 'ACTIVE'", userId);
+        boolean reyes = ReyesSeed.EXTERNAL_USER_KEY.equals(externalUserKey);
+        boolean profileRestored = reyes && restoreReyesProfile(userId);
+        boolean languageRestored = reyes && jdbc.update("UPDATE users SET preferred_language = ? WHERE id = ?",
+                ReyesSeed.PREFERRED_LANGUAGE, userId) > 0;
+        // 로드맵을 먼저 지운다(visa_roadmap_steps 는 CASCADE). 평가를 지워도 로드맵이 CASCADE 로 지워지지만 개수를 따로 센다.
+        // 평가를 지우면 e74_assessment_items 는 CASCADE. chat_tool_calls.result_ref_id 는 FK 가 없어 그대로 남는다
+        int roadmaps = jdbc.update("DELETE FROM visa_roadmaps WHERE user_id = ?", userId);
+        int e74Assessments = jdbc.update("DELETE FROM e74_assessments WHERE user_id = ?", userId);
+        return new Deleted(documents, documentFields, ocrJobs, onboardingSteps, alertsCancelled, profileRestored,
+                languageRestored, e74Assessments, roadmaps, originals);
+    }
+
+    /** 데모 시드 값으로 되돌린다. 프로필 행이 없으면 만들지 않고 false(입국일·이전 체류 개월을 정할 수 없음). */
+    private boolean restoreReyesProfile(Long userId) {
+        int rows = jdbc.update("""
+                UPDATE visa_profiles
+                SET visa_type_id = (SELECT id FROM visa_types WHERE code = ?), stay_expires_on = ?,
+                  nationality_code = ?, birth_date = ?, source_document_id = NULL, evidence_status = ?
+                WHERE user_id = ?""", ReyesSeed.VISA_TYPE_CODE, ReyesSeed.STAY_EXPIRES_ON,
+                ReyesSeed.NATIONALITY_CODE, ReyesSeed.BIRTH_DATE, ReyesSeed.EVIDENCE_STATUS, userId);
+        return rows > 0;
     }
 
     private record Original(long documentId, String objectKey) {
     }
 
     private record Deleted(int documents, int documentFields, int ocrJobs, int onboardingSteps,
+                           int alertsCancelled, boolean profileRestored, boolean languageRestored,
+                           int e74Assessments, int roadmaps,
                            List<Original> originals) {
     }
 }

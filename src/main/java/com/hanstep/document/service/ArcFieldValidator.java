@@ -71,7 +71,11 @@ public class ArcFieldValidator {
                 yield date == null ? "must be YYYY-MM-DD"
                         : date.isAfter(LocalDate.now(KstDates.KST)) ? "must not be in the future" : null;
             }
-            case STAY_EXPIRY -> parseDate(value) == null ? "must be YYYY-MM-DD" : null;
+            case STAY_EXPIRY -> {
+                LocalDate date = parseDate(value);
+                yield date == null ? "must be YYYY-MM-DD"
+                        : date.isBefore(LocalDate.now(KstDates.KST)) ? "must not be in the past" : null;
+            }
             case VISA_TYPE -> visaTypeIdOrNull(value) == null ? "unknown visa type" : null;
             case NAME_EN, REGISTRATION_NO -> null;
         };

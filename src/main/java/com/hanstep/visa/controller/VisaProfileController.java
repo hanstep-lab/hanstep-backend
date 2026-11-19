@@ -36,7 +36,7 @@ public class VisaProfileController {
     @ApiResponse(responseCode = "200", description = "저장(저장된 값과 daysRemaining)")
     @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: 모르는·중복 fieldKey, nameEn·registrationNo, "
             + "빠진 항목(field 는 항목 키, reason required), 형식 오류(nationality 는 alpha-3, 날짜는 YYYY-MM-DD, "
-            + "birthDate 는 미래 불가, visaType 은 등록된 체류자격). details.fields 에 경로·이유(값은 싣지 않음)",
+            + "birthDate 는 미래 불가, stayExpiry 는 오늘 이전 불가, visaType 은 등록된 체류자격). details.fields 에 경로·이유(값은 싣지 않음)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
