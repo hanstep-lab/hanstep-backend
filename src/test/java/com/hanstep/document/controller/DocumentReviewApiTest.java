@@ -266,6 +266,21 @@ class DocumentReviewApiTest {
     }
 
     @Test
+    void 지난_체류_만료일로_고치면_400이고_바꾸지_않는다() throws Exception {
+        long id = upload();
+        recordOcr(id, new BigDecimal("0.95"));
+        String yesterday = LocalDate.now(KstDates.KST).minusDays(1).toString();
+
+        patchFields(id, "{\"fields\": [{\"fieldKey\": \"stayExpiry\", \"value\": \"" + yesterday + "\"}]}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.details.fields[0].field").value("fields[0].value"))
+                .andExpect(jsonPath("$.details.fields[0].reason").value("must not be in the past"));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM document_fields WHERE document_id = ? "
+                + "AND status IN ('CONFIRMED', 'CORRECTED')", Integer.class, id)).isZero();
+    }
+
+    @Test
     void OCR_결과_전이면_수정은_409() throws Exception {
         long id = upload();
 
@@ -366,6 +381,23 @@ class DocumentReviewApiTest {
                 .andExpect(jsonPath("$.code").value("INSUFFICIENT_DATA"))
                 .andExpect(jsonPath("$.details.fields[0].field").value("stayExpiry"))
                 .andExpect(jsonPath("$.details.fields[0].reason").value("required"));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM documents WHERE id = ?", String.class, id))
+                .isEqualTo("PENDING_CONFIRMATION");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM visa_profiles WHERE user_id = ?", Integer.class,
+                userId)).isZero();
+        assertThat(storage.deletes.get()).isZero();
+    }
+
+    @Test
+    void 지난_체류_만료일이_남아_있으면_확정은_422이고_아무것도_바꾸지_않는다() throws Exception {
+        long id = upload();
+        recordOcr(id, new BigDecimal("0.95"), LocalDate.now(KstDates.KST).minusDays(1).toString());
+
+        confirm(id).andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("INSUFFICIENT_DATA"))
+                .andExpect(jsonPath("$.details.fields[0].field").value("stayExpiry"))
+                .andExpect(jsonPath("$.details.fields[0].reason").value("must not be in the past"));
 
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM documents WHERE id = ?", String.class, id))
                 .isEqualTo("PENDING_CONFIRMATION");

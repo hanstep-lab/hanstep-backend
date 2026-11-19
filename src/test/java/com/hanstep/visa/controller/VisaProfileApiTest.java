@@ -166,6 +166,18 @@ class VisaProfileApiTest {
     }
 
     @Test
+    void 체류_만료일이_지났으면_400() throws Exception {
+        String yesterday = LocalDate.now(KstDates.KST).minusDays(1).toString();
+
+        save(VALID.replace("2027-03-01", yesterday))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.details.fields[0].field").value("fields[3].value"))
+                .andExpect(jsonPath("$.details.fields[0].reason").value("must not be in the past"));
+        assertNothingSaved();
+    }
+
+    @Test
     void 빈_목록이나_빈_값은_400() throws Exception {
         save("{\"fields\": []}").andExpect(status().isBadRequest());
         save("{\"fields\": [{\"fieldKey\": \"stayExpiry\", \"value\": \" \"}]}").andExpect(status().isBadRequest());
