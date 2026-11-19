@@ -163,6 +163,9 @@ services:
       # 금융 정책 문서(레포 밖, 서버 ~/hanstep/rag-data/finance-policy 에 수동 배치). 컨테이너 사용자(uid 10001)가 읽을 수 있어야 한다.
       # 호스트 폴더가 없으면 Docker 가 root 소유 빈 폴더를 만들어 검색 구축이 실패하므로 먼저 만들어 둔다
       - ../../rag-data/finance-policy:/data/finance-policy:ro
+      # 상품·금융 정책 검색기 임베딩 캐시. 재생성해도 남아 두 번째 기동부터 다시 계산하지 않는다(#133).
+      # 이미지에 이 폴더가 uid 10001 소유로 있어야 한다(AI #98). 폴더가 없는 이미지로 먼저 붙이면 root 소유 볼륨이 남아 캐시를 쓰지 못한다
+      - ai-rag-cache:/app/artifacts/rag/embedding-cache
     depends_on:
       mongodb:
         condition: service_healthy
@@ -270,5 +273,6 @@ volumes:
   mongo-config:
   mongo-search:
   hf-cache:
+  ai-rag-cache:
   caddy-data:
   caddy-config:
