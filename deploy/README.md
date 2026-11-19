@@ -86,6 +86,7 @@ docker compose -f deploy/compose.prod.yml ps
   - `2026-11-17-bill-payments-e74-approved.sql`: 청구 납부 테이블·Reyes 납부 내역(#87), E-7-4 2026 규칙 승인(#95). 실행 명령과 확인 쿼리는 파일 맨 위·맨 아래에 있다.
   - `2026-11-17-policy-documents-approved.sql`: 비자 정책 문서 1~6번 승인과 이력(#134, 관리자 계정이 없어 운영 DB에 직접 실행한 SQL 기록). DRAFT인 행만 바꾸므로 운영에서는 다시 실행해도 그대로다. MySQL만 바꾸며, MongoDB 청크는 파일 아래쪽 명령으로 AI `reconcile_policy_state.py`를 따로 실행한다.
 - AI 서버는 `LOAD_MODEL_ON_STARTUP=true`라 처음에 BGE-M3(~2.3GB)를 받아 `hf-cache` 볼륨에 저장한다. 처음에는 몇 분 걸린다.
+- 상품·금융 정책 검색기 임베딩은 `ai-rag-cache` 볼륨(`/app/artifacts/rag/embedding-cache`)에 캐시해 ai-server를 다시 만들어도 다시 계산하지 않는다. 비우려면 ai-server를 멈추고 컨테이너를 지운 뒤 볼륨을 지운다: `docker compose -f deploy/compose.prod.yml rm -sf ai-server && docker volume rm hanstep_ai-rag-cache && docker compose -f deploy/compose.prod.yml up -d ai-server` (멈추기만 하면 컨테이너가 볼륨을 잡고 있어 `volume rm`이 실패한다).
 - OCR Worker 이미지는 첫 빌드가 오래 걸린다(paddle 설치·OCR 모델 다운로드). [OCR Worker](#ocr-worker)의 "첫 빌드"를 먼저 본다.
 - Caddy는 Spring이 healthy가 된 뒤 뜨고, `DOMAIN`의 인증서를 자동 발급한다. 확인: `curl https://<도메인>/api/v1/health`
 
