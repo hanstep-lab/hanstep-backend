@@ -42,7 +42,7 @@ import tools.jackson.databind.node.ObjectNode;
 /**
  * 비자 로드맵. 단계·점수·날짜는 AI 로드맵 API(규칙 엔진, 문장만 LLM)가 만들고, 여기서는 같은 프로필로 E-7-4 평가를
  * 확보한 뒤 로드맵을 받아 그대로 쌓는다. 평가와 체류 만료일이 같으면 저장된 로드맵을 돌려준다.
- * 저장된 로드맵이 LLM 문장(model_id 있음)이면 AI 를 부르지 않는다. 템플릿 문장(model_id NULL)이면 AI 를
+ * 저장된 로드맵이 LLM 문장(model_id 있음)이면 AI 를 부르지 않는다. 템플릿 문장(model_id NULL)이면 쿨다운마다 한 번 AI 를
  * 다시 불러 LLM 문장이 오면 같은 행(roadmapId 그대로)을 바꾸고, 또 템플릿이면 저장된 것을 그대로 준다(#139).
  * AI 응답을 기다리는 동안 DB 커넥션을 잡지 않도록 AI 호출은 트랜잭션 밖에서 하고 저장만 짧게 묶는다.
  */
@@ -76,16 +76,19 @@ public class VisaRoadmapService {
     private final E74ProfileSnapshotReader snapshotReader;
     private final E74AssessmentService e74AssessmentService;
     private final UserRepository userRepository;
+    private final RoadmapLlmRetryCooldown retryCooldown;
 
     public VisaRoadmapService(JdbcTemplate jdbcTemplate, TransactionTemplate transactionTemplate,
                               AiRoadmapClient aiRoadmapClient, E74ProfileSnapshotReader snapshotReader,
-                              E74AssessmentService e74AssessmentService, UserRepository userRepository) {
+                              E74AssessmentService e74AssessmentService, UserRepository userRepository,
+                              RoadmapLlmRetryCooldown retryCooldown) {
         this.jdbcTemplate = jdbcTemplate;
         this.transactionTemplate = transactionTemplate;
         this.aiRoadmapClient = aiRoadmapClient;
         this.snapshotReader = snapshotReader;
         this.e74AssessmentService = e74AssessmentService;
         this.userRepository = userRepository;
+        this.retryCooldown = retryCooldown;
     }
 
     /**
@@ -138,7 +141,7 @@ public class VisaRoadmapService {
         Optional<Stored> existing = find(userId, assessmentId, stayExpiresOn);
         if (existing.isPresent()) {
             Stored stored = existing.get();
-            if (!stored.template()) {
+            if (!stored.template() || !retryCooldown.tryAcquire(stored.id())) {
                 return stored.reused();
             }
             return retryLlmText(userId, assessment, stayExpiresOn, request, stored);
@@ -161,6 +164,7 @@ public class VisaRoadmapService {
             return find(userId, assessment.assessmentId(), stayExpiresOn).map(Stored::reused)
                     .orElseGet(() -> save(userId, assessment.assessmentId(), stayExpiresOn, roadmap));
         }
+        retryCooldown.clear(stored.id());
         log.info("visa roadmap text replaced with LLM: userId={} roadmapId={}", userId, stored.id());
         return new Result(new VisaRoadmapResponse(stored.id(), false, roadmap), true);
     }
@@ -196,6 +200,10 @@ public class VisaRoadmapService {
     private Result save(Long userId, long assessmentId, LocalDate stayExpiresOn, JsonNode roadmap) {
         try {
             Long roadmapId = transactionTemplate.execute(status -> insert(userId, assessmentId, stayExpiresOn, roadmap));
+            if (isTemplate(roadmap)) {
+                // 방금 AI 를 불렀으므로 LLM 재시도는 쿨다운 뒤
+                retryCooldown.record(roadmapId);
+            }
             return new Result(new VisaRoadmapResponse(roadmapId, false, roadmap), true);
         } catch (DuplicateKeyException e) {
             // 같은 평가·체류 만료일이 동시에 들어오면 먼저 저장된 행을 돌려준다
