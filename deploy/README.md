@@ -83,6 +83,7 @@ docker compose -f deploy/compose.prod.yml ps
 - **이미 떠 있는 DB**(볼륨 있음)에는 `db/init` 변경이 들어가지 않는다. 그런 변경은 `deploy/migrations/`에 날짜별 SQL로 두고, `git pull` 뒤 `up` 전에 순서대로 실행한다. 빠뜨리면 Spring이 스키마 검증(`ddl-auto: validate`)에서 기동에 실패할 수 있다. 여러 번 실행해도 결과가 같게 만든다.
   - `deploy/migrations/manual/`의 SQL은 자동 배포가 실행하지 않는다(정해진 때 사람이 실행). 지금은 Mock 환율 정리 SQL 하나다([환율 수집기](#환율-수집기)).
   - `2026-11-17-bill-payments-e74-approved.sql`: 청구 납부 테이블·Reyes 납부 내역(#87), E-7-4 2026 규칙 승인(#95). 실행 명령과 확인 쿼리는 파일 맨 위·맨 아래에 있다.
+  - `2026-11-17-policy-documents-approved.sql`: 비자 정책 문서 1~6번 승인과 이력(#134, 관리자 계정이 없어 운영 DB에 직접 실행한 SQL 기록). DRAFT인 행만 바꾸므로 운영에서는 다시 실행해도 그대로다. MySQL만 바꾸며, MongoDB 청크는 파일 아래쪽 명령으로 AI `reconcile_policy_state.py`를 따로 실행한다.
 - AI 서버는 `LOAD_MODEL_ON_STARTUP=true`라 처음에 BGE-M3(~2.3GB)를 받아 `hf-cache` 볼륨에 저장한다. 처음에는 몇 분 걸린다.
 - OCR Worker 이미지는 첫 빌드가 오래 걸린다(paddle 설치·OCR 모델 다운로드). [OCR Worker](#ocr-worker)의 "첫 빌드"를 먼저 본다.
 - Caddy는 Spring이 healthy가 된 뒤 뜨고, `DOMAIN`의 인증서를 자동 발급한다. 확인: `curl https://<도메인>/api/v1/health`
