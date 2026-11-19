@@ -18,6 +18,7 @@ import com.hanstep.common.security.JwtTokenProvider;
 import com.hanstep.visa.client.AiE74Client;
 import com.hanstep.visa.client.AiRoadmapClient;
 import com.hanstep.visa.client.AiRoadmapClient.AiCallException;
+import com.hanstep.visa.service.RoadmapLlmRetryCooldown;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
@@ -63,6 +64,9 @@ class VisaRoadmapApiTest {
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    private RoadmapLlmRetryCooldown retryCooldown;
 
     @MockitoBean
     private AiE74Client aiE74Client;
@@ -148,6 +152,7 @@ class VisaRoadmapApiTest {
 
     @Test
     void 같은_평가와_체류_만료일이면_200이고_AI_로드맵을_다시_부르지_않는다() throws Exception {
+        // 샘플은 템플릿 문장이지만 방금 만들었으므로 LLM 재시도 쿨다운 안이다
         long first = roadmapId(create("{}").andExpect(status().isCreated()));
 
         create("{}")
@@ -160,6 +165,27 @@ class VisaRoadmapApiTest {
         assertThat(roadmapCount()).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM visa_roadmap_steps WHERE roadmap_id = ?",
                 Integer.class, first)).isEqualTo(4);
+    }
+
+    @Test
+    void 템플릿_로드맵을_LLM_문장으로_바꾸면_201이고_roadmapId는_그대로다() throws Exception {
+        long first = roadmapId(create("{}").andExpect(status().isCreated()));
+        // 쿨다운이 지났거나 Spring 을 재시작해 시도 기록이 없는 상황(쿨다운 자체는 VisaRoadmapTemplateRetryTest)
+        retryCooldown.clear(first);
+        roadmap.set("text", MAPPER.readTree(
+                "{\"source\": \"LLM\", \"modelId\": \"claude-haiku-5-5\", \"promptVersion\": \"roadmap-v1\"}"));
+
+        create("{}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.reused").value(false))
+                .andExpect(jsonPath("$.roadmapId").value(first))
+                .andExpect(jsonPath("$.roadmap.text.source").value("LLM"));
+        mockMvc.perform(get(URL + "/latest").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.roadmapId").value(first))
+                .andExpect(jsonPath("$.roadmap.text.modelId").value("claude-haiku-5-5"));
+        verify(aiRoadmapClient, times(2)).create(any());
+        assertThat(roadmapCount()).isEqualTo(1);
     }
 
     @Test
