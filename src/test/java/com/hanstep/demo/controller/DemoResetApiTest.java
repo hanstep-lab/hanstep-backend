@@ -152,7 +152,23 @@ class DemoResetApiTest {
                 .andExpect(jsonPath("$.alertsCancelled").value(0))
                 .andExpect(jsonPath("$.profileRestored").value(false))
                 .andExpect(jsonPath("$.e74AssessmentsDeleted").value(0))
-                .andExpect(jsonPath("$.roadmapsDeleted").value(0));
+                .andExpect(jsonPath("$.roadmapsDeleted").value(0))
+                .andExpect(jsonPath("$.languageRestored").value(false));
+    }
+
+    @Test
+    void Reyes가_아닌_데모_계정은_언어를_건드리지_않는다() throws Exception {
+        long userId = TestUsers.create(jdbcTemplate, "demo-test-" + UUID.randomUUID(), "DEMO USER");
+        jdbcTemplate.update("UPDATE users SET preferred_language = 'ko' WHERE id = ?", userId);
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.languageRestored").value(false));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT preferred_language FROM users WHERE id = ?", String.class,
+                userId)).isEqualTo("ko");
     }
 
     @Test
@@ -210,13 +226,19 @@ class DemoResetApiTest {
                 UPDATE visa_profiles SET visa_type_id = (SELECT id FROM visa_types WHERE code = 'H-2'),
                   stay_expires_on = '2028-01-31', nationality_code = 'VNM', birth_date = '1990-01-01',
                   source_document_id = ?, evidence_status = 'DECLARED' WHERE user_id = ?""", documentId, reyesId);
+        // 온보딩 언어 화면에서 ko 로 바꾼 것처럼
+        jdbcTemplate.update("UPDATE users SET preferred_language = 'ko' WHERE id = ?", reyesId);
         insertAssessment(reyesId, "reyes");
         entityManager.flush();
         entityManager.clear();
 
         mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer(reyesId)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.profileRestored").value(true));
+                .andExpect(jsonPath("$.profileRestored").value(true))
+                .andExpect(jsonPath("$.languageRestored").value(true));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT preferred_language FROM users WHERE id = ?", String.class,
+                reyesId)).isEqualTo(DemoResetService.ReyesSeed.PREFERRED_LANGUAGE);
 
         Map<String, Object> profile = jdbcTemplate.queryForMap("""
                 SELECT vt.code, vp.stay_expires_on, vp.nationality_code, vp.birth_date, vp.source_document_id,

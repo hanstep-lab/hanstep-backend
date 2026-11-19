@@ -26,6 +26,9 @@ public record DemoResetResponse(
         @Schema(description = "지운 E-7-4 평가 수(e74_assessments, 항목은 CASCADE)", example = "3")
         int e74AssessmentsDeleted,
         @Schema(description = "지운 비자 로드맵 수(visa_roadmaps, 단계는 CASCADE)", example = "1")
-        int roadmapsDeleted
+        int roadmapsDeleted,
+        @Schema(description = "서비스 언어(users.preferred_language)를 데모 시드 값(en)으로 되돌렸는지. "
+                + "Reyes(demo-e9-ph-reyes)만 true", example = "true")
+        boolean languageRestored
 ) {
 }
