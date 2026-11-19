@@ -2,7 +2,7 @@ package com.hanstep.demo.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-/** 데모 계정 초기화 결과(삭제 건수). */
+/** 데모 계정 초기화 결과(삭제·변경 건수). */
 @Schema(description = "데모 계정 초기화 결과")
 public record DemoResetResponse(
         @Schema(description = "지운 등록증 문서 수(documents)", example = "1")
@@ -16,6 +16,16 @@ public record DemoResetResponse(
         @Schema(description = "지운 R2 원본 수(확정 전 문서만 원본이 남아 있음). DB 커밋 뒤에 지운다", example = "1")
         int deletedOriginals,
         @Schema(description = "지우지 못한 R2 원본 수. 실패해도 DB 는 이미 지워졌고 응답은 200", example = "0")
-        int failedOriginals
+        int failedOriginals,
+        @Schema(description = "CANCELLED 로 바꾼 ACTIVE 목표 환율 알림 수(fx_alerts, 행은 남김). 같은 조건으로 다시 만들 수 있다",
+                example = "1")
+        int alertsCancelled,
+        @Schema(description = "visa_profiles 를 데모 시드 값으로 되돌렸는지. Reyes(demo-e9-ph-reyes)만 true, "
+                + "다른 데모 계정이거나 프로필이 없으면 false", example = "true")
+        boolean profileRestored,
+        @Schema(description = "지운 E-7-4 평가 수(e74_assessments, 항목은 CASCADE)", example = "3")
+        int e74AssessmentsDeleted,
+        @Schema(description = "지운 비자 로드맵 수(visa_roadmaps, 단계는 CASCADE)", example = "1")
+        int roadmapsDeleted
 ) {
 }
