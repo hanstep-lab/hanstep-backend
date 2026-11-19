@@ -80,6 +80,10 @@ hanstep:
   e74:
     # 승인 전(DRAFT) 규칙 버전으로 계산한 결과도 저장할지. AI 서버 .env 와 같은 값. 운영은 false, 로컬·시연에서만 true
     include-draft-rules: ${E74_INCLUDE_DRAFT_RULES:false}
+  # 비자 로드맵(#139). 템플릿 문장으로 저장된 로드맵은 생성(POST) 때 AI 를 다시 불러 LLM 문장이 오면 같은 행을 바꾼다
+  roadmap:
+    # 같은 로드맵의 LLM 재시도 간격. 안이면 AI 를 부르지 않고 저장된 것을 준다. 마지막 시도 시각은 메모리(단일 인스턴스, 임시값)
+    llm-retry-cooldown: 5m
   # 환율 조회(#123). 화면(FX-001)·송금 견적(TRF-02·INT-18)·챗봇 참고 환율(INT-14)이 같은 조회(ExchangeRateReader)를 쓴다.
   # 통화마다 우선 원천 하나(KOREAEXIM > MARKET_REF > MOCK)의 값만 쓰고 원천을 섞지 않는다
   fx-rates:

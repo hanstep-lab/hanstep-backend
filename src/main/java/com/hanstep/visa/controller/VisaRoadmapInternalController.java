@@ -34,8 +34,10 @@ public class VisaRoadmapInternalController {
 
     @Operation(summary = "채팅 도구용 비자 로드맵 생성",
             description = "챗봇 도구 get_visa_roadmap 이 부른다. 앱용 로드맵 생성과 같은 서비스로 만들고 저장하며, 응답은 "
-                    + "AI 레포 app/visa/tools.py 의 RoadmapToolResponse 형식(roadmapId, roadmap. reused 는 AI 가 무시).")
-    @ApiResponse(responseCode = "201", description = "새로 만들어 저장")
+                    + "AI 레포 app/visa/tools.py 의 RoadmapToolResponse 형식(roadmapId, roadmap. reused 는 AI 가 무시). "
+                    + "재사용 규칙도 앱용과 같다(템플릿 문장 로드맵은 쿨다운마다 LLM 문장으로 다시 시도).")
+    @ApiResponse(responseCode = "201", description = "새로 만들어 저장, 또는 템플릿 문장 로드맵을 LLM 문장으로 바꿈"
+            + "(roadmapId 그대로)")
     @ApiResponse(responseCode = "200", description = "같은 평가·체류 만료일로 이미 저장된 로드맵(reused=true)")
     @ApiResponse(responseCode = "400", description = "형식 오류(details.fields). asOfDate 누락, legalDeclaration 값 범위 등",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

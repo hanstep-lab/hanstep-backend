@@ -58,7 +58,7 @@ vi deploy/.env
 - `AI_INTERNAL_API_TOKEN`은 32자 이상이며 `SPRING_INTERNAL_API_KEY`와 다른 값으로 한다.
 - `CHAT_LLM_MODE`를 비우면 `anthropic`(실제 호출, 유료)이라 `ANTHROPIC_API_KEY`가 필요하다. AI 코드 기본값은 `fake`(가짜 답변)다.
 - `E74_INCLUDE_DRAFT_RULES`는 비워 둔다(false). 2026 규칙(`E74-2026-v1`)은 승인(APPROVED) 상태라 그대로 계산된다(#95).
-- `ROADMAP_LLM_TEXT=true`면 로드맵 단계 문장을 LLM(`ANTHROPIC_API_KEY`, 모델 `claude-haiku-5-5`)으로 만든다. 비우면 TEMPLATE이다. 숫자·날짜는 엔진 값 그대로다. 생성(POST)할 때만 LLM을 1번 부르고(로컬 중앙값 3,083ms), 조회(GET)는 저장된 결과를 읽는다(11.0ms). 이미 저장된 로드맵은 바뀌지 않으므로 **켠 뒤 로드맵을 다시 생성(POST)해야 반영된다**([로드맵 문장(LLM)](#로드맵-문장llm)).
+- `ROADMAP_LLM_TEXT=true`면 로드맵 단계 문장을 LLM(`ANTHROPIC_API_KEY`, 모델 `claude-haiku-5-5`)으로 만든다. 비우면 TEMPLATE이다. 숫자·날짜는 엔진 값 그대로다. 생성(POST)할 때만 LLM을 1번 부르고(로컬 중앙값 3,083ms), 조회(GET)는 저장된 결과를 읽는다(11.0ms). **켠 뒤 생성(POST)을 해야 반영된다**. 템플릿 문장으로 저장된 로드맵은 그 POST 때 LLM 문장으로 바뀐다(쿨다운 5분, [로드맵 문장(LLM)](#로드맵-문장llm)).
 - `R2_OCR_ACCESS_KEY_ID`·`R2_OCR_SECRET_ACCESS_KEY`는 외국인등록증 버킷(`R2_ARC_BUCKET`) 전용 쓰기 키다. Spring이 등록증 앞면 업로드(PutObject)와 확정·재업로드 시 원본 삭제(DeleteObject)에 쓴다(#73). 정책·상품 키(`R2_ACCESS_KEY_ID`)와 다른 키이고, 이 버킷의 읽기·쓰기·삭제 권한만 준다. 비어 있으면 업로드가 500으로 실패한다.
 - `R2_OCR_WORKER_ACCESS_KEY_ID`·`R2_OCR_WORKER_SECRET_ACCESS_KEY`는 같은 버킷의 **읽기 전용** 키다. OCR Worker가 원본을 읽는 데(GetObject)만 쓰고, compose가 Worker에는 `R2_OCR_ACCESS_KEY_ID`·`R2_OCR_SECRET_ACCESS_KEY` 이름으로 넘긴다. 위 Spring 키와 다른 키로 만든다. 비어 있으면 OCR Worker만 종료하고(다른 서비스는 그대로 뜸), 올린 등록증은 확인 대기로 넘어가지 않는다.
 - Spring이 처음 RabbitMQ에 연결할 때 `ocr.request`·`ocr.request.retry`·`ocr.request.dlq` 큐를 선언한다(#73). `ocr-worker`가 이 큐를 소비한다. Worker가 떠 있지 않은 동안 올린 등록증의 OCR 작업은 `ocr.request`에 쌓였다가 Worker가 뜨면 처리된다.
@@ -167,7 +167,7 @@ alias dc='docker compose -f deploy/compose.prod.yml'
 
 ### 로드맵 문장(LLM)
 
-`ROADMAP_LLM_TEXT`는 ai-server 컨테이너를 다시 만들어야 적용된다. 켠 뒤 **새로 만든 로드맵부터** LLM 문장이 들어가고, 이미 저장된 로드맵은 그대로다(조회는 저장된 결과를 읽음).
+`ROADMAP_LLM_TEXT`는 ai-server 컨테이너를 다시 만들어야 적용된다. 조회(GET)는 저장된 결과를 읽으므로 켠 뒤 **생성(POST)을 해야** LLM 문장이 들어간다. 템플릿 문장으로 저장된 로드맵은 POST 때 Spring이 AI를 다시 불러, LLM 문장이 오면 같은 로드맵(`roadmapId` 그대로)을 바꾼다(#139). 다시 부르는 것은 로드맵마다 쿨다운(`hanstep.roadmap.llm-retry-cooldown`, 기본 5분)에 한 번이다. 이미 LLM 문장인 로드맵은 AI를 부르지 않는다.
 
 1. `deploy/.env`에 `ROADMAP_LLM_TEXT=true`를 넣고 ai-server만 다시 만든다. BGE-M3를 다시 올리는 동안 챗봇·로드맵 호출이 잠깐 실패할 수 있다.
 
@@ -178,7 +178,7 @@ alias dc='docker compose -f deploy/compose.prod.yml'
 
    `roadmap_llm True anthropic True model claude-haiku-5-5`가 나와야 한다.
 
-2. Reyes 로드맵을 다시 생성(POST)한다. 데모 계정 초기화(`POST /api/v1/demo/reset`, #132)는 로드맵을 지우지도 다시 만들지도 않으므로 따로 해야 한다.
+2. Reyes 로드맵을 생성(POST)한다. 데모 계정 초기화(`POST /api/v1/demo/reset`, #132)는 로드맵을 지우지도 다시 만들지도 않는다. 저장된 템플릿 로드맵은 이 POST로 바뀐다.
 
    ```bash
    TOKEN=$(curl -fsS -X POST https://<도메인>/api/v1/auth/entry -H 'Content-Type: application/json' \
@@ -186,18 +186,14 @@ alias dc='docker compose -f deploy/compose.prod.yml'
    curl -fsS -X POST -H "Authorization: Bearer $TOKEN" https://<도메인>/api/v1/visa/roadmaps | grep -o '"reused":[a-z]*\|"text":{[^}]*}'
    ```
 
-   `"reused":false`와 `"text":{"source":"LLM",...}`가 나와야 한다. 앱의 조회(`GET /api/v1/visa/roadmaps/latest`)는 가장 최근 로드맵을 주므로 이 로드맵이 보인다.
+   `"reused":false`와 `"text":{"source":"LLM",...}`가 나와야 한다. 템플릿 로드맵을 바꾼 것이면 응답이 201이고 `roadmapId`는 그대로다. 앱의 조회(`GET /api/v1/visa/roadmaps/latest`)도 바뀐 문장을 준다.
 
-   - `"reused":true`면 같은 입력·같은 기준일(오늘 KST)로 이미 만든 로드맵을 돌려준 것이라 TEMPLATE 문장 그대로다. 평가 키에 기준일이 들어가서 다음 날 POST는 새로 만든다. 바로 바꾸려면 Reyes의 템플릿 문장 로드맵(`model_id`가 NULL)을 지우고 다시 POST한다. 단계(`visa_roadmap_steps`)는 CASCADE로 함께 지워진다.
+   - `"reused":true`이고 `"source":"TEMPLATE"`이면 쿨다운 안이다. 그 로드맵으로 AI를 부른 지 5분이 지나지 않았다는 뜻이고, 템플릿으로 새로 만든 직후도 여기에 든다. 5분 뒤 다시 POST한다. Spring을 재시작하면 기록이 사라져 바로 다시 시도한다.
+   - 쿨다운이 지나 다시 POST해도 TEMPLATE이면 AI가 LLM 문장을 만들지 못한 것이다. 1번 설정을 다시 확인하고, LLM 호출 실패(15초 초과·키·한도 등)인지 AI 로그를 본다. 템플릿은 저장된 것 그대로 남고, 다음 쿨다운 뒤 POST 때 다시 시도한다.
 
      ```bash
-     dc exec -T mysql sh -c 'mysql --default-character-set=utf8mb4 -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' <<'SQL'
-     DELETE r FROM visa_roadmaps r JOIN users u ON u.id = r.user_id
-     WHERE u.external_user_key = 'demo-e9-ph-reyes' AND r.model_id IS NULL;
-     SQL
+     dc logs --since 10m ai-server | grep "roadmap text LLM"
      ```
-
-   - `"source":"TEMPLATE"`이고 `fallbackReason`이 있으면 LLM 호출이 실패해(15초 초과·키·한도 등) 템플릿으로 저장된 것이다. 같은 날 다시 POST하면 이 결과를 재사용하므로 위 SQL로 지운 뒤 다시 한다.
 
 ## OCR Worker
 
