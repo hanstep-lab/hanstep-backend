@@ -37,9 +37,17 @@ public class VisaRoadmapController {
     @Operation(summary = "비자 로드맵 생성",
             description = "MySQL 의 체류·근무·소득·증빙과 체류 만료일로 E-7-4 평가를 확보하고(같은 입력이면 재사용) "
                     + "AI 로드맵 API 를 불러 결과를 쌓는다. 감점·제외 6문항(legalDeclaration)은 저장하지 않고 이번 계산에만 쓴다. "
-                    + "같은 평가·체류 만료일로 저장된 로드맵이 있으면 AI 를 부르지 않고 200 으로 준다.")
-    @ApiResponse(responseCode = "201", description = "새로 만들어 저장")
-    @ApiResponse(responseCode = "200", description = "같은 평가·체류 만료일로 이미 저장된 로드맵(reused=true)")
+                    + "같은 평가·체류 만료일로 저장된 로드맵이 LLM 문장이면 AI 를 부르지 않고 200 으로 준다. "
+                    + "템플릿 문장(text.source TEMPLATE)이면 쿨다운(hanstep.roadmap.llm-retry-cooldown, 기본 5분)마다 "
+                    + "한 번 AI 를 다시 불러, LLM 문장이 오면 같은 행(roadmapId 그대로)을 바꾸고 201, 또 템플릿이면 "
+                    + "저장된 것을 200 으로 준다. 쿨다운 안이면 AI 를 부르지 않는다. "
+                    + "알려진 동작: LLM 이 꺼져 있으면 템플릿 로드맵 POST 때 쿨다운마다 AI 를 1회 부른다(엔진만, 빠름). "
+                    + "LLM 장애 때는 쿨다운마다 1회 AI 한도(15초)까지 기다린 뒤 저장된 템플릿을 준다. "
+                    + "쿨다운 기록은 Spring 메모리라 여러 대로 늘리면 DB 칼럼으로 옮겨야 한다.")
+    @ApiResponse(responseCode = "201", description = "새로 만들어 저장, 또는 템플릿 문장 로드맵을 LLM 문장으로 바꿈"
+            + "(reused=false, roadmapId 그대로)")
+    @ApiResponse(responseCode = "200", description = "같은 평가·체류 만료일로 이미 저장된 로드맵(reused=true). "
+            + "템플릿 문장이면 쿨다운 안이거나 다시 불러도 템플릿이었던 것")
     @ApiResponse(responseCode = "400", description = "형식 오류(details.fields). legalDeclaration 값 범위 등",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
