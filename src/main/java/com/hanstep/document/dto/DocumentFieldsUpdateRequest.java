@@ -21,7 +21,7 @@ public record DocumentFieldsUpdateRequest(
             @Schema(description = "nameEn · nationality · birthDate · visaType · stayExpiry", example = "stayExpiry")
             @NotBlank String fieldKey,
             @Schema(description = "확인한 값. nationality 는 ISO 3166-1 alpha-3(예: PHL), 날짜는 YYYY-MM-DD, "
-                    + "visaType 은 체류자격 코드(예: E-9)", example = "2027-03-01")
+                    + "stayExpiry 는 오늘 이전 불가, visaType 은 체류자격 코드(예: E-9)", example = "2027-03-01")
             @NotBlank @Size(max = 100) String value
     ) {
     }
