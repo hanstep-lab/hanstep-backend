@@ -28,7 +28,7 @@ public record ChatMessageListResponse(
                     example = "This month you can save about 675,317 KRW.")
             String content,
 
-            @Schema(description = "구조화 카드·버튼(AI 가 준 JSON 그대로). 없으면 null", nullable = true)
+            @Schema(description = ChatStreamEvents.BLOCKS_DESCRIPTION, nullable = true)
             JsonNode blocks,
 
             @Schema(description = "COMPLETED·STREAMING·PARTIAL(앱 연결 끊김으로 중단)·FAILED", example = "COMPLETED")

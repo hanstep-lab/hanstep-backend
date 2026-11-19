@@ -37,37 +37,108 @@ public class ChatController {
     static final String SESSION_EXAMPLE = """
             {"id": 12, "title": null, "status": "ACTIVE", "lastMessageAt": null,
              "createdAt": "2026-11-17T14:30:00+09:00"}""";
+    // 카드 값은 실제 출력이다(#141). 송금: 운영 대화방 1번에 저장된 값. 환율: AI 계약 문서
+    // fx_summary_tool_v1.md 의 agent.done 샘플. E-7-4: AI fixture e74_assessment_tool_response.json 으로 만든 카드.
+    // 끝의 \ 는 줄을 잇는다(SSE data 는 한 줄이어야 한다).
+    static final String REMITTANCE_CARD = """
+            {"type":"REMITTANCE_CONFIRM","recipient":{"recipientId":1,"nameEn":"LORNA REYES","relationship":"MOTHER",\
+            "bankName":"BDO","accountLast4":"5566","countryCode":"PH","currency":"PHP"},\
+            "sendAmount":{"amount":500000,"currency":"KRW"},"receiveAmount":{"amount":23521,"currency":"PHP"},\
+            "appliedRate":{"currency":"PHP","unit":1,"rate":20.984,"asOf":"2026-11-17",\
+            "sourceLabel":"ECB 기준환율 기반 참고값","isMock":false},\
+            "transferPath":"/transfer?recipientId=1&amount=500000"}""";
+    static final String FX_SUMMARY_CARD = """
+            {"type":"FX_SUMMARY_CARD","currencies":[\
+            {"currency":"USD","unit":1,"rate":1406.51,"sendRate":1420.5751,"receiveRate":1392.4449,\
+            "change":-1.08,"changeRate":-0.08,"source":"KOREAEXIM","asOf":"2026-11-06",\
+            "fetchedAt":"2026-11-06T11:05:00+09:00","periodAverages":[\
+            {"period":"1M","avg":1407.7735,"diff":-1.2635,"diffRate":-0.09,"direction":"SAME","businessDays":23},\
+            {"period":"3M","avg":1429.6566,"diff":-23.1466,"diffRate":-1.62,"direction":"LOWER","businessDays":62},\
+            {"period":"6M","avg":1419.9966,"diff":-13.4866,"diffRate":-0.95,"direction":"LOWER","businessDays":126},\
+            {"period":"1Y","avg":1418.8393,"diff":-12.3293,"diffRate":-0.87,"direction":"LOWER","businessDays":246}],\
+            "isMock":true,"stale":true},\
+            {"currency":"PHP","unit":1,"rate":20.984,"sendRate":null,"receiveRate":null,\
+            "change":0.112,"changeRate":0.54,"source":"MARKET_REF","asOf":"2026-11-17",\
+            "fetchedAt":"2026-11-18T14:13:52+09:00","periodAverages":[\
+            {"period":"1M","avg":21.0393,"diff":-0.0553,"diffRate":-0.26,"direction":"LOWER","businessDays":22},\
+            {"period":"3M","avg":21.5431,"diff":-0.5591,"diffRate":-2.6,"direction":"LOWER","businessDays":67},\
+            {"period":"6M","avg":22.9364,"diff":-1.9524,"diffRate":-8.51,"direction":"LOWER","businessDays":132},\
+            {"period":"1Y","avg":23.8157,"diff":-2.8317,"diffRate":-11.89,"direction":"LOWER","businessDays":255}],\
+            "isMock":false,"stale":false}],"unavailableCurrencies":[]}""";
+    static final String E74_SCORE_CARD = """
+            {"type":"E74_SCORE_CARD","assessmentId":77,"status":"ELIGIBLE","total":305,"potentialTotal":305,\
+            "required":200,"ruleVersion":"E74-2026-v1","ruleStatus":"DRAFT","isScenario":false}""";
+
     static final String MESSAGES_EXAMPLE = """
             {"messages": [
-              {"id": 10, "role": "USER", "content": "How much can I save this month?", "blocks": null,
+              {"id": 10, "role": "USER", "content": "Send 500,000 KRW to my mother.", "blocks": null,
                "status": "COMPLETED", "clientMessageId": "c0a8012e-7f3b-4d1a-9c55-2b6f0e3d9a10",
                "runId": "run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59", "replyToId": null, "sources": [],
                "latencyMs": null, "createdAt": "2026-11-17T14:30:00+09:00"},
-              {"id": 11, "role": "ASSISTANT", "content": "You can save about 675,317 KRW this month.",
-               "blocks": [{"type": "BALANCE_CARD"}], "status": "COMPLETED", "clientMessageId": null,
-               "runId": "run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59", "replyToId": 10,
-               "sources": [{"type": "FINANCIAL_ANALYSIS", "id": 7, "chunkRef": null, "pageLabel": null}],
+              {"id": 11, "role": "ASSISTANT",
+               "content": "Sending 500,000 KRW to LORNA REYES comes to 23,521 PHP (1 PHP = 20.984 KRW).",
+               "blocks": [""" + REMITTANCE_CARD + """
+            ], "status": "COMPLETED", "clientMessageId": null,
+               "runId": "run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59", "replyToId": 10, "sources": [],
                "latencyMs": 4210, "createdAt": "2026-11-17T14:30:04+09:00"}
             ],
              "page": {"nextCursor": null, "hasNext": false}}""";
-    static final String STREAM_DONE_EXAMPLE = """
+    // 송금·환율 도구는 resultRef·근거를 만들지 않는다(resultRef null, chat.sources 없음).
+    // 도구 실행 시간(latencyMs)은 출처가 없어 null 로 둔다.
+    static final String STREAM_REMITTANCE_EXAMPLE = """
             event: chat.started
             data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","userMessageId":10,"assistantMessageId":11}
 
             event: chat.tool_call
-            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","order":1,"toolName":"get_financial_analysis","status":"SUCCEEDED","resultRef":{"type":"FINANCIAL_ANALYSIS","id":7},"latencyMs":320}
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","order":1,"toolName":"quote_remittance","status":"SUCCEEDED","resultRef":null,"latencyMs":null}
 
             event: chat.delta
-            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","text":"You can save "}
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","text":"Sending 500,000 KRW to LORNA REYES "}
 
             event: chat.delta
-            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","text":"about 675,317 KRW this month."}
-
-            event: chat.sources
-            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","sources":[{"type":"FINANCIAL_ANALYSIS","id":7,"chunkRef":null,"pageLabel":null}]}
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","text":"comes to 23,521 PHP (1 PHP = 20.984 KRW)."}
 
             event: chat.done
-            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","assistantMessageId":11,"blocks":[{"type":"BALANCE_CARD"}],"latencyMs":4210}
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","assistantMessageId":11,"blocks":[""" + REMITTANCE_CARD + """
+            ],"latencyMs":4210}
+            """;
+    static final String STREAM_FX_EXAMPLE = """
+            event: chat.started
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","userMessageId":10,"assistantMessageId":11}
+
+            event: chat.tool_call
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","order":1,"toolName":"fx_rate_summary","status":"SUCCEEDED","resultRef":null,"latencyMs":null}
+
+            event: chat.delta
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","text":"1 USD = 1406.51 KRW "}
+
+            event: chat.delta
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","text":"and 1 PHP = 20.984 KRW."}
+
+            event: chat.done
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","assistantMessageId":11,"blocks":[""" + FX_SUMMARY_CARD + """
+            ],"latencyMs":4210}
+            """;
+    // resultRef·근거는 AI 테스트(test_chat_visa_tools)가 확인하는 calculate_e74_score 출력과 같다
+    static final String STREAM_E74_EXAMPLE = """
+            event: chat.started
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","userMessageId":10,"assistantMessageId":11}
+
+            event: chat.tool_call
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","order":1,"toolName":"calculate_e74_score","status":"SUCCEEDED","resultRef":{"type":"E74_ASSESSMENT","id":77},"latencyMs":null}
+
+            event: chat.delta
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","text":"Your E-7-4 mock score is 305 points "}
+
+            event: chat.delta
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","text":"and the required total is 200."}
+
+            event: chat.sources
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","sources":[{"type":"E74_ASSESSMENT","id":77,"chunkRef":null,"pageLabel":null}]}
+
+            event: chat.done
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","assistantMessageId":11,"blocks":[""" + E74_SCORE_CARD + """
+            ],"latencyMs":4210}
             """;
     static final String STREAM_ERROR_EXAMPLE = """
             event: chat.started
@@ -158,7 +229,9 @@ public class ChatController {
                     앱이 중간에 끊으면 답변은 PARTIAL 로 저장되고 AI 생성도 멈춘다.""")
     @ApiResponse(responseCode = "200", description = "이벤트 스트림",
             content = @Content(mediaType = MediaType.TEXT_EVENT_STREAM_VALUE, schema = @Schema(type = "string"),
-                    examples = {@ExampleObject(name = "성공", value = STREAM_DONE_EXAMPLE),
+                    examples = {@ExampleObject(name = "송금 카드", value = STREAM_REMITTANCE_EXAMPLE),
+                            @ExampleObject(name = "환율 카드(프롬프트 v4.4부터)", value = STREAM_FX_EXAMPLE),
+                            @ExampleObject(name = "E-7-4 카드", value = STREAM_E74_EXAMPLE),
                             @ExampleObject(name = "실패", value = STREAM_ERROR_EXAMPLE)}))
     @ApiResponse(responseCode = "400", description = "clientMessageId 1~64자, content 1~2000자(공백만 안 됨) 위반(details.fields)",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
