@@ -128,10 +128,10 @@ public class SolGlobalLoanService {
 
     private static Terms terms() {
         return new Terms("상품 조건", SolGlobalLoanProduct.BASIS, List.of(
-                new TermRow("대출 한도", "최대 5,000만 원"),
-                new TermRow("대출 기간", "6개월 ~ 36개월(만기는 체류 만료일 전월까지)"),
-                new TermRow("상환 방식", SolGlobalLoanProduct.REPAYMENT_METHOD),
-                new TermRow("금리", "상품설명서에서 확인")));
+                new TermRow("limit", "대출 한도", "최대 5,000만 원"),
+                new TermRow("term", "대출 기간", "6개월 ~ 36개월(만기는 체류 만료일 전월까지)"),
+                new TermRow("repayment", "상환 방식", SolGlobalLoanProduct.REPAYMENT_METHOD),
+                new TermRow("rate", "금리", "상품설명서에서 확인")));
     }
 
     // 만 원 미만 버림. 예: 32,100,000 → "3,210만 원"

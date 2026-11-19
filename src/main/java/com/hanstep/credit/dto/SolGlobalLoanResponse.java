@@ -75,6 +75,10 @@ public record SolGlobalLoanResponse(
 
     @Schema(name = "SolGlobalLoanTermRow")
     public record TermRow(
+            @Schema(description = "행 구분(limit·term·repayment·rate). 앱은 label 이 아니라 이 값으로 행을 찾는다",
+                    example = "limit")
+            String key,
+
             @Schema(example = "대출 한도")
             String label,
 

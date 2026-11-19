@@ -11,6 +11,13 @@ import tools.jackson.databind.JsonNode;
  */
 public final class ChatStreamEvents {
 
+    /** 메시지 목록(CHT-03)과 chat.done 의 blocks 설명. 카드별 예시는 CHT-04 응답 예시에 있다. */
+    public static final String BLOCKS_DESCRIPTION = "AI가 도구 성공 시 코드로 만든 카드 배열(그대로 저장·전달). 없으면 null. "
+            + "type: REMITTANCE_CONFIRM(quote_remittance), E74_SCORE_CARD·MISSING_INPUTS(calculate_e74_score), "
+            + "FX_SUMMARY_CARD(fx_rate_summary, 프롬프트 v4.4부터). "
+            + "E74_SCORE_CARD 의 ruleStatus 는 DRAFT 또는 APPROVED. "
+            + "MISSING_INPUTS 는 fields[]: {field, question}(판정에 더 필요한 입력)";
+
     private ChatStreamEvents() {
     }
 
@@ -30,7 +37,7 @@ public final class ChatStreamEvents {
 
     @Schema(name = "ChatToolCallEvent", description = "event: chat.tool_call. AI 가 도구(계산·조회)를 하나 끝낼 때마다 온다. "
             + "끝난 뒤에 오므로 진행 중 상태는 없다. 화면 문구(예: \"재무 분석을 확인했어요\")는 서버가 주지 않으며 "
-            + "앱이 toolName 별로 정한다")
+            + "앱이 toolName 별로 정한다. 한 답변에 도구 이벤트가 여러 번 올 수 있음")
     public record ToolCall(
             @Schema(example = "run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59")
             String runId,
@@ -92,7 +99,7 @@ public final class ChatStreamEvents {
             @Schema(example = "11")
             long assistantMessageId,
 
-            @Schema(description = "구조화 카드·버튼(AI 가 준 JSON 그대로). 없으면 null", nullable = true)
+            @Schema(description = BLOCKS_DESCRIPTION, nullable = true)
             JsonNode blocks,
 
             @Schema(description = "요청 수신부터 완료까지 ms", example = "4210")
