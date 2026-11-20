@@ -34,8 +34,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class CommitmentService {
 
-    /** 고정생활비 묶음(CommitmentTotals.fixedLiving). */
-    private static final Set<CommitmentType> FIXED_LIVING = EnumSet.of(CommitmentType.RENT, CommitmentType.UTILITY,
+    /** 고정생활비 묶음(CommitmentTotals.fixedLiving). 온보딩 요약(ONB-04)도 같은 묶음으로 입력 여부를 본다. */
+    public static final Set<CommitmentType> FIXED_LIVING = EnumSet.of(CommitmentType.RENT, CommitmentType.UTILITY,
             CommitmentType.TELECOM, CommitmentType.LIVING_MINIMUM, CommitmentType.OTHER);
 
     private final MonthlyCommitmentRepository commitmentRepository;

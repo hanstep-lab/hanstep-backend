@@ -6,6 +6,7 @@ import com.hanstep.consent.domain.ConsentStatus;
 import com.hanstep.consent.domain.ConsentType;
 import com.hanstep.consent.domain.UserConsent;
 import com.hanstep.consent.repository.UserConsentRepository;
+import com.hanstep.finance.service.FinanceAnalysisService;
 import com.hanstep.mydata.domain.ConnectionStatus;
 import com.hanstep.mydata.domain.DataConnection;
 import com.hanstep.mydata.domain.Institution;
@@ -20,6 +21,7 @@ import com.hanstep.mydata.repository.DataConnectionRepository;
 import com.hanstep.mydata.repository.FinancialAccountRepository;
 import com.hanstep.mydata.repository.FinancialTransactionRepository;
 import com.hanstep.mydata.repository.InstitutionRepository;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -28,15 +30,19 @@ import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
  * MYD-01 기관 목록, MYD-02 연결·적재, MYD-03 연결 상태.
- * MYD-02 는 검사(404·403·키 형식) 후 적재를 맡기고, MYD-03 과 같은 연결 상태 전체를 돌려줌.
+ * MYD-02 는 검사(404·403·키 형식) 후 적재를 맡기고, 새로 적재했으면 금융 분석(FIN-05)을 이어서 실행한 뒤
+ * MYD-03 과 같은 연결 상태 전체를 돌려줌(#149).
  */
 @Service
 public class MydataConnectionService {
@@ -44,6 +50,7 @@ public class MydataConnectionService {
     private static final int DEFAULT_LOOKBACK_MONTHS = 12;
     private static final int MAX_KEY_LENGTH = 100; // ingestion_batches.request_key
     private static final ObjectMapper MAPPER = JsonMapper.builder().build();
+    private static final Logger log = LoggerFactory.getLogger(MydataConnectionService.class);
     // ON-003A·003B 화면의 기관(신한은행·신한카드). MOCK_TELECOM 등은 목록에서 뺌
     private static final List<InstitutionType> LISTED_TYPES = List.of(InstitutionType.BANK, InstitutionType.CARD);
 
@@ -54,6 +61,7 @@ public class MydataConnectionService {
     private final FinancialTransactionRepository transactionRepository;
     private final MockMydataReader reader;
     private final MockIngestionService ingestionService;
+    private final FinanceAnalysisService financeAnalysisService;
 
     public MydataConnectionService(InstitutionRepository institutionRepository,
                                    UserConsentRepository consentRepository,
@@ -61,7 +69,8 @@ public class MydataConnectionService {
                                    FinancialAccountRepository accountRepository,
                                    FinancialTransactionRepository transactionRepository,
                                    MockMydataReader reader,
-                                   MockIngestionService ingestionService) {
+                                   MockIngestionService ingestionService,
+                                   FinanceAnalysisService financeAnalysisService) {
         this.institutionRepository = institutionRepository;
         this.consentRepository = consentRepository;
         this.connectionRepository = connectionRepository;
@@ -69,6 +78,7 @@ public class MydataConnectionService {
         this.transactionRepository = transactionRepository;
         this.reader = reader;
         this.ingestionService = ingestionService;
+        this.financeAnalysisService = financeAnalysisService;
     }
 
     /** MYD-01. institutions 중 BANK·CARD 업권만(ID 순). MVP 기관은 모두 Mock. */
@@ -95,7 +105,26 @@ public class MydataConnectionService {
                 .map(i -> new MockIngestionService.Target(i.getId(), reader.read(i.getInstitutionCode()).orElse(null)))
                 .toList();
         boolean created = ingestionService.ingest(userId, idempotencyKey, consentId, scopes, lookbackMonths, targets);
+        if (created) {
+            analyzeAfterIngest(userId, idempotencyKey);
+        }
         return new ConnectResult(connections(userId), created);
+    }
+
+    /**
+     * 적재(커밋 끝남)에 이어 FIN-05 를 실행한다. 분석 키는 MYD-02 키에서 만들어 같은 연결이면 같은 키.
+     * 분석이 실패해도(거래 없음·AI 오류 등) 연결은 이미 끝났으므로 응답은 그대로 두고 경고 로그만 남긴다.
+     * 실패한 분석은 FIN-05 를 새 키로 다시 부르면 된다.
+     */
+    private void analyzeAfterIngest(Long userId, String idempotencyKey) {
+        String analysisKey = "mydata-" + UUID.nameUUIDFromBytes(idempotencyKey.getBytes(StandardCharsets.UTF_8));
+        try {
+            financeAnalysisService.analyze(userId, analysisKey);
+        } catch (BusinessException e) {
+            log.warn("finance analysis after mydata ingest failed: userId={} code={}", userId, e.getErrorCode());
+        } catch (RuntimeException e) {
+            log.warn("finance analysis after mydata ingest failed: userId={}", userId, e);
+        }
     }
 
     /** MYD-03. 사용자의 연결 상태 전체(MYD-02 응답과 같음). 계좌·거래 수는 DB 에서 집계. 연결한 적 없으면 빈 목록. */
