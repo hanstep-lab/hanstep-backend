@@ -57,7 +57,7 @@ vi deploy/.env
 - `SPRING_INTERNAL_API_KEY`는 32자 이상이다. compose가 같은 값을 Spring, AI 서버·AI Worker, OCR Worker에 넣는다.
 - `AI_INTERNAL_API_TOKEN`은 32자 이상이며 `SPRING_INTERNAL_API_KEY`와 다른 값으로 한다.
 - `CHAT_LLM_MODE`를 비우면 `anthropic`(실제 호출, 유료)이라 `ANTHROPIC_API_KEY`가 필요하다. AI 코드 기본값은 `fake`(가짜 답변)다.
-- `CHAT_PROMPT_VERSION`은 비워 둔다. 운영 버전은 compose 기본값(`v4.4`, 금융 정책 검색 + 환율 진단 도구·카드)으로 정한다(#143, 측정은 hanstep-AI #101). 금융 정책 검색은 서버 `~/hanstep/rag-data/finance-policy` 문서 폴더와 `FINANCE_POLICY_CORPUS_DIR`가 있어야 켜진다. 없으면 `/health/ready`가 ready여도 `financePolicySearch`가 `not_configured`다. 급히 되돌릴 때는 `.env`에 `CHAT_PROMPT_VERSION=v4.1`을 넣고 ai-server만 다시 만든다.
+- `CHAT_PROMPT_VERSION`은 비워 둔다. 운영 버전은 compose 기본값(`v4.6`, 금융 정책 검색 + 환율 진단 도구·카드 + 상품 추천 카드 + 답변 표시 규칙)으로 정한다(#143·#154, 측정은 hanstep-AI #101·#116, FE 렌더링은 hanstep-frontend #58). 금융 정책 검색은 서버 `~/hanstep/rag-data/finance-policy` 문서 폴더와 `FINANCE_POLICY_CORPUS_DIR`가 있어야 켜진다. 없으면 `/health/ready`가 ready여도 `financePolicySearch`가 `not_configured`다. 급히 되돌릴 때는 `.env`에 `CHAT_PROMPT_VERSION=v4.5`(표시 규칙 전)를 넣고 ai-server만 다시 만든다.
 - `E74_INCLUDE_DRAFT_RULES`는 비워 둔다(false). 2026 규칙(`E74-2026-v1`)은 승인(APPROVED) 상태라 그대로 계산된다(#95).
 - `ROADMAP_LLM_TEXT=true`면 로드맵 단계 문장을 LLM(`ANTHROPIC_API_KEY`, 모델 `claude-haiku-5-5`)으로 만든다. 비우면 TEMPLATE이다. 숫자·날짜는 엔진 값 그대로다. 생성(POST)할 때만 LLM을 1번 부르고(로컬 중앙값 3,083ms), 조회(GET)는 저장된 결과를 읽는다(11.0ms). **켠 뒤 생성(POST)을 해야 반영된다**. 템플릿 문장으로 저장된 로드맵은 그 POST 때 LLM 문장으로 바뀐다(쿨다운 5분, [로드맵 문장(LLM)](#로드맵-문장llm)).
 - `R2_OCR_ACCESS_KEY_ID`·`R2_OCR_SECRET_ACCESS_KEY`는 외국인등록증 버킷(`R2_ARC_BUCKET`) 전용 쓰기 키다. Spring이 등록증 앞면 업로드(PutObject)와 확정·재업로드 시 원본 삭제(DeleteObject)에 쓴다(#73). 정책·상품 키(`R2_ACCESS_KEY_ID`)와 다른 키이고, 이 버킷의 읽기·쓰기·삭제 권한만 준다. 비어 있으면 업로드가 500으로 실패한다.
