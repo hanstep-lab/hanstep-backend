@@ -28,11 +28,13 @@ public class DemoResetController {
     @Operation(summary = "데모 계정 초기화",
             description = "본문 없음. 요청한 사용자 본인의 온보딩 진행(onboarding_progress)과 등록증 문서(documents·"
                     + "document_fields)·OCR 작업(ai_jobs)·E-7-4 평가(e74_assessments)·비자 로드맵(visa_roadmaps)을 "
-                    + "지우고, ACTIVE 목표 환율 알림을 CANCELLED 로 바꾼다(같은 조건으로 다시 만들 수 있음). "
+                    + "지우고, ACTIVE 목표 환율 알림(같은 조건으로 다시 만들 수 있음)과 ACTIVE 금융 목표(온보딩 목표 선택이 "
+                    + "체크 없이 시작)를 CANCELLED 로, 매달 나가는 돈(monthly_commitments, 맞춤 질문이 빈 값으로 시작)을 "
+                    + "비활성으로 바꾼다. "
                     + "Reyes(demo-e9-ph-reyes)는 visa_profiles 의 체류자격·만료일·국적·생년월일·증빙 상태와 서비스 언어"
-                    + "(users.preferred_language, en)를 데모 시드 값으로 되돌린다.모두 한 트랜잭션이고, 커밋 뒤 확정 전 문서의 R2 원본을 지운다. "
+                    + "(users.preferred_language, en)를 데모 시드 값으로 되돌린다. 모두 한 트랜잭션이고, 커밋 뒤 확정 전 문서의 R2 원본을 지운다. "
                     + "초기화 뒤 ONB-01 은 NOT_STARTED. 입국일·이전 체류 개월, 다른 데모 계정의 visa_profiles, "
-                    + "목표·마이데이터·금융 분석은 그대로 둔다.")
+                    + "마이데이터·금융 분석은 그대로 둔다.")
     @ApiResponse(responseCode = "200", description = "초기화(삭제·변경 건수). R2 원본 삭제가 실패해도 200(failedOriginals)")
     @ApiResponse(responseCode = "401", description = "토큰 없음·만료",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

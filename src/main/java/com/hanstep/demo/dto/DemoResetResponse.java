@@ -29,6 +29,12 @@ public record DemoResetResponse(
         int roadmapsDeleted,
         @Schema(description = "서비스 언어(users.preferred_language)를 데모 시드 값(en)으로 되돌렸는지. "
                 + "Reyes(demo-e9-ph-reyes)만 true", example = "true")
-        boolean languageRestored
+        boolean languageRestored,
+        @Schema(description = "CANCELLED 로 바꾼 ACTIVE 금융 목표 수(financial_goals, 행은 남김). "
+                + "온보딩 목표 선택 화면이 체크 없이 시작한다", example = "2")
+        int goalsCancelled,
+        @Schema(description = "비활성(is_active=false)으로 바꾼 매달 나가는 돈 항목 수(monthly_commitments, 행은 남김). "
+                + "온보딩 맞춤 질문이 빈 값으로 시작한다", example = "3")
+        int commitmentsDeactivated
 ) {
 }

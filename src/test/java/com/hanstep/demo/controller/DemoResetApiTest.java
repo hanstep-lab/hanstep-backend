@@ -153,7 +153,55 @@ class DemoResetApiTest {
                 .andExpect(jsonPath("$.profileRestored").value(false))
                 .andExpect(jsonPath("$.e74AssessmentsDeleted").value(0))
                 .andExpect(jsonPath("$.roadmapsDeleted").value(0))
-                .andExpect(jsonPath("$.languageRestored").value(false));
+                .andExpect(jsonPath("$.languageRestored").value(false))
+                .andExpect(jsonPath("$.goalsCancelled").value(0))
+                .andExpect(jsonPath("$.commitmentsDeactivated").value(0));
+    }
+
+    @Test
+    void 매달_나가는_돈은_비활성으로_바꿔_맞춤_질문이_빈_값으로_시작한다() throws Exception {
+        long userId = TestUsers.create(jdbcTemplate, "demo-test-" + UUID.randomUUID(), "DEMO USER");
+        String bearer = bearer(userId);
+        // 맞춤 질문에서 고정생활비·변동지출을 입력한 상태. 이미 비활성인 행은 세지 않는다
+        insertCommitment(userId, "LIVING_MINIMUM", 1_250_000, true);
+        insertCommitment(userId, "VARIABLE_EXPENSE", 1_000_000, true);
+        insertCommitment(userId, "RENT", 400_000, false);
+
+        mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.commitmentsDeactivated").value(2));
+
+        // 행은 남는다
+        assertThat(count("SELECT COUNT(*) FROM monthly_commitments WHERE user_id = ?", userId)).isEqualTo(3);
+        assertThat(count("SELECT COUNT(*) FROM monthly_commitments WHERE user_id = ? AND is_active", userId)).isZero();
+        mockMvc.perform(get("/api/v1/commitments").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(0))
+                .andExpect(jsonPath("$.totals.fixedLiving.amount").value(0));
+    }
+
+    @Test
+    void ACTIVE_금융_목표는_CANCELLED로_바꿔_목표_선택이_체크_없이_시작한다() throws Exception {
+        long userId = TestUsers.create(jdbcTemplate, "demo-test-" + UUID.randomUUID(), "DEMO USER");
+        String bearer = bearer(userId);
+        // 온보딩에서 목돈 마련·본국 송금을 고른 상태
+        long lumpSum = insertGoal(userId, "LUMP_SUM", "ACTIVE");
+        long remittance = insertGoal(userId, "REMITTANCE", "ACTIVE");
+        long achieved = insertGoal(userId, "CREDIT", "ACHIEVED");
+        mockMvc.perform(get("/api/v1/goals").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(jsonPath("$.goals.length()").value(2));
+
+        mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.goalsCancelled").value(2));
+
+        // 행은 남고 CANCELLED, 달성한 목표는 그대로
+        assertThat(goalStatus(lumpSum)).isEqualTo("CANCELLED");
+        assertThat(goalStatus(remittance)).isEqualTo("CANCELLED");
+        assertThat(goalStatus(achieved)).isEqualTo("ACHIEVED");
+        mockMvc.perform(get("/api/v1/goals").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.goals.length()").value(0));
     }
 
     @Test
@@ -291,10 +339,16 @@ class DemoResetApiTest {
         finishSteps(userId, "LANGUAGE");
         long alertId = insertAlert(userId, "LTE", "ACTIVE");
         insertAssessment(userId, "not-demo");
+        long goalId = insertGoal(userId, "LUMP_SUM", "ACTIVE");
+        insertCommitment(userId, "RENT", 400_000, true);
 
         mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer(userId)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+
+        assertThat(goalStatus(goalId)).isEqualTo("ACTIVE");
+        assertThat(count("SELECT COUNT(*) FROM monthly_commitments WHERE user_id = ? AND is_active", userId))
+                .isEqualTo(1);
 
         assertThat(count("SELECT COUNT(*) FROM documents WHERE id = ?", documentId)).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM onboarding_progress WHERE user_id = ?", userId)).isEqualTo(1);
@@ -313,13 +367,20 @@ class DemoResetApiTest {
         insertAiJob(demoId, "OCR");
         long otherAlert = insertAlert(otherId, "LTE", "ACTIVE");
         insertRoadmap(otherId, insertAssessment(otherId, "other"), null);
+        long otherGoal = insertGoal(otherId, "REMITTANCE", "ACTIVE");
+        insertCommitment(otherId, "RENT", 400_000, true);
 
         mockMvc.perform(post(URL).header(HttpHeaders.AUTHORIZATION, bearer(demoId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.deletedOcrJobs").value(1))
                 .andExpect(jsonPath("$.alertsCancelled").value(0))
                 .andExpect(jsonPath("$.e74AssessmentsDeleted").value(0))
-                .andExpect(jsonPath("$.roadmapsDeleted").value(0));
+                .andExpect(jsonPath("$.roadmapsDeleted").value(0))
+                .andExpect(jsonPath("$.goalsCancelled").value(0))
+                .andExpect(jsonPath("$.commitmentsDeactivated").value(0));
+        assertThat(goalStatus(otherGoal)).isEqualTo("ACTIVE");
+        assertThat(count("SELECT COUNT(*) FROM monthly_commitments WHERE user_id = ? AND is_active", otherId))
+                .isEqualTo(1);
         assertThat(count(OCR_JOBS, otherId)).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("SELECT status FROM fx_alerts WHERE id = ?", String.class, otherAlert))
                 .isEqualTo("ACTIVE");
@@ -419,6 +480,21 @@ class DemoResetApiTest {
                   current_stay_started_on, prior_stay_months, source_document_id)
                 VALUES (?, (SELECT id FROM visa_types WHERE code = 'E-9'), '2027-03-01', 'PHL', '1995-08-15',
                   '2023-02-01', 12, ?)""", userId, documentId);
+    }
+
+    private long insertGoal(long userId, String goalType, String status) {
+        jdbcTemplate.update("INSERT INTO financial_goals (user_id, goal_type, status) VALUES (?, ?, ?)", userId,
+                goalType, status);
+        return jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private void insertCommitment(long userId, String type, long amount, boolean active) {
+        jdbcTemplate.update("INSERT INTO monthly_commitments (user_id, commitment_type, amount, is_active) "
+                + "VALUES (?, ?, ?, ?)", userId, type, amount, active);
+    }
+
+    private String goalStatus(long goalId) {
+        return jdbcTemplate.queryForObject("SELECT status FROM financial_goals WHERE id = ?", String.class, goalId);
     }
 
     private void finishSteps(long userId, String... steps) {
