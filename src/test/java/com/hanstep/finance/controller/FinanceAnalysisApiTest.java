@@ -153,6 +153,8 @@ class FinanceAnalysisApiTest {
                 .andExpect(jsonPath("$.balance.fixedLiving.amount").value(520000))
                 .andExpect(jsonPath("$.balance.remittance.amount").value(700000))
                 .andExpect(jsonPath("$.balance.variableExpense.amount").value(455000))
+                .andExpect(jsonPath("$.balance.fixedLivingSource").value("TRANSACTIONS"))
+                .andExpect(jsonPath("$.balance.remittanceSource").value("TRANSACTIONS"))
                 .andExpect(jsonPath("$.balance.variableExpenseSource").value("TRANSACTIONS"))
                 .andExpect(jsonPath("$.balance.spare.amount").value(675000))
                 .andExpect(jsonPath("$.balance.isMock").value(true));

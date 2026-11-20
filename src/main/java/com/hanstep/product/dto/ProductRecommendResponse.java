@@ -36,7 +36,7 @@ public record ProductRecommendResponse(
         @ArraySchema(arraySchema = @Schema(description = "제외된 상품의 이유별 개수(이름·id 없음). 제외 상품이 없으면 []"))
         List<ExcludedCount> excludedSummary,
 
-        @Schema(description = "여유자금이 마이데이터 Mock 거래로 만든 분석 값이라 항상 true", example = "true")
+        @Schema(description = "여유자금의 월소득이 마이데이터 Mock 거래로 만든 분석 값이라 항상 true", example = "true")
         boolean isMock
 ) {
 

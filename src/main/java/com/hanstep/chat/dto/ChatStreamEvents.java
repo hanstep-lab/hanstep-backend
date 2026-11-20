@@ -14,7 +14,8 @@ public final class ChatStreamEvents {
     /** 메시지 목록(CHT-03)과 chat.done 의 blocks 설명. 카드별 예시는 CHT-04 응답 예시에 있다. */
     public static final String BLOCKS_DESCRIPTION = "AI가 도구 성공 시 코드로 만든 카드 배열(그대로 저장·전달). 없으면 null. "
             + "type: REMITTANCE_CONFIRM(quote_remittance), E74_SCORE_CARD·MISSING_INPUTS(calculate_e74_score), "
-            + "FX_SUMMARY_CARD(fx_rate_summary, 프롬프트 v4.4부터). "
+            + "FX_SUMMARY_CARD(fx_rate_summary, 프롬프트 v4.4부터), "
+            + "PRODUCT_RECOMMEND_CARD(recommend_savings_products, 프롬프트 v4.5부터, 기권이면 products=[]·abstainReason). "
             + "E74_SCORE_CARD 의 ruleStatus 는 DRAFT 또는 APPROVED. "
             + "MISSING_INPUTS 는 fields[]: {field, question}(판정에 더 필요한 입력)";
 

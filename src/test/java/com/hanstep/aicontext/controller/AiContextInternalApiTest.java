@@ -37,10 +37,11 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * INT-06. 테스트 사용자에 데모 사용자(Reyes) 와 같은 값(분석·필수 확보액·목표)을 기존 서비스로 넣고, INT-06 이 FIN-06·CMT-01·GOL-01 과
- * 같은 값을 주는지 본다. INT-01(AI)은 가짜로 바꿔 끼움. 테스트마다 롤백.
+ * 같은 값을 주는지, balance 가 ONB-04 balance 와 같은 값인지(#151) 본다. INT-01(AI)은 가짜로 바꿔 끼움. 테스트마다 롤백.
  */
 @SpringBootTest(properties = InternalApiTestSupport.KEY_PROPERTY)
 @AutoConfigureMockMvc
@@ -103,6 +104,7 @@ class AiContextInternalApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value(userId))
                 .andExpect(jsonPath("$.latestAnalysis").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.balance").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.commitments.deductibleTotal.amount").value(0))
                 .andExpect(jsonPath("$.goals.length()").value(0));
     }
@@ -131,6 +133,16 @@ class AiContextInternalApiTest {
                 .andExpect(jsonPath("$.latestAnalysis.variableExpense.max.amount").value(512_400))
                 .andExpect(jsonPath("$.latestAnalysis.spare.amount").value(675_317))
                 .andExpect(jsonPath("$.latestAnalysis.dataQuality.observedMonthCount").value(12))
+                // 세 묶음 모두 입력값(시드와 같은 52·70·45만) → 여유자금은 입력값 기준 680,000
+                .andExpect(jsonPath("$.balance.avgMonthlyIncome.amount").value(2_350_000))
+                .andExpect(jsonPath("$.balance.fixedLiving.amount").value(520_000))
+                .andExpect(jsonPath("$.balance.fixedLivingSource").value("USER_INPUT"))
+                .andExpect(jsonPath("$.balance.remittance.amount").value(700_000))
+                .andExpect(jsonPath("$.balance.remittanceSource").value("USER_INPUT"))
+                .andExpect(jsonPath("$.balance.variableExpense.amount").value(450_000))
+                .andExpect(jsonPath("$.balance.variableExpenseSource").value("USER_INPUT"))
+                .andExpect(jsonPath("$.balance.spare.amount").value(680_000))
+                .andExpect(jsonPath("$.balance.isMock").value(true))
                 .andExpect(jsonPath("$.commitments.fixedLiving.amount").value(520_000))
                 .andExpect(jsonPath("$.commitments.remittance.amount").value(700_000))
                 .andExpect(jsonPath("$.commitments.variableExpense.amount").value(450_000))
@@ -147,12 +159,39 @@ class AiContextInternalApiTest {
         assertThat(context.path("latestAnalysis")).isEqualTo(app("/api/v1/finance/analyses/latest", bearer));
         assertThat(context.path("commitments")).isEqualTo(app("/api/v1/commitments", bearer).path("totals"));
         assertThat(context.path("goals")).isEqualTo(app("/api/v1/goals", bearer).path("goals"));
+        assertThat(context.path("balance")).isEqualTo(app("/api/v1/onboarding/summary", bearer).path("balance"));
 
-        // LLM 에 넘어가는 값이라 계좌·잔액·계좌번호·거래처·생년월일·등록번호가 없어야 한다
-        assertThat(raw).doesNotContainIgnoringCase("account").doesNotContainIgnoringCase("balance")
+        // LLM 에 넘어가는 값이라 계좌·잔액·계좌번호·거래처·생년월일·등록번호가 없어야 한다.
+        // balance(월 수지 요약)는 계좌 잔액이 아니므로 떼고 보고, 넣은 계좌 잔액 값(1,234,567)이 없는지 따로 본다
+        ObjectNode rest = (ObjectNode) context.deepCopy();
+        rest.remove("balance");
+        assertThat(rest.toString()).doesNotContainIgnoringCase("account").doesNotContainIgnoringCase("balance")
                 .doesNotContain("110-").doesNotContainIgnoringCase("counterparty")
                 .doesNotContainIgnoringCase("birth").doesNotContainIgnoringCase("registration")
                 .doesNotContain("TEST");
+        assertThat(raw).doesNotContain("1234567");
+    }
+
+    @Test
+    void 입력값이_없으면_balance는_latestAnalysis와_같은_값이고_ONB04와_같다() throws Exception {
+        demoAnalysis();
+
+        String raw = mockMvc.perform(get(URL.formatted(userId))
+                        .header(InternalTokenFilter.HEADER, InternalApiTestSupport.API_KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.balance.fixedLiving.amount").value(520_000))
+                .andExpect(jsonPath("$.balance.fixedLivingSource").value("TRANSACTIONS"))
+                .andExpect(jsonPath("$.balance.remittance.amount").value(700_000))
+                .andExpect(jsonPath("$.balance.remittanceSource").value("TRANSACTIONS"))
+                .andExpect(jsonPath("$.balance.variableExpense.amount").value(454_683))
+                .andExpect(jsonPath("$.balance.variableExpenseSource").value("TRANSACTIONS"))
+                .andExpect(jsonPath("$.balance.spare.amount").value(675_317))
+                .andExpect(jsonPath("$.latestAnalysis.spare.amount").value(675_317))
+                .andReturn().getResponse().getContentAsString();
+
+        String bearer = "Bearer " + jwtTokenProvider.issue(userId);
+        assertThat(MAPPER.readTree(raw).path("balance"))
+                .isEqualTo(app("/api/v1/onboarding/summary", bearer).path("balance"));
     }
 
     private void demoAnalysis() {

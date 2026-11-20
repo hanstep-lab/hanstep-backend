@@ -4,11 +4,13 @@ import com.hanstep.aicontext.dto.AiFinanceContextResponse;
 import com.hanstep.aicontext.dto.AiFxSummaryResponse;
 import com.hanstep.aicontext.dto.AiFxSummaryResponse.CurrencySummary;
 import com.hanstep.aicontext.dto.AiProductProfileResponse;
+import com.hanstep.commitment.dto.CommitmentListResponse;
 import com.hanstep.commitment.service.CommitmentService;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
 import com.hanstep.common.time.KstDates;
 import com.hanstep.finance.service.FinanceAnalysisService;
+import com.hanstep.finance.service.MonthlyBalanceService;
 import com.hanstep.fx.service.FxRateService;
 import com.hanstep.goal.service.GoalService;
 import com.hanstep.user.repository.UserRepository;
@@ -26,16 +28,19 @@ public class AiContextService {
 
     private final UserRepository userRepository;
     private final FinanceAnalysisService financeAnalysisService;
+    private final MonthlyBalanceService monthlyBalanceService;
     private final CommitmentService commitmentService;
     private final GoalService goalService;
     private final JdbcTemplate jdbcTemplate;
     private final FxRateService fxRateService;
 
     public AiContextService(UserRepository userRepository, FinanceAnalysisService financeAnalysisService,
+                            MonthlyBalanceService monthlyBalanceService,
                             CommitmentService commitmentService, GoalService goalService,
                             JdbcTemplate jdbcTemplate, FxRateService fxRateService) {
         this.userRepository = userRepository;
         this.financeAnalysisService = financeAnalysisService;
+        this.monthlyBalanceService = monthlyBalanceService;
         this.commitmentService = commitmentService;
         this.goalService = goalService;
         this.jdbcTemplate = jdbcTemplate;
@@ -46,9 +51,11 @@ public class AiContextService {
         if (!userRepository.existsById(userId)) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
         }
+        CommitmentListResponse commitments = commitmentService.getCommitments(userId);
         return new AiFinanceContextResponse(userId,
                 financeAnalysisService.findLatestCompleted(userId).orElse(null),
-                commitmentService.getCommitments(userId).totals(),
+                monthlyBalanceService.balance(userId, commitments),
+                commitments.totals(),
                 goalService.getGoals(userId).goals());
     }
 

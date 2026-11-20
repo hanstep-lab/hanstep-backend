@@ -1,15 +1,12 @@
 package com.hanstep.onboarding.service;
 
-import com.hanstep.commitment.domain.CommitmentType;
 import com.hanstep.commitment.dto.CommitmentListResponse;
-import com.hanstep.commitment.dto.CommitmentTotals;
 import com.hanstep.commitment.service.CommitmentService;
 import com.hanstep.common.dto.Money;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
 import com.hanstep.common.time.KstDates;
-import com.hanstep.finance.dto.FinanceAnalysisResponse;
-import com.hanstep.finance.service.FinanceAnalysisService;
+import com.hanstep.finance.service.MonthlyBalanceService;
 import com.hanstep.goal.service.GoalService;
 import com.hanstep.onboarding.domain.OnboardingProfile;
 import com.hanstep.onboarding.domain.OnboardingProgress;
@@ -29,10 +26,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,7 +42,7 @@ public class OnboardingService {
     private final UserRepository userRepository;
     private final GoalService goalService;
     private final CommitmentService commitmentService;
-    private final FinanceAnalysisService financeAnalysisService;
+    private final MonthlyBalanceService monthlyBalanceService;
     private final JdbcTemplate jdbcTemplate;
 
     public OnboardingService(OnboardingProgressRepository progressRepository,
@@ -55,14 +50,14 @@ public class OnboardingService {
                              UserRepository userRepository,
                              GoalService goalService,
                              CommitmentService commitmentService,
-                             FinanceAnalysisService financeAnalysisService,
+                             MonthlyBalanceService monthlyBalanceService,
                              JdbcTemplate jdbcTemplate) {
         this.progressRepository = progressRepository;
         this.profileRepository = profileRepository;
         this.userRepository = userRepository;
         this.goalService = goalService;
         this.commitmentService = commitmentService;
-        this.financeAnalysisService = financeAnalysisService;
+        this.monthlyBalanceService = monthlyBalanceService;
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -101,9 +96,8 @@ public class OnboardingService {
     }
 
     /**
-     * ONB-04. balance 의 월소득은 최신 COMPLETED 금융 분석(FIN-05) 값. 고정생활비·송금·변동지출은 사용자가 직접 입력한
-     * 매달 나가는 돈(CMT-02)에 그 묶음 항목이 있으면 입력 합계, 없으면(건너뜀) FIN-05 값. 여유자금은 여기서 다시 계산한다.
-     * 분석이 없거나 쓸 금액이 하나라도 비면(꽉 찬 달 없음) null.
+     * ONB-04. balance 는 MonthlyBalanceService 값(INT-06 balance·PRD-02 여유자금과 같음). 월소득은 FIN-05, 고정생활비·송금·
+     * 변동지출은 직접 입력한 묶음이 있으면 입력 합계, 없으면 FIN-05. 분석이 없거나 쓸 금액이 하나라도 비면 null.
      * 조회 SQL 5번: 사용자, 체류 정보, 목표, 필수 확보액, 최신 분석.
      */
     public OnboardingSummaryResponse getSummary(Long userId) {
@@ -136,28 +130,7 @@ public class OnboardingService {
                 visa,
                 goalService.getGoals(userId).goals(),
                 commitments,
-                financeAnalysisService.findLatestCompleted(userId).map(a -> balance(a, commitments)).orElse(null));
-    }
-
-    /** 묶음별로 입력값이 있으면 입력 합계, 없으면 FIN-05 값. spare = 월소득 − 고정생활비 − 송금 − 변동지출(MANDATORY_SAVING 제외). */
-    static OnboardingSummaryResponse.Balance balance(FinanceAnalysisResponse a, CommitmentListResponse commitments) {
-        Set<CommitmentType> entered = EnumSet.noneOf(CommitmentType.class);
-        commitments.items().forEach(item -> entered.add(item.commitmentType()));
-        CommitmentTotals totals = commitments.totals();
-
-        boolean fixedEntered = entered.stream().anyMatch(CommitmentService.FIXED_LIVING::contains);
-        boolean variableEntered = entered.contains(CommitmentType.VARIABLE_EXPENSE);
-        Money income = a.avgMonthlyIncome();
-        Money fixedLiving = fixedEntered ? totals.fixedLiving() : a.fixedLiving();
-        Money remittance = entered.contains(CommitmentType.REMITTANCE) ? totals.remittance() : a.remittance();
-        Money variable = variableEntered ? totals.variableExpense()
-                : a.variableExpense() == null ? null : a.variableExpense().avg();
-        if (income == null || fixedLiving == null || remittance == null || variable == null) {
-            return null;
-        }
-        Money spare = Money.krw(income.amount() - fixedLiving.amount() - remittance.amount() - variable.amount());
-        return new OnboardingSummaryResponse.Balance(income, fixedLiving, remittance, variable,
-                variableEntered ? "USER_INPUT" : "TRANSACTIONS", spare, a.isMock());
+                monthlyBalanceService.balance(userId, commitments));
     }
 
     private record VisaRow(String code, String nameEn, LocalDate stayExpiresOn, String nationalityCode) {

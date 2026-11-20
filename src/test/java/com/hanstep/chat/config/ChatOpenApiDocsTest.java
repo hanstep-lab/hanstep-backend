@@ -62,7 +62,7 @@ class ChatOpenApiDocsTest {
         JsonNode schemas = docs.path("components").path("schemas");
 
         assertThat(messages).contains("REMITTANCE_CONFIRM").doesNotContain("BALANCE_CARD");
-        assertThat(stream).contains("REMITTANCE_CONFIRM", "FX_SUMMARY_CARD", "E74_SCORE_CARD")
+        assertThat(stream).contains("REMITTANCE_CONFIRM", "FX_SUMMARY_CARD", "E74_SCORE_CARD", "PRODUCT_RECOMMEND_CARD")
                 .doesNotContain("BALANCE_CARD");
         // blocks(JsonNode)는 JsonNode 스키마 참조로 나온다. ChatDoneEvent 는 설명이 참조 대상에만 붙어 그쪽에서 읽는다
         for (String schema : new String[] {"ChatDoneEvent", "ChatMessage"}) {
@@ -71,7 +71,7 @@ class ChatOpenApiDocsTest {
                     : schemas.path(blocks.path("$ref").asString().replace("#/components/schemas/", ""))
                             .path("description").asString();
             assertThat(description).contains("REMITTANCE_CONFIRM", "E74_SCORE_CARD", "MISSING_INPUTS",
-                    "FX_SUMMARY_CARD");
+                    "FX_SUMMARY_CARD", "PRODUCT_RECOMMEND_CARD");
         }
     }
 

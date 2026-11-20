@@ -14,6 +14,8 @@ import com.hanstep.consent.domain.ConsentType;
 import com.hanstep.consent.dto.ConsentListResponse;
 import com.hanstep.consent.dto.ConsentResponse;
 import com.hanstep.consent.dto.ConsentSaveRequest;
+import com.hanstep.finance.domain.BalanceSource;
+import com.hanstep.finance.dto.MonthlyBalanceResponse;
 import com.hanstep.goal.domain.GoalStatus;
 import com.hanstep.goal.domain.GoalType;
 import com.hanstep.goal.dto.GoalListResponse;
@@ -110,9 +112,14 @@ public final class DemoExamples {
                         daysRemaining, 10),
                 goals().goals(),
                 commitments(),
-                new OnboardingSummaryResponse.Balance(
-                        Money.krw(MONTHLY_INCOME), Money.krw(FIXED_LIVING), Money.krw(REMITTANCE),
-                        Money.krw(VARIABLE_EXPENSE), "TRANSACTIONS", Money.krw(SPARE), true));
+                balance());
+    }
+
+    /** ONB-04·INT-06 balance. 위 commitments() 가 고정·송금·변동을 모두 입력한 상태라 세 항목 모두 USER_INPUT. */
+    public static MonthlyBalanceResponse balance() {
+        return new MonthlyBalanceResponse(Money.krw(MONTHLY_INCOME), Money.krw(FIXED_LIVING), BalanceSource.USER_INPUT,
+                Money.krw(REMITTANCE), BalanceSource.USER_INPUT, Money.krw(VARIABLE_EXPENSE), BalanceSource.USER_INPUT,
+                Money.krw(SPARE), true);
     }
 
     // ---- 동의 ----

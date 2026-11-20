@@ -14,8 +14,8 @@ import com.hanstep.aicontext.service.AiContextService;
 import com.hanstep.common.dto.Money;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
-import com.hanstep.finance.dto.FinanceAnalysisResponse;
-import com.hanstep.finance.service.FinanceAnalysisService;
+import com.hanstep.finance.dto.MonthlyBalanceResponse;
+import com.hanstep.finance.service.MonthlyBalanceService;
 import com.hanstep.product.client.AiProductRecommendClient;
 import com.hanstep.product.client.AiProductRecommendClient.AiCallException;
 import com.hanstep.product.client.AiProductRecommendClient.Conditions;
@@ -37,7 +37,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -50,16 +49,16 @@ class ProductRecommendServiceTest {
     private static final ProductRecommendConditions NONE = new ProductRecommendConditions(null, null, null, null, null);
 
     private final AiContextService aiContextService = mock(AiContextService.class);
-    private final FinanceAnalysisService financeAnalysisService = mock(FinanceAnalysisService.class);
+    private final MonthlyBalanceService monthlyBalanceService = mock(MonthlyBalanceService.class);
     private final AiProductRecommendClient client = mock(AiProductRecommendClient.class);
     private final ProductRecommendService service = new ProductRecommendService(aiContextService,
-            financeAnalysisService, client);
+            monthlyBalanceService, client);
 
     @BeforeEach
     void setUp() {
         when(aiContextService.productProfile(USER_ID))
                 .thenReturn(new AiProductProfileResponse("E-9", LocalDate.of(2027, 10, 4), 30, AS_OF));
-        givenAnalysis(675_317L);
+        givenBalance(675_317L);
     }
 
     @Test
@@ -76,7 +75,7 @@ class ProductRecommendServiceTest {
     @Test
     void 프로필_값이_없으면_null로_보내고_분석_결과가_없으면_여유자금도_null() {
         when(aiContextService.productProfile(USER_ID)).thenReturn(new AiProductProfileResponse(null, null, null, AS_OF));
-        when(financeAnalysisService.findLatestCompleted(USER_ID)).thenReturn(Optional.empty());
+        givenBalance(null);
         when(client.recommend(any())).thenReturn(response(null, List.of(deposit())));
 
         service.recommend(USER_ID, NONE);
@@ -89,13 +88,13 @@ class ProductRecommendServiceTest {
     void 여유자금_금액이_없으면_null_음수면_0으로_보낸다() {
         when(client.recommend(any())).thenReturn(response(null, List.of(deposit())));
 
-        givenAnalysis(null);
+        givenBalance(null);
         assertThat(service.monthlySpare(USER_ID)).isNull();
 
-        givenAnalysis(-120_000L);
+        givenBalance(-120_000L);
         assertThat(service.monthlySpare(USER_ID)).isZero();
 
-        givenAnalysis(0L);
+        givenBalance(0L);
         assertThat(service.monthlySpare(USER_ID)).isZero();
     }
 
@@ -204,9 +203,12 @@ class ProductRecommendServiceTest {
     }
 
     // 다른 when(...) 안에서 목을 만들면 Mockito 가 중첩 스터빙으로 실패하므로 먼저 만든다
-    private void givenAnalysis(Long spare) {
-        FinanceAnalysisResponse analysis = mock(FinanceAnalysisResponse.class);
-        when(analysis.spare()).thenReturn(spare == null ? null : new Money(spare, Money.KRW));
-        when(financeAnalysisService.findLatestCompleted(USER_ID)).thenReturn(Optional.of(analysis));
+    /** 월 수지 요약(ONB-04·INT-06 balance 와 같은 값). spare 가 null 이면 요약 없음(분석 없음·금액 빔). */
+    private void givenBalance(Long spare) {
+        MonthlyBalanceResponse balance = spare == null ? null : mock(MonthlyBalanceResponse.class);
+        if (balance != null) {
+            when(balance.spare()).thenReturn(new Money(spare, Money.KRW));
+        }
+        when(monthlyBalanceService.balance(USER_ID)).thenReturn(balance);
     }
 }

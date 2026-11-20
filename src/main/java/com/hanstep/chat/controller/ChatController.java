@@ -39,6 +39,7 @@ public class ChatController {
              "createdAt": "2026-11-17T14:30:00+09:00"}""";
     // 카드 값은 실제 출력이다(#141). 송금: 운영 대화방 1번에 저장된 값. 환율: AI 계약 문서
     // fx_summary_tool_v1.md 의 agent.done 샘플. E-7-4: AI fixture e74_assessment_tool_response.json 으로 만든 카드.
+    // 상품 추천: AI 계약 문서 product_recommend_card_v1.md(hanstep-AI bfee51b) 예시 1, 추천기 실행 출력(#151).
     // 끝의 \ 는 줄을 잇는다(SSE data 는 한 줄이어야 한다).
     static final String REMITTANCE_CARD = """
             {"type":"REMITTANCE_CONFIRM","recipient":{"recipientId":1,"nameEn":"LORNA REYES","relationship":"MOTHER",\
@@ -68,6 +69,35 @@ public class ChatController {
     static final String E74_SCORE_CARD = """
             {"type":"E74_SCORE_CARD","assessmentId":77,"status":"ELIGIBLE","total":305,"potentialTotal":305,\
             "required":200,"ruleVersion":"E74-2026-v1","ruleStatus":"DRAFT","isScenario":false}""";
+    static final String PRODUCT_RECOMMEND_CARD = """
+            {"type":"PRODUCT_RECOMMEND_CARD","asOf":"2026-11-20","remainingStayMonths":10,"abstainReason":null,\
+            "products":[{"productId":"doc-de733331abd3","nameKo":"신한 땡겨요 적금","kind":"SAVINGS","termMonths":{"min":6,\
+            "max":6},"monthlyAmountKrw":{"min":1000,"max":300000},"depositAmountKrw":null,"accrual":"FLEXIBLE",\
+            "foreignerEligible":"inferred","notChecked":["visa","age"],"stayFits":true,"baseRate":{"ratePct":2.2,\
+            "asOf":"2026-10-01","quote":"기본이자율 (2026.10.01 현재, 세전) 연 2.20%","page":1},"maxRate":{"ratePct":3.7,\
+            "quote":"최고이자율 (2026.10.01 현재, 세전) 최고 연 3.70%","page":2},\
+            "feature":{"quote":"신한은행 배달앱 “땡겨요” 서비스를 이용하거나 주단위 적금 납입 미션 달성 고객에게 우대금리를 제공하는 적립식 상품","page":1},\
+            "evidence":[{"about":"term","quote":"계약기간 6개월","page":1},{"about":"amount","quote":"최소 1천원 이상 월 30만원 이하",\
+            "page":1},{"about":"accrual","quote":"상품유형 자유적립식","page":1},{"about":"foreigners",\
+            "quote":"가입대상 실명의 개인 및 개인사업자","page":1}]},{"productId":"doc-ad95d3f72e39","nameKo":"정기적금",\
+            "kind":"SAVINGS","termMonths":{"min":1,"max":60},"monthlyAmountKrw":{"min":10000,"max":"no limit"},\
+            "depositAmountKrw":null,"accrual":"FIXED","foreignerEligible":"inferred","notChecked":["visa","age"],\
+            "stayFits":true,"baseRate":{"ratePct":2.2,"asOf":"2026-09-03",\
+            "quote":"기본이자율 (2026.09.03 현재, 세전) 가입기간 1개월이상 3개월미만 3개월이상 6개월미만 6개월이상 12개월미만 12개월이상 24개월미만 정기적립식 연 2.20% 연 2.25% 연 2.30% 연 2.45% 가입기간 24개월이상 36개월미만 36개월 37개월이상 60개월이하 정기적립식 연 2.55% 연 2.55% 연 2.70%",\
+            "page":1},"maxRate":null,"feature":{"quote":"일정 기간 후에 일정 금액을 지급할 것을 미리 약정하고 월 1회 일정한 일자에 일정금액을 수입하는 예금",\
+            "page":1},"evidence":[{"about":"term","quote":"1개월 이상 60개월 이하(월단위)","page":3},{"about":"amount",\
+            "quote":"최저가입금액 1만원 이상","page":5},{"about":"accrual","quote":"상품유형 정기적립식","page":3},\
+            {"about":"foreigners","quote":"가입대상 제한없음","page":5}]},{"productId":"doc-a5851b226169",\
+            "nameKo":"한 달부터 적금","kind":"SAVINGS","termMonths":{"min":1,"max":12},"monthlyAmountKrw":null,\
+            "depositAmountKrw":null,"accrual":"FLEXIBLE","foreignerEligible":"inferred","notChecked":["visa","age",\
+            "spareMoney"],"stayFits":true,"baseRate":{"ratePct":1.8,"asOf":"2026-09-03",\
+            "quote":"기본이자율 (2026.09.03 현재, 세전) 연 1.80%","page":2},"maxRate":{"ratePct":3.8,\
+            "quote":"최고이자율 (2026.09.03 현재, 세전) 연 3.80%","page":2},\
+            "feature":{"quote":"1 개월 이상 12 개월 이내 가입 가능한 상품으로, 납입 주기에 따른 총 납입 회차에 대해 일정 회차 이상 납입 시 우대이자율을 제공하는 적립식 예금",\
+            "page":1},"evidence":[{"about":"term","quote":"계약기간 1개월 이상 12개월 이하","page":1},{"about":"accrual",\
+            "quote":"상품유형 자유적립식","page":1},{"about":"foreigners","quote":"가입대상 실명의 개인 및 개인사업자","page":1}]}],\
+            "excludedSummary":[{"reason":"recommendable","count":1},{"reason":"kind","count":4},{"reason":"stayTerm",\
+            "count":5}]}""";
 
     static final String MESSAGES_EXAMPLE = """
             {"messages": [
@@ -138,6 +168,25 @@ public class ChatController {
 
             event: chat.done
             data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","assistantMessageId":11,"blocks":[""" + E74_SCORE_CARD + """
+            ],"latencyMs":4210}
+            """;
+    // 상품 추천 도구는 resultRef 를 만들지 않는다. 근거(chat.sources, PRODUCT_DOCUMENT·chunkRef=productId)도 오지만
+    // 계약 문서에 쪽(pageLabel) 값이 없어 예시에는 넣지 않는다.
+    static final String STREAM_PRODUCT_EXAMPLE = """
+            event: chat.started
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","userMessageId":10,"assistantMessageId":11}
+
+            event: chat.tool_call
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","order":1,"toolName":"recommend_savings_products","status":"SUCCEEDED","resultRef":null,"latencyMs":null}
+
+            event: chat.delta
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","text":"3 savings products fit your remaining 10 months of stay: "}
+
+            event: chat.delta
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","text":"신한 땡겨요 적금, 정기적금 and 한 달부터 적금."}
+
+            event: chat.done
+            data: {"runId":"run_4f1c2b7e9d0a4c3b8e6f5a1d2c3b4a59","assistantMessageId":11,"blocks":[""" + PRODUCT_RECOMMEND_CARD + """
             ],"latencyMs":4210}
             """;
     static final String STREAM_ERROR_EXAMPLE = """
@@ -232,6 +281,7 @@ public class ChatController {
                     examples = {@ExampleObject(name = "송금 카드", value = STREAM_REMITTANCE_EXAMPLE),
                             @ExampleObject(name = "환율 카드(프롬프트 v4.4부터)", value = STREAM_FX_EXAMPLE),
                             @ExampleObject(name = "E-7-4 카드", value = STREAM_E74_EXAMPLE),
+                            @ExampleObject(name = "상품 추천 카드(프롬프트 v4.5부터)", value = STREAM_PRODUCT_EXAMPLE),
                             @ExampleObject(name = "실패", value = STREAM_ERROR_EXAMPLE)}))
     @ApiResponse(responseCode = "400", description = "clientMessageId 1~64자, content 1~2000자(공백만 안 됨) 위반(details.fields)",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
