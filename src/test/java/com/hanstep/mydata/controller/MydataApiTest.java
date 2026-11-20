@@ -1,12 +1,22 @@
 package com.hanstep.mydata.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.hanstep.common.dto.Money;
 import com.hanstep.common.security.JwtTokenProvider;
+import com.hanstep.finance.client.AiFinanceClient;
+import com.hanstep.finance.client.AiFinanceClient.AiCallException;
+import com.hanstep.finance.client.AiFinanceClient.AnalyzeResponse;
+import com.hanstep.finance.client.AiFinanceClient.DataQuality;
+import com.hanstep.finance.client.AiFinanceClient.VariableExpense;
 import com.jayway.jsonpath.JsonPath;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,6 +36,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.ResultActions;
 
 /**
@@ -49,6 +60,10 @@ class MydataApiTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    /** 적재 뒤 이어서 부르는 금융 분석(INT-01). 실제 AI 서버 대신 가짜. */
+    @MockitoBean
+    private AiFinanceClient aiFinanceClient;
+
     private Long userId;
     private String bearer;
     private String body;
@@ -61,6 +76,9 @@ class MydataApiTest {
         userId = jdbcTemplate.queryForObject("SELECT id FROM users WHERE external_user_key = ?", Long.class,
                 TEST_USER_KEY);
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
+        when(aiFinanceClient.analyze(any())).thenReturn(new AnalyzeResponse(Money.krw(2350000), Money.krw(520000),
+                Money.krw(700000), new VariableExpense(Money.krw(455000), Money.krw(400000), Money.krw(510000)),
+                Money.krw(675000), new DataQuality(12, List.of(), List.of(), List.of()), List.of()));
         grant("MYDATA");
         grant("MYDATA_TERMS");
         body = "{\"institutionIds\":[" + institutionId("SHINHAN_BANK") + "," + institutionId("SHINHAN_CARD")
@@ -106,6 +124,39 @@ class MydataApiTest {
         assertThat(jdbcTemplate.queryForObject("SELECT CONCAT(transacted_at, ' / ', booked_date, ' / ', direction) "
                 + "FROM financial_transactions WHERE user_id = ? AND external_txn_key = 'SHB-20251105-SAL'",
                 String.class, userId)).isEqualTo("2025-11-05 00:00:00.000 / 2025-11-05 / INCOME");
+    }
+
+    @Test
+    void 새로_적재하면_금융_분석을_이어서_실행하고_같은_키_재요청은_다시_분석하지_않는다() throws Exception {
+        connect("key-1").andExpect(status().isCreated());
+
+        Map<String, Object> analysis = jdbcTemplate.queryForMap(
+                "SELECT status, request_key, source_batch_id FROM financial_analyses WHERE user_id = ?", userId);
+        assertThat(analysis.get("status")).isEqualTo("COMPLETED");
+        assertThat((String) analysis.get("request_key")).startsWith("mydata-");
+        assertThat(analysis.get("source_batch_id")).hasToString(String.valueOf(jdbcTemplate.queryForObject(
+                "SELECT id FROM ingestion_batches WHERE user_id = ? AND status = 'SUCCEEDED'", Long.class, userId)));
+        // FIN-06 으로 바로 조회된다(채팅·상품 추천·ONB-04 가 쓰는 값)
+        mockMvc.perform(get("/api/v1/finance/analyses/latest").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.spare.amount").value(675000));
+
+        connect("key-1").andExpect(status().isOk());
+        assertThat(analysisCount()).isEqualTo(1);
+        verify(aiFinanceClient, times(1)).analyze(any());
+    }
+
+    @Test
+    void 금융_분석이_실패해도_연결은_201이고_실패_행만_남는다() throws Exception {
+        when(aiFinanceClient.analyze(any())).thenThrow(new AiCallException("AI_UNREACHABLE", null));
+
+        connect("key-1")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.connected").value(true));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM financial_analyses WHERE user_id = ?",
+                String.class, userId)).isEqualTo("FAILED");
+        assertThat(transactionCount()).isEqualTo(BANK_TXNS + CARD_TXNS);
     }
 
     @Test
@@ -298,6 +349,11 @@ class MydataApiTest {
 
     private int transactionCount() {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM financial_transactions WHERE user_id = ?",
+                Integer.class, userId);
+    }
+
+    private int analysisCount() {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM financial_analyses WHERE user_id = ?",
                 Integer.class, userId);
     }
 

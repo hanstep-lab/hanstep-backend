@@ -16,6 +16,7 @@ import com.hanstep.credit.client.AiAltCreditClient;
 import com.hanstep.credit.client.AiAltCreditClient.AssessRequest;
 import com.hanstep.credit.client.AiAltCreditClient.AssessResponse;
 import com.hanstep.credit.domain.AltCreditDecision;
+import com.hanstep.finance.client.AiFinanceClient;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.math.BigDecimal;
@@ -44,6 +45,10 @@ import org.springframework.transaction.annotation.Transactional;
 @AutoConfigureMockMvc
 @Transactional
 class AltCreditReyesSeedTest {
+
+    /** MYD-02 가 적재 뒤 부르는 금융 분석(INT-01). 로컬 AI 서버로 실제 요청이 나가지 않게 바꿔 끼운다(#149). */
+    @MockitoBean
+    private AiFinanceClient aiFinanceClient;
 
     // 03 시드의 Reyes 체류 프로필
     private static final LocalDate STAY_STARTED_ON = LocalDate.of(2022, 12, 5);

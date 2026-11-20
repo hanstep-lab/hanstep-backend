@@ -48,7 +48,9 @@ public class MydataController {
 
     @Operation(summary = "기관 연결 + Mock 데이터 적재 (MYD-02)",
             description = "ON-003B 모달 '확인하고 연결'. 고른 기관을 연결하고 Mock 계좌·거래(최근 lookbackMonths 개월)를 적재한 뒤 "
-                    + "연결 상태 전체를 돌려준다(MYD-03 과 같은 형식). Idempotency-Key 필수. "
+                    + "연결 상태 전체를 돌려준다(MYD-03 과 같은 형식). 새로 적재했으면 금융 분석(FIN-05)을 이어서 실행해 "
+                    + "FIN-06·ONB-04 에서 바로 쓸 수 있다. 분석이 실패해도 연결 응답은 그대로(FIN-05 로 다시 실행). "
+                    + "Idempotency-Key 필수. "
                     + "MYDATA·MYDATA_TERMS 동의(CNS-02)가 없으면 403.")
     @ApiResponse(responseCode = "201", description = "연결·적재 성공")
     @ApiResponse(responseCode = "200", description = "같은 Idempotency-Key 재요청: 이미 처리된 요청이면 현재 연결 상태를 반환")

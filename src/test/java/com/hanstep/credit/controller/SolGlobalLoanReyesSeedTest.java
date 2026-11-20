@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.hanstep.common.security.JwtTokenProvider;
 import com.hanstep.common.time.KstDates;
+import com.hanstep.finance.client.AiFinanceClient;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.math.BigDecimal;
@@ -24,6 +25,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +38,10 @@ import org.springframework.transaction.annotation.Transactional;
 @AutoConfigureMockMvc
 @Transactional
 class SolGlobalLoanReyesSeedTest {
+
+    /** MYD-02 가 적재 뒤 부르는 금융 분석(INT-01). 로컬 AI 서버로 실제 요청이 나가지 않게 바꿔 끼운다(#149). */
+    @MockitoBean
+    private AiFinanceClient aiFinanceClient;
 
     // 03 시드: E-9, PHL, 만료 2027-10-04, 2025 소득 32,100,000(VERIFIED). 대출 데이터 없음
     private static final LocalDate STAY_EXPIRES_ON = LocalDate.of(2027, 10, 4);
