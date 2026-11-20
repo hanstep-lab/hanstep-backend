@@ -1,7 +1,7 @@
 package com.hanstep.onboarding.dto;
 
 import com.hanstep.commitment.dto.CommitmentListResponse;
-import com.hanstep.common.dto.Money;
+import com.hanstep.finance.dto.MonthlyBalanceResponse;
 import com.hanstep.goal.dto.GoalResponse;
 import com.hanstep.user.domain.Language;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
@@ -19,10 +19,10 @@ public record OnboardingSummaryResponse(
 
         CommitmentListResponse commitments,
 
-        @Schema(description = "월 수지 요약. 월소득은 최신 금융 분석(FIN-05) 값, 고정생활비·송금·변동지출은 commitments 에 그 묶음 "
-                + "항목이 있으면 입력 합계(commitments.totals 와 같은 값), 없으면 FIN-05 값. 분석 전이거나 쓸 금액이 비면 null",
-                nullable = true)
-        Balance balance
+        @Schema(description = "월 수지 요약(INT-06 balance·PRD-02 여유자금과 같은 값). 월소득은 최신 금융 분석(FIN-05) 값, "
+                + "고정생활비·송금·변동지출은 commitments 에 그 묶음 항목이 있으면 입력 합계(commitments.totals 와 같은 값), "
+                + "없으면 FIN-05 값. 분석 전이거나 쓸 금액이 비면 null", nullable = true)
+        MonthlyBalanceResponse balance
 ) {
 
     @Schema(name = "SummaryUser", description = "사용자")
@@ -58,42 +58,6 @@ public record OnboardingSummaryResponse(
             @Schema(description = "만료까지 남은 개월 수(꽉 찬 달, 계산값). monthlyRequired 와 같은 규칙. 지났으면 null",
                     example = "10", nullable = true)
             Integer monthsRemaining
-    ) {
-    }
-
-    /**
-     * 여유자금 = 월소득 − 고정생활비 − 송금 − 변동지출. MANDATORY_SAVING 은 빼지 않음.
-     * 고정생활비·송금·변동지출은 직접 입력한 묶음이 있으면 입력 합계, 없으면 FIN-05 값(#149).
-     */
-    @Schema(name = "SummaryBalance", description = "월 수지 요약(계산값). spare = avgMonthlyIncome − fixedLiving − remittance − variableExpense")
-    public record Balance(
-            @Schema(description = "월평균 소득(Mock 거래 기준, FIN-05)",
-                    example = "{\"amount\": 2350000, \"currency\": \"KRW\"}")
-            Money avgMonthlyIncome,
-
-            @Schema(description = "월 고정생활비. RENT·UTILITY·TELECOM·LIVING_MINIMUM·OTHER 를 입력했으면 입력 합계, "
-                    + "아니면 Mock 거래 기준 월평균(주거·공과금·통신·대출 상환, FIN-05)",
-                    example = "{\"amount\": 520000, \"currency\": \"KRW\"}")
-            Money fixedLiving,
-
-            @Schema(description = "월 송금. REMITTANCE 를 입력했으면 입력 합계, 아니면 Mock 거래 기준 월평균(FIN-05)",
-                    example = "{\"amount\": 700000, \"currency\": \"KRW\"}")
-            Money remittance,
-
-            @Schema(description = "월 변동지출. VARIABLE_EXPENSE 를 입력했으면 입력 합계, 아니면 Mock 거래 기준 월평균(FIN-05)",
-                    example = "{\"amount\": 450000, \"currency\": \"KRW\"}")
-            Money variableExpense,
-
-            @Schema(description = "variableExpense 근거. TRANSACTIONS=Mock 거래 평균, USER_INPUT=직접 입력",
-                    example = "TRANSACTIONS", allowableValues = {"TRANSACTIONS", "USER_INPUT"})
-            String variableExpenseSource,
-
-            @Schema(description = "여유자금. 음수 가능(지출이 소득보다 많음). "
-                    + "공통 Money 스키마의 amount 최소 0 은 요청 검증용이라 이 필드에는 해당하지 않음", example = "{\"amount\": 680000, \"currency\": \"KRW\"}")
-            Money spare,
-
-            @Schema(description = "Mock 데이터 기반이면 true", example = "true")
-            boolean isMock
     ) {
     }
 }

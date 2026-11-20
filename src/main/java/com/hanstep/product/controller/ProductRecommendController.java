@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "Finance Products", description = "금융상품 추천(PRD-02). 상품설명서 원문 기준, 여유자금은 Mock 분석 값")
+@Tag(name = "Finance Products", description = "금융상품 추천(PRD-02). 상품설명서 원문 기준, 여유자금은 ONB-04·INT-06 balance 와 같은 값")
 @RestController
 @RequestMapping("/api/v1/finance/products")
 public class ProductRecommendController {
@@ -90,7 +90,7 @@ public class ProductRecommendController {
 
     @Operation(summary = "금융상품 추천(PRD-02)",
             description = """
-                    사용자 프로필(비자 종류·체류 만료일·만 나이)과 최신 금융 분석의 월 여유자금(Mock 거래 기준)으로 \
+                    사용자 프로필(비자 종류·체류 만료일·만 나이)과 월 여유자금(ONB-04·INT-06 balance.spare 와 같은 값.                     월소득은 Mock 거래 분석, 고정·송금·변동은 직접 입력한 값이 있으면 그 값)으로 \
                     조건표 상품(적금·정기예금) 중 가입 조건을 통과한 상품을 전부 준다. 챗봇 상품 추천과 같은 추천기이며 \
                     LLM 을 부르지 않는다. 저장하지 않는다(부를 때마다 다시 판정).
                     금리(baseRate·maxRate)와 특징(feature)은 상품설명서 원문 값만 옮긴다. 우대금리를 더하거나 계산한 \

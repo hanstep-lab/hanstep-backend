@@ -2,11 +2,10 @@ package com.hanstep.product.service;
 
 import com.hanstep.aicontext.dto.AiProductProfileResponse;
 import com.hanstep.aicontext.service.AiContextService;
-import com.hanstep.common.dto.Money;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
-import com.hanstep.finance.dto.FinanceAnalysisResponse;
-import com.hanstep.finance.service.FinanceAnalysisService;
+import com.hanstep.finance.dto.MonthlyBalanceResponse;
+import com.hanstep.finance.service.MonthlyBalanceService;
 import com.hanstep.product.client.AiProductRecommendClient;
 import com.hanstep.product.client.AiProductRecommendClient.AiCallException;
 import com.hanstep.product.client.AiProductRecommendClient.Conditions;
@@ -22,7 +21,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * PRD-02 금융상품 추천. 프로필(INT-19 product-profile)과 최신 분석의 월 여유자금을 모아 AI 추천기(LLM 아님, 챗봇 상품 추천과
+ * PRD-02 금융상품 추천. 프로필(INT-19 product-profile)과 월 여유자금(MonthlyBalanceService, ONB-04·INT-06 balance 와 같은 값)을
+ * 모아 AI 추천기(LLM 아님, 챗봇 상품 추천과
  * 같은 추천기)를 부르고 응답을 그대로 옮긴다. 금리·특징은 받은 값만 옮기고, 기권(products 빈 목록 + abstainReason)도 200 으로
  * 그대로 준다. 저장하지 않는다.
  */
@@ -32,13 +32,13 @@ public class ProductRecommendService {
     private static final Logger log = LoggerFactory.getLogger(ProductRecommendService.class);
 
     private final AiContextService aiContextService;
-    private final FinanceAnalysisService financeAnalysisService;
+    private final MonthlyBalanceService monthlyBalanceService;
     private final AiProductRecommendClient aiProductRecommendClient;
 
-    public ProductRecommendService(AiContextService aiContextService, FinanceAnalysisService financeAnalysisService,
+    public ProductRecommendService(AiContextService aiContextService, MonthlyBalanceService monthlyBalanceService,
                                    AiProductRecommendClient aiProductRecommendClient) {
         this.aiContextService = aiContextService;
-        this.financeAnalysisService = financeAnalysisService;
+        this.monthlyBalanceService = monthlyBalanceService;
         this.aiProductRecommendClient = aiProductRecommendClient;
     }
 
@@ -62,16 +62,13 @@ public class ProductRecommendService {
     }
 
     /**
-     * 최신 완료 분석의 월 여유자금(INT-06 latestAnalysis.spare.amount 와 같은 값). 분석 결과가 없거나 금액이 없으면 null
+     * 월 여유자금(INT-06 balance.spare.amount·ONB-04 balance.spare.amount 와 같은 값). 분석 결과가 없거나 금액이 없으면 null
      * (AI 는 여유자금 조건을 판정 불가로 둔다). 음수(지출이 소득보다 많음)는 0 으로 보낸다: AI 계약이 0 이상만 받고,
      * 추천기는 여유자금을 적금 월 최소 납입액·요청 월 납입액(모두 1원 이상)과만 비교하므로 음수와 0 의 판정이 같다.
      */
     Long monthlySpare(Long userId) {
-        return financeAnalysisService.findLatestCompleted(userId)
-                .map(FinanceAnalysisResponse::spare)
-                .map(Money::amount)
-                .map(amount -> Math.max(amount, 0L))
-                .orElse(null);
+        MonthlyBalanceResponse balance = monthlyBalanceService.balance(userId);
+        return balance == null ? null : Math.max(balance.spare().amount(), 0L);
     }
 
     private static Conditions toAi(ProductRecommendConditions c) {

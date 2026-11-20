@@ -104,9 +104,10 @@ public class AiContextInternalController {
     }
 
     @Operation(summary = "AI 용 금융 컨텍스트 (INT-06)",
-            description = "챗봇 도구 get_financial_analysis 가 부른다. 최신 분석(FIN-06), 필수 확보액 합계(CMT-01 totals), "
-                    + "금융 목표(GOL-01)를 기존 값 그대로 준다. 계좌·잔액·계좌번호·거래처·생년월일·등록번호는 없다.")
-    @ApiResponse(responseCode = "200", description = "성공. 완료된 분석이 없으면 latestAnalysis 는 null")
+            description = "챗봇 도구 get_financial_analysis 가 부른다. 최신 분석(FIN-06), 월 수지 요약 balance"
+                    + "(ONB-04 balance·PRD-02 여유자금과 같은 값, 여유자금은 balance.spare), 필수 확보액 합계(CMT-01 totals), "
+                    + "금융 목표(GOL-01)를 준다. 계좌·잔액·계좌번호·거래처·생년월일·등록번호는 없다.")
+    @ApiResponse(responseCode = "200", description = "성공. 완료된 분석이 없으면 latestAnalysis·balance 는 null")
     @ApiResponse(responseCode = "401", description = "X-Internal-Token 없음·틀림",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "404", description = "없는 사용자",
@@ -118,7 +119,7 @@ public class AiContextInternalController {
 
     @Operation(summary = "AI 용 상품 추천 프로필 (INT-19)",
             description = "챗봇 도구 recommend_savings_products 가 부른다. 비자 종류 코드, 체류 만료일, asOf(Asia/Seoul 오늘) 기준 "
-                    + "만 나이를 준다. 생년월일은 내보내지 않는다. 여유자금은 INT-06 latestAnalysis.spare 를 쓴다.")
+                    + "만 나이를 준다. 생년월일은 내보내지 않는다. 여유자금은 INT-06 balance.spare 를 쓴다.")
     @ApiResponse(responseCode = "200", description = "성공. 비자 프로필이 없으면 visaTypeCode·stayExpiresOn·age 가 null")
     @ApiResponse(responseCode = "401", description = "X-Internal-Token 없음·틀림",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

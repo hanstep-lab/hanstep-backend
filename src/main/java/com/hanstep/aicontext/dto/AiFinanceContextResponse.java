@@ -2,13 +2,14 @@ package com.hanstep.aicontext.dto;
 
 import com.hanstep.commitment.dto.CommitmentTotals;
 import com.hanstep.finance.dto.FinanceAnalysisResponse;
+import com.hanstep.finance.dto.MonthlyBalanceResponse;
 import com.hanstep.goal.dto.GoalResponse;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 /**
- * INT-06 응답. 기존 API 의 DTO 를 그대로 묶는다(새로 계산하지 않음).
+ * INT-06 응답. 기존 API 의 DTO 를 그대로 묶는다. balance 는 ONB-04 balance 와 같은 MonthlyBalanceService 값(#151).
  * LLM 에 넘어가는 데이터라 계좌·잔액·계좌번호·거래처·생년월일·등록번호는 넣지 않는다.
  */
 @Schema(description = "AI 용 금융 컨텍스트(INT-06)")
@@ -18,6 +19,11 @@ public record AiFinanceContextResponse(
 
         @Schema(description = "최신 금융 분석(FIN-06 과 같은 값). 완료된 분석이 없으면 null", nullable = true)
         FinanceAnalysisResponse latestAnalysis,
+
+        @Schema(description = "월 수지 요약(ONB-04 balance·PRD-02 여유자금과 같은 값). 월소득은 latestAnalysis, "
+                + "고정생활비·송금·변동지출은 직접 입력한 묶음이 있으면 입력 합계, 없으면 latestAnalysis 값. "
+                + "챗봇의 여유자금은 이 balance.spare 를 쓴다. 완료된 분석이 없거나 쓸 금액이 비면 null", nullable = true)
+        MonthlyBalanceResponse balance,
 
         @Schema(description = "필수 확보액 합계(CMT-01 totals 와 같은 값). 온보딩에서 사용자가 입력한 값")
         CommitmentTotals commitments,
