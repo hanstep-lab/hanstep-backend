@@ -1,5 +1,8 @@
 package com.hanstep.onboarding.service;
 
+import com.hanstep.commitment.domain.CommitmentType;
+import com.hanstep.commitment.dto.CommitmentListResponse;
+import com.hanstep.commitment.dto.CommitmentTotals;
 import com.hanstep.commitment.service.CommitmentService;
 import com.hanstep.common.dto.Money;
 import com.hanstep.common.error.BusinessException;
@@ -26,8 +29,10 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -96,7 +101,9 @@ public class OnboardingService {
     }
 
     /**
-     * ONB-04. balance 는 최신 COMPLETED 금융 분석(FIN-05) 값. 분석이 없거나 금액이 하나라도 비면(꽉 찬 달 없음) null.
+     * ONB-04. balance 의 월소득은 최신 COMPLETED 금융 분석(FIN-05) 값. 고정생활비·송금·변동지출은 사용자가 직접 입력한
+     * 매달 나가는 돈(CMT-02)에 그 묶음 항목이 있으면 입력 합계, 없으면(건너뜀) FIN-05 값. 여유자금은 여기서 다시 계산한다.
+     * 분석이 없거나 쓸 금액이 하나라도 비면(꽉 찬 달 없음) null.
      * 조회 SQL 5번: 사용자, 체류 정보, 목표, 필수 확보액, 최신 분석.
      */
     public OnboardingSummaryResponse getSummary(Long userId) {
@@ -122,22 +129,35 @@ public class OnboardingService {
                     KstDates.monthsUntil(today, row.stayExpiresOn()));
         }
 
+        CommitmentListResponse commitments = commitmentService.getCommitments(userId);
         return new OnboardingSummaryResponse(
                 new OnboardingSummaryResponse.User(user.getId(), user.getDisplayName(), user.getPreferredLanguage(),
                         row == null ? null : row.nationalityCode()),
                 visa,
                 goalService.getGoals(userId).goals(),
-                commitmentService.getCommitments(userId),
-                financeAnalysisService.findLatestCompleted(userId).map(OnboardingService::balance).orElse(null));
+                commitments,
+                financeAnalysisService.findLatestCompleted(userId).map(a -> balance(a, commitments)).orElse(null));
     }
 
-    private static OnboardingSummaryResponse.Balance balance(FinanceAnalysisResponse a) {
-        if (a.avgMonthlyIncome() == null || a.fixedLiving() == null || a.remittance() == null
-                || a.variableExpense() == null || a.variableExpense().avg() == null || a.spare() == null) {
+    /** 묶음별로 입력값이 있으면 입력 합계, 없으면 FIN-05 값. spare = 월소득 − 고정생활비 − 송금 − 변동지출(MANDATORY_SAVING 제외). */
+    static OnboardingSummaryResponse.Balance balance(FinanceAnalysisResponse a, CommitmentListResponse commitments) {
+        Set<CommitmentType> entered = EnumSet.noneOf(CommitmentType.class);
+        commitments.items().forEach(item -> entered.add(item.commitmentType()));
+        CommitmentTotals totals = commitments.totals();
+
+        boolean fixedEntered = entered.stream().anyMatch(CommitmentService.FIXED_LIVING::contains);
+        boolean variableEntered = entered.contains(CommitmentType.VARIABLE_EXPENSE);
+        Money income = a.avgMonthlyIncome();
+        Money fixedLiving = fixedEntered ? totals.fixedLiving() : a.fixedLiving();
+        Money remittance = entered.contains(CommitmentType.REMITTANCE) ? totals.remittance() : a.remittance();
+        Money variable = variableEntered ? totals.variableExpense()
+                : a.variableExpense() == null ? null : a.variableExpense().avg();
+        if (income == null || fixedLiving == null || remittance == null || variable == null) {
             return null;
         }
-        return new OnboardingSummaryResponse.Balance(a.avgMonthlyIncome(), a.fixedLiving(), a.remittance(),
-                a.variableExpense().avg(), "TRANSACTIONS", a.spare(), a.isMock());
+        Money spare = Money.krw(income.amount() - fixedLiving.amount() - remittance.amount() - variable.amount());
+        return new OnboardingSummaryResponse.Balance(income, fixedLiving, remittance, variable,
+                variableEntered ? "USER_INPUT" : "TRANSACTIONS", spare, a.isMock());
     }
 
     private record VisaRow(String code, String nameEn, LocalDate stayExpiresOn, String nationalityCode) {
