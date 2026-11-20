@@ -241,7 +241,10 @@ alias dc='docker compose -f deploy/compose.prod.yml'
 
 ### CPU
 
-- `cpus: "2"`는 임시값이다. 로컬 측정에서 OCR 추론이 CPU 8코어를 모두 써서 같은 서버의 Spring·AI 서버(챗봇)가 느려질 수 있었다. 서버에서 `nproc`를 확인하고 OCR 처리 시간과 챗봇 응답 시간을 같이 재서 조정한다.
+- `cpus: "2"`는 11/20 운영 측정(t3a.xlarge)으로 유지하기로 정했다. 로컬 측정에서 OCR 추론이 CPU 8코어를 모두 써서 같은 서버의 Spring·AI 서버(챗봇)가 느려질 수 있었다.
+- PaddleOCR 스레드 수 `OCR_CPU_THREADS`(compose 기본 2)는 `cpus`와 같은 값으로 둔다. 스레드가 상한보다 많으면 스레드 경쟁으로 느려진다.
+  - 운영 측정: server_det에서 스레드 10은 34.2초, 스레드 2는 18.1초였다. mobile_det와 함께 쓰면 2.05초다(hanstep-AI PR #113, `ai/evals/results/ocr-speed-2026-11-19.md`).
+  - `cpus`를 바꾸면 `OCR_CPU_THREADS`도 같이 바꾼다.
 - 값이 서버 코어 수보다 크면 컨테이너가 뜨지 않는다. 서버 코어가 2개면 Worker가 CPU를 전부 쓸 수 있으므로 1로 낮춘다.
 
 ## 환율 수집기
