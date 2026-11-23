@@ -94,6 +94,11 @@ public class DocumentField {
         if (status != DocumentFieldStatus.MISSING && confirmedAt == null) {
             this.confirmedAt = at;
         }
+        clearValues();
+    }
+
+    /** 값만 지운다(status·confidence 는 남김). 확정과 원본 보관 기한 만료(#162)에 쓴다. */
+    public void clearValues() {
         this.extractedValue = null;
         this.confirmedValue = null;
     }

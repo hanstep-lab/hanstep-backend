@@ -18,9 +18,12 @@ import com.hanstep.document.FakeArcStorageConfig.FakeArcImageStorage;
 import com.hanstep.document.domain.DocumentSide;
 import com.hanstep.document.dto.OcrFieldResult;
 import com.hanstep.document.dto.OcrResultRequest;
+import com.hanstep.document.service.ArcOriginalExpiryService;
 import com.hanstep.document.service.DocumentInternalService;
 import com.hanstep.support.TestUsers;
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -71,6 +74,12 @@ class DocumentReviewApiTest {
 
     @Autowired
     AiJobStatusService aiJobStatusService;
+
+    @Autowired
+    ArcOriginalExpiryService arcOriginalExpiryService;
+
+    @Autowired
+    EntityManager entityManager;
 
     long userId;
     String bearer;
@@ -422,7 +431,71 @@ class DocumentReviewApiTest {
                 .andExpect(status().isNotFound());
     }
 
+    // ---------- 원본 보관 기한 만료 후(#162) ----------
+
+    @Test
+    void 원본_보관_기한이_지나_지운_문서는_조회는_200이고_값이_비며_확정은_422_공통_오류_형식() throws Exception {
+        long id = upload();
+        String key = jdbcTemplate.queryForObject("SELECT object_key FROM documents WHERE id = ?", String.class, id);
+        recordOcr(id, new BigDecimal("0.95"));
+        patchFields(id, "{\"fields\": [{\"fieldKey\": \"stayExpiry\", \"value\": \"2027-03-01\"}]}")
+                .andExpect(status().isOk());
+        expireOriginal(id);
+        assertThat(storage.objects).doesNotContainKey(key);
+
+        // 조회: 500 이 아니라 200. 상태는 그대로(확인 대기)이고 값만 비어 있다(status·confidence 는 남음)
+        JsonNode fields = json(mockMvc.perform(get(URL, id).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING_CONFIRMATION"))
+                .andExpect(jsonPath("$.daysRemaining").value(org.hamcrest.Matchers.nullValue()))).path("fields");
+        assertThat(fields.size()).isEqualTo(6);
+        assertThat(fields.valueStream().allMatch(f -> f.path("value").isNull())).isTrue();
+        assertThat(field(fields, "stayExpiry").path("status").stringValue()).isEqualTo("CORRECTED");
+        assertThat(field(fields, "nameEn").path("confidence").decimalValue()).isEqualByComparingTo("0.9812");
+
+        // 확정: 값이 없어 422 INSUFFICIENT_DATA(공통 오류 형식). 아무것도 바꾸지 않는다
+        confirm(id).andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("INSUFFICIENT_DATA"))
+                .andExpect(jsonPath("$.message").value("fields need confirmation"))
+                .andExpect(jsonPath("$.details.fields[*].field").value(org.hamcrest.Matchers.contains(
+                        "nationality", "birthDate", "visaType", "stayExpiry")))
+                .andExpect(jsonPath("$.details.fields[*].reason").value(org.hamcrest.Matchers.everyItem(
+                        org.hamcrest.Matchers.is("required"))))
+                .andExpect(jsonPath("$.requestId").exists());
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM documents WHERE id = ?", String.class, id))
+                .isEqualTo("PENDING_CONFIRMATION");
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM visa_profiles WHERE user_id = ?", Integer.class,
+                userId)).isZero();
+    }
+
+    @Test
+    void OCR_결과_전에_원본_보관_기한이_지난_문서는_조회는_200이고_확정은_409() throws Exception {
+        long id = upload();
+        expireOriginal(id);
+
+        mockMvc.perform(get(URL, id).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UPLOADED"))
+                .andExpect(jsonPath("$.fields").isEmpty());
+        confirm(id).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_STATE"))
+                .andExpect(jsonPath("$.details.status").value("UPLOADED"))
+                .andExpect(jsonPath("$.requestId").exists());
+    }
+
     // ---------- helpers ----------
+
+    /** 배포 후 확인(deploy/README.md)과 같은 방법: 보관 기한을 과거로 당기고 만료 삭제를 부른다. */
+    void expireOriginal(long id) {
+        // JDBC 로 바꾼 기한을 다시 읽게 영속성 컨텍스트를 비운다
+        entityManager.flush();
+        entityManager.clear();
+        jdbcTemplate.update("UPDATE documents SET retention_until = UTC_TIMESTAMP(3) - INTERVAL 1 MINUTE "
+                + "WHERE id = ? AND object_key IS NOT NULL", id);
+        assertThat(arcOriginalExpiryService.deleteOriginal(id, Instant.now())).isTrue();
+        entityManager.flush();
+        entityManager.clear();
+    }
 
     ResultActions patchFields(long id, String json) throws Exception {
         return mockMvc.perform(patch(URL + "/fields", id).contentType(MediaType.APPLICATION_JSON).content(json)

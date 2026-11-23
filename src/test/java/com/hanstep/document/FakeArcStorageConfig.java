@@ -3,8 +3,10 @@ package com.hanstep.document;
 import com.hanstep.document.storage.ArcImageStorage;
 import com.hanstep.document.storage.ArcStorageException;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -31,6 +33,10 @@ public class FakeArcStorageConfig {
         /** 객체는 써 놓고 실패를 돌려준다(응답 전에 연결이 끊긴 경우). */
         public volatile boolean failAfterStore;
         public volatile boolean failDelete;
+        /** 이 키만 삭제를 실패시킨다. */
+        public final Set<String> failDeleteKeys = ConcurrentHashMap.newKeySet();
+        /** 삭제 직전에 부른다(삭제 도중 다른 요청이 겹치게 할 때). */
+        public volatile Consumer<String> beforeDelete;
 
         @Override
         public void put(String objectKey, byte[] bytes, String contentType) {
@@ -47,7 +53,11 @@ public class FakeArcStorageConfig {
         @Override
         public void delete(String objectKey) {
             deletes.incrementAndGet();
-            if (failDelete) {
+            Consumer<String> hook = beforeDelete;
+            if (hook != null) {
+                hook.accept(objectKey);
+            }
+            if (failDelete || failDeleteKeys.contains(objectKey)) {
                 throw new ArcStorageException("fake delete failure", null);
             }
             objects.remove(objectKey);
@@ -60,6 +70,8 @@ public class FakeArcStorageConfig {
             failPut = false;
             failAfterStore = false;
             failDelete = false;
+            failDeleteKeys.clear();
+            beforeDelete = null;
         }
     }
 }

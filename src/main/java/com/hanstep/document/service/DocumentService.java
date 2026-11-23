@@ -50,7 +50,7 @@ public class DocumentService {
 
     /** spring.servlet.multipart.max-file-size 와 같은 값. 설정을 바꾸면 같이 바꾼다. */
     static final long MAX_BYTES = 10L * 1024 * 1024;
-    /** 원본 최대 보관 기한(retention_until). 기한 지난 원본 삭제는 후속 이슈. */
+    /** 원본 최대 보관 기한(retention_until). 기한 지난 원본 삭제는 #162(ArcOriginalExpiryScheduler). */
     static final Duration RETENTION = Duration.ofHours(24);
     private static final Map<String, String> EXTENSIONS = Map.of("image/jpeg", "jpg", "image/png", "png");
     /** multipart 파트 이름(지수 합의 11/16). */
