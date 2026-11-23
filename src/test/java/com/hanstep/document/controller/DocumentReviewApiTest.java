@@ -102,7 +102,8 @@ class DocumentReviewApiTest {
                 .andExpect(jsonPath("$.documentId").value(id))
                 .andExpect(jsonPath("$.status").value("UPLOADED"))
                 .andExpect(jsonPath("$.ocrJob.status").value("PENDING"))
-                .andExpect(jsonPath("$.fields").isEmpty());
+                .andExpect(jsonPath("$.fields").isEmpty())
+                .andExpect(jsonPath("$.originalExpired").value(false));
     }
 
     @Test
@@ -322,7 +323,9 @@ class DocumentReviewApiTest {
 
         JsonNode body = json(confirm(id).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
-                .andExpect(jsonPath("$.confirmedAt").exists()));
+                .andExpect(jsonPath("$.confirmedAt").exists())
+                // 확정도 원본을 지우지만(original_deleted_at) 만료가 아니다
+                .andExpect(jsonPath("$.originalExpired").value(false)));
 
         // 응답: 값은 null, status·confidence 만
         JsonNode fields = body.path("fields");
@@ -447,6 +450,7 @@ class DocumentReviewApiTest {
         JsonNode fields = json(mockMvc.perform(get(URL, id).header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING_CONFIRMATION"))
+                .andExpect(jsonPath("$.originalExpired").value(true))
                 .andExpect(jsonPath("$.daysRemaining").value(org.hamcrest.Matchers.nullValue()))).path("fields");
         assertThat(fields.size()).isEqualTo(6);
         assertThat(fields.valueStream().allMatch(f -> f.path("value").isNull())).isTrue();
@@ -476,11 +480,36 @@ class DocumentReviewApiTest {
         mockMvc.perform(get(URL, id).header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UPLOADED"))
+                .andExpect(jsonPath("$.originalExpired").value(true))
                 .andExpect(jsonPath("$.fields").isEmpty());
         confirm(id).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_STATE"))
                 .andExpect(jsonPath("$.details.status").value("UPLOADED"))
                 .andExpect(jsonPath("$.requestId").exists());
+    }
+
+    @Test
+    void 원본이_만료된_문서도_값을_다시_넣으면_확정되고_그_뒤에는_originalExpired가_false() throws Exception {
+        // #164 결정: 수정·확정은 막지 않는다(사진 없이 직접 입력하는 경로가 이미 있음). FE 는 화면 값을 모두 보낸 뒤 확정한다
+        long id = upload();
+        recordOcr(id, new BigDecimal("0.95"));
+        expireOriginal(id);
+
+        patchFields(id, """
+                {"fields": [
+                  {"fieldKey": "nameEn", "value": "MARK ANTHONY REYES"},
+                  {"fieldKey": "nationality", "value": "PHL"},
+                  {"fieldKey": "birthDate", "value": "1995-08-15"},
+                  {"fieldKey": "visaType", "value": "E-9"},
+                  {"fieldKey": "stayExpiry", "value": "2027-03-01"}
+                ]}""")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.originalExpired").value(true));
+        confirm(id).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.originalExpired").value(false));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM visa_profiles WHERE user_id = ?", Integer.class,
+                userId)).isEqualTo(1);
     }
 
     // ---------- helpers ----------
