@@ -3,6 +3,7 @@ package com.hanstep.visa.service;
 import com.hanstep.common.error.BusinessException;
 import com.hanstep.common.error.ErrorCode;
 import com.hanstep.common.time.KstDates;
+import com.hanstep.user.domain.Language;
 import com.hanstep.user.repository.UserRepository;
 import com.hanstep.visa.client.AiE74Client;
 import com.hanstep.visa.client.AiE74Client.AiCallException;
@@ -122,6 +123,16 @@ public class E74AssessmentService {
         return calculate(userId, profile, asOfDate, null);
     }
 
+    /**
+     * AI 요청에 사용자 언어(users.preferred_language)를 넣는다. ko 면 넣지 않는다(AI 기본값 ko, 한국어 사용자 요청·requestKey 는
+     * 지금과 같음). 로드맵 요청도 이 메서드를 써서 평가와 같은 값을 보낸다.
+     */
+    public void putLanguage(ObjectNode request, Long userId) {
+        userRepository.findPreferredLanguageById(userId)
+                .filter(language -> language != Language.ko)
+                .ifPresent(language -> request.put("language", language.name()));
+    }
+
     /** AI 입력 profile 에 감점·제외 6문항을 넣고(없으면 null) 그 profile 을 돌려준다. */
     public static ObjectNode withLegalDeclaration(ObjectNode profile, LegalDeclaration legalDeclaration) {
         if (legalDeclaration == null) {
@@ -141,6 +152,7 @@ public class E74AssessmentService {
         } else {
             request.set("scenario", scenario);
         }
+        putLanguage(request, userId);
 
         JsonNode response;
         try {
