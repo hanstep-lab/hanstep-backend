@@ -2,6 +2,14 @@
 {$DOMAIN} {
 	encode gzip
 
+	# 접근 로그(#157): 요청마다 한 줄(메서드·경로·상태·소요 시간·크기). docker logs hanstep-caddy-1 로 본다.
+	# Cookie·Set-Cookie·Authorization·Proxy-Authorization 값은 Caddy 기본값으로 REDACTED 로 찍힌다(전역 log_credentials 는 켜지 않는다).
+	# 쿼리 문자열은 uri 에 그대로 남는다(앱은 쿼리에 토큰을 싣지 않음. 송금 견적 금액·통화·기간 등은 남음)
+	log {
+		output stdout
+		format console
+	}
+
 	# 내부 API 는 외부에서 막는다(내부 통신은 compose 네트워크에서 spring:8080 으로 직접)
 	# 맨 끝 catch-all 에 기대지 않고 자기 handle 에서 직접 404 를 낸다(catch-all 이 바뀌어도 /internal 은 열리지 않음)
 	@blocked path /internal/*
