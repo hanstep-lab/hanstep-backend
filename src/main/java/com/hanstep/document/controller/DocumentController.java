@@ -44,11 +44,12 @@ public class DocumentController {
                     + "back 이 와도 무시한다(저장·검사하지 않음). 형식·크기·파일 앞부분(매직 바이트)을 검사한 뒤 비공개 버킷에 저장하고 "
                     + "OCR 작업을 등록한다. OCR 진행 상태는 응답·조회의 status·ocrJob 으로 본다. "
                     + "같은 사진(같은 내용)을 다시 올리면 새로 저장하지 않고 기존 문서를 200 으로 준다. "
-                    + "단, 그 문서의 OCR 이 실패(status=FAILED)했으면 실패 문서를 지우고 새 문서·새 OCR 작업을 만들어 202 "
-                    + "(documentId 가 바뀐다).")
-    @ApiResponse(responseCode = "202", description = "저장하고 OCR 작업 등록(OCR 실패 문서를 같은 사진으로 다시 올린 경우 포함, "
-            + "새 documentId). ocrJob.publishStatus 가 PUBLISHED 가 아니면 발행 대기")
-    @ApiResponse(responseCode = "200", description = "같은 사진으로 이미 올린 문서(새 업로드·새 작업 없음). OCR 실패 문서는 해당 안 됨")
+                    + "단, 그 문서의 OCR 이 실패(status=FAILED)했거나, 확정하지 않은 채 원본 보관 기한(업로드 24시간)이 지나 "
+                    + "원본이 지워졌으면 옛 문서를 지우고 새 문서·새 OCR 작업을 만들어 202 (documentId 가 바뀐다).")
+    @ApiResponse(responseCode = "202", description = "저장하고 OCR 작업 등록(OCR 실패 문서·원본 보관 기한이 지난 미확정 문서를 "
+            + "같은 사진으로 다시 올린 경우 포함, 새 documentId). ocrJob.publishStatus 가 PUBLISHED 가 아니면 발행 대기")
+    @ApiResponse(responseCode = "200", description = "같은 사진으로 이미 올린 문서(새 업로드·새 작업 없음). OCR 실패 문서·원본 "
+            + "보관 기한이 지난 미확정 문서는 해당 안 됨")
     @ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: front 없음·빈 파일·형식(JPEG·PNG 아님)·10MB 초과·"
             + "내용이 형식과 다름(details.fields[0].field=front)",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))

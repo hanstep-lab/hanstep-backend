@@ -2,17 +2,21 @@ package com.hanstep.document.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.hanstep.aijob.dto.JobFailedRequest;
 import com.hanstep.aijob.service.AiJobStatusService;
 import com.hanstep.common.security.JwtTokenProvider;
+import com.hanstep.common.time.KstDates;
 import com.hanstep.document.domain.DocumentSide;
 import com.hanstep.document.dto.OcrFieldResult;
 import com.hanstep.document.dto.OcrResultRequest;
 import com.hanstep.document.service.DocumentInternalService;
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import com.hanstep.document.ArcImages;
 import com.hanstep.document.FakeArcStorageConfig;
@@ -66,6 +70,9 @@ class DocumentApiTest {
 
     @Autowired
     private DocumentInternalService documentInternalService;
+
+    @Autowired
+    private EntityManager entityManager;
 
     private long userId;
     private String bearer;
@@ -184,6 +191,71 @@ class DocumentApiTest {
         assertThat(count("SELECT COUNT(*) FROM ai_jobs WHERE job_type = 'OCR' AND user_id = ?", userId)).isEqualTo(1);
     }
 
+    // ---------- 원본 보관 기한이 지난 문서와 같은 사진(#165) ----------
+
+    @Test
+    void 원본이_만료된_확인_대기_문서와_같은_사진을_다시_올리면_옛_문서를_지우고_새_문서로_202() throws Exception {
+        byte[] image = ArcImages.jpeg(24 * 1024);
+        long expiredId = json(upload("front.jpg", "image/jpeg", image).andExpect(status().isAccepted()))
+                .path("documentId").longValue();
+        recordOcr(expiredId, null);
+        expireOriginal(expiredId);
+
+        long newId = json(upload("front.jpg", "image/jpeg", image)
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("UPLOADED"))
+                .andExpect(jsonPath("$.ocrJob.status").value("PENDING"))
+                .andExpect(jsonPath("$.fields").isEmpty())).path("documentId").longValue();
+
+        assertThat(newId).isNotEqualTo(expiredId);
+        // 옛 문서와 항목 행(CASCADE)은 지워지고 사용자당 같은 사진은 1건
+        assertThat(count("SELECT COUNT(*) FROM documents WHERE id = ?", expiredId)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM document_fields WHERE document_id = ?", expiredId)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?", userId)).isEqualTo(1);
+        // 새 원본·새 OCR 작업
+        assertThat(storage.objects).containsKey(objectKey(newId));
+        assertThat(storage.puts.get()).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("SELECT idempotency_key FROM ai_jobs WHERE job_type = 'OCR' "
+                + "AND resource_id = ?", String.class, newId)).isEqualTo("ocr:" + newId);
+    }
+
+    @Test
+    void OCR_결과_전에_원본이_만료된_문서와_같은_사진도_새_문서로_202() throws Exception {
+        byte[] image = ArcImages.jpeg(24 * 1024);
+        long expiredId = json(upload("front.jpg", "image/jpeg", image).andExpect(status().isAccepted()))
+                .path("documentId").longValue();
+        expireOriginal(expiredId);
+
+        long newId = json(upload("front.jpg", "image/jpeg", image).andExpect(status().isAccepted()))
+                .path("documentId").longValue();
+
+        assertThat(newId).isNotEqualTo(expiredId);
+        assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?", userId)).isEqualTo(1);
+        // 옛 작업 행은 남는다(끝나지 않은 작업이면 worker 가 원본 위치를 못 찾아 실패로 보고)
+        assertThat(count("SELECT COUNT(*) FROM ai_jobs WHERE job_type = 'OCR' AND user_id = ?", userId)).isEqualTo(2);
+    }
+
+    @Test
+    void 확정한_문서와_같은_사진은_기존처럼_같은_문서를_200으로_준다() throws Exception {
+        // 확정도 원본을 지우고 original_deleted_at 을 쓰지만 만료가 아니다
+        byte[] image = ArcImages.jpeg(24 * 1024);
+        long documentId = json(upload("front.jpg", "image/jpeg", image).andExpect(status().isAccepted()))
+                .path("documentId").longValue();
+        recordOcr(documentId, LocalDate.now(KstDates.KST).plusYears(1).toString());
+        mockMvc.perform(post(URL + "/{id}/confirm", documentId).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"));
+        assertThat(jdbcTemplate.queryForObject("SELECT original_deleted_at FROM documents WHERE id = ?",
+                Object.class, documentId)).isNotNull();
+
+        upload("front.jpg", "image/jpeg", image)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documentId").value(documentId))
+                .andExpect(jsonPath("$.status").value("CONFIRMED"));
+        assertThat(storage.puts.get()).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM ai_jobs WHERE job_type = 'OCR' AND user_id = ?", userId)).isEqualTo(1);
+    }
+
     @Test
     void 다른_사용자가_같은_사진을_올리면_따로_저장한다() throws Exception {
         byte[] image = ArcImages.jpeg(16 * 1024);
@@ -279,6 +351,31 @@ class DocumentApiTest {
 
     private String objectKey(long documentId) {
         return jdbcTemplate.queryForObject("SELECT object_key FROM documents WHERE id = ?", String.class, documentId);
+    }
+
+    /** worker 의 OCR 결과 보고(합성 데이터, 가상 인물 Reyes). */
+    private void recordOcr(long documentId, String stayExpiry) {
+        documentInternalService.recordOcrResult(documentId, new OcrResultRequest(documentId, "ppocrv5-ko-mobile-int8",
+                842, DocumentSide.FRONT, List.of(
+                new OcrFieldResult("nameEn", "MARK ANTHONY REYES", new BigDecimal("0.98"), false),
+                new OcrFieldResult("nationality", "PHL", new BigDecimal("0.97"), false),
+                new OcrFieldResult("birthDate", "1995-08-15", new BigDecimal("0.97"), false),
+                new OcrFieldResult("visaType", "E-9", new BigDecimal("0.95"), false),
+                new OcrFieldResult("stayExpiry", stayExpiry, stayExpiry == null ? null : new BigDecimal("0.90"), false),
+                new OcrFieldResult("registrationNo", "950815-5******", new BigDecimal("0.99"), true))));
+    }
+
+    /**
+     * 원본 보관 기한 만료 삭제(#162)가 남기는 상태: object_key NULL·original_deleted_at, 항목 값 비움(status·confidence 유지),
+     * 문서 상태 그대로. JDBC 로 바꾼 행을 업로드가 다시 읽게 영속성 컨텍스트를 비운다.
+     */
+    private void expireOriginal(long documentId) {
+        entityManager.flush();
+        entityManager.clear();
+        jdbcTemplate.update("UPDATE documents SET object_key = NULL, original_deleted_at = CURRENT_TIMESTAMP(3) "
+                + "WHERE id = ?", documentId);
+        jdbcTemplate.update("UPDATE document_fields SET extracted_value = NULL, confirmed_value = NULL "
+                + "WHERE document_id = ?", documentId);
     }
 
     private static void expectInvalidFile(ResultActions result, String reason) throws Exception {
