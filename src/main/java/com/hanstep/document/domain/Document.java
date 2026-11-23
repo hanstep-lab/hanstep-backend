@@ -134,4 +134,12 @@ public class Document {
         this.ocrModelVersion = modelVersion;
         this.ocrLatencyMs = latencyMs;
     }
+
+    /**
+     * 확정 전에 원본이 지워졌는가(보관 기한 만료 삭제 #162 뒤의 문서). 확정은 original_deleted_at 과 CONFIRMED 를 같이 쓰므로
+     * 확정되지 않았는데 original_deleted_at 이 있으면 만료로 지운 것이다. 같은 사진 재업로드를 새 문서로 받는 조건(#165).
+     */
+    public boolean originalDeletedBeforeConfirm() {
+        return originalDeletedAt != null && status != DocumentStatus.CONFIRMED;
+    }
 }

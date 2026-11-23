@@ -230,6 +230,61 @@ class DocumentUploadCommitTest {
     }
 
     @Test
+    void 원본_만료_뒤_같은_사진이_동시에_2건_와도_새_문서는_1건이고_옛_원본은_다시_지우지_않는다() throws Exception {
+        byte[] image = ArcImages.jpeg(20_000);
+        long expiredId = json(upload(image).andExpect(status().isAccepted())).path("documentId").longValue();
+        documentInternalService.recordOcrResult(expiredId, new OcrResultRequest(expiredId, "ppocrv5-ko-mobile-int8",
+                842, DocumentSide.FRONT, List.of(
+                new OcrFieldResult("nameEn", "MARK ANTHONY REYES", new BigDecimal("0.98"), false),
+                new OcrFieldResult("nationality", "PHL", new BigDecimal("0.97"), false),
+                new OcrFieldResult("birthDate", "1995-08-15", new BigDecimal("0.97"), false),
+                new OcrFieldResult("visaType", "E-9", new BigDecimal("0.95"), false),
+                new OcrFieldResult("stayExpiry", null, null, false),
+                new OcrFieldResult("registrationNo", "950815-5******", new BigDecimal("0.99"), true))));
+        // 원본 보관 기한 만료 삭제(#162)가 남기는 상태: R2 원본 없음, object_key NULL·original_deleted_at, 항목 값 비움
+        storage.objects.remove(objectKey(expiredId));
+        jdbcTemplate.update("UPDATE documents SET object_key = NULL, original_deleted_at = CURRENT_TIMESTAMP(3) "
+                + "WHERE id = ?", expiredId);
+        jdbcTemplate.update("UPDATE document_fields SET extracted_value = NULL, confirmed_value = NULL "
+                + "WHERE document_id = ?", expiredId);
+        rabbitAdmin.purgeQueue(OCR_QUEUE, false);
+
+        CountDownLatch go = new CountDownLatch(1);
+        List<Future<MvcResult>> results = new ArrayList<>();
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            for (int i = 0; i < 2; i++) {
+                results.add(executor.submit(() -> {
+                    go.await();
+                    return upload(image).andReturn();
+                }));
+            }
+            go.countDown();
+        }
+        List<Integer> statuses = new ArrayList<>();
+        List<Long> documentIds = new ArrayList<>();
+        for (Future<MvcResult> f : results) {
+            MvcResult r = f.get();
+            statuses.add(r.getResponse().getStatus());
+            documentIds.add(JsonMapper.builder().build().readTree(r.getResponse().getContentAsString())
+                    .path("documentId").longValue());
+        }
+
+        // 하나는 만료 문서를 바꿔 202, 다른 하나는 바뀐 새 문서를 200 으로 받는다
+        assertThat(statuses).containsExactlyInAnyOrder(202, 200);
+        assertThat(documentIds.get(0)).isEqualTo(documentIds.get(1)).isNotEqualTo(expiredId);
+        long newId = documentIds.getFirst();
+        assertThat(count("SELECT COUNT(*) FROM documents WHERE user_id = ?")).isEqualTo(1);
+        // OCR 작업: 옛 COMPLETED 1 + 새 1(중복 없음), 새 작업만 발행
+        assertThat(count("SELECT COUNT(*) FROM ai_jobs WHERE user_id = ? AND job_type = 'OCR'")).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("SELECT publish_status FROM ai_jobs WHERE job_type = 'OCR' "
+                + "AND resource_id = ?", String.class, newId)).isEqualTo("PUBLISHED");
+        assertThat(Objects.requireNonNull(rabbitAdmin.getQueueInfo(OCR_QUEUE)).getMessageCount()).isEqualTo(1);
+        // 옛 원본은 이미 없어 R2 삭제를 부르지 않고, 새 원본만 남는다
+        assertThat(storage.deletes.get()).isZero();
+        assertThat(storage.objects).containsOnlyKeys(objectKey(newId));
+    }
+
+    @Test
     void 확정_중_R2_원본_삭제가_실패하면_롤백되어_확정_전_상태로_남는다() throws Exception {
         long documentId = json(upload(ArcImages.jpeg(20_000)).andExpect(status().isAccepted()))
                 .path("documentId").longValue();

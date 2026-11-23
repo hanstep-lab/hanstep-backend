@@ -99,7 +99,7 @@ public class DocumentService {
     }
 
     /**
-     * 면 하나: 검사(형식·크기·매직 바이트) → 같은 사진이면 기존 문서(단, OCR 이 실패한 문서면 지우고 새 문서) → 아니면 한
+     * 면 하나: 검사(형식·크기·매직 바이트) → 같은 사진이면 기존 문서(단, OCR 이 실패했거나 원본이 만료된 문서면 지우고 새 문서) → 아니면 한
      * 트랜잭션에서 documents 저장, R2 PUT, OCR 작업 등록. R2 PUT 이 실패하면 롤백되어 행이 남지 않고, 롤백되면 그 키를 지운다(PUT 이 응답 전에 끊긴 경우 포함).
      * OCR 작업은 커밋 후 발행된다(실패해도 응답은 성공, 발행 대기로 남아 재발행 대상).
      */
@@ -113,12 +113,12 @@ public class DocumentService {
         Optional<Document> existing = documentRepository.findByUserIdAndSha256(userId, sha256);
         Long documentId;
         try {
-            if (existing.isPresent() && !ocrFailed(existing.get())) {
+            if (existing.isPresent() && !replaceable(existing.get())) {
                 return new UploadResult(false, view(existing.get()));
             }
             documentId = existing.isEmpty()
                     ? tx.execute(status -> create(userId, side, contentType, bytes, sha256))
-                    : tx.execute(status -> replaceFailed(userId, existing.get().getId(), side, contentType, bytes,
+                    : tx.execute(status -> replaceStale(userId, existing.get().getId(), side, contentType, bytes,
                             sha256));
         } catch (DataIntegrityViolationException e) {
             // 같은 사진이 동시에 두 번 올라왔다. 먼저 저장된 문서를 준다
@@ -126,41 +126,48 @@ public class DocumentService {
             return new UploadResult(false, view(first));
         }
         if (documentId == null) {
-            // 다른 요청이 먼저 실패 문서를 바꿨다(또는 그 사이 상태가 바뀜). 지금 문서를 준다
+            // 다른 요청이 먼저 옛 문서를 바꿨다(또는 그 사이 상태가 바뀜). 지금 문서를 준다
             Document current = documentRepository.findByUserIdAndSha256(userId, sha256).orElseThrow();
             return new UploadResult(false, view(current));
         }
         return new UploadResult(true, view(documentRepository.findById(documentId).orElseThrow()));
     }
 
-    /** OCR 결과 전(UPLOADED)이고 가장 최근 OCR 작업이 FAILED 인가(같은 사진 재업로드를 새 문서로 받는 조건). */
+    /** 같은 사진 재업로드를 새 문서로 받는 조건: OCR 이 실패했거나(#73 A안) 확정 전에 원본이 만료돼 지워졌다(#165). */
+    private boolean replaceable(Document doc) {
+        return ocrFailed(doc) || doc.originalDeletedBeforeConfirm();
+    }
+
+    /** OCR 결과 전(UPLOADED)이고 가장 최근 OCR 작업이 FAILED 인가. */
     private boolean ocrFailed(Document doc) {
         AiJob job = latestOcrJob(doc.getId());
         return doc.getStatus() == DocumentStatus.UPLOADED && job != null && job.getStatus() == AiJobStatus.FAILED;
     }
 
     /**
-     * OCR 실패 뒤 같은 사진 재업로드(#73 A안). 실패 문서 행을 잠근 채 조건을 다시 보고, 문서를 지운 뒤(document_fields 는
-     * CASCADE) 새 문서·R2 원본·OCR 작업을 만든다. 옛 R2 원본은 커밋 뒤 지운다. 옛 FAILED 작업 행은 남는다
-     * (ai_jobs.resource_id 에 FK 가 없어 지워진 문서 id 를 가리킨 채 실패 기록으로 남음).
+     * OCR 실패(#73 A안)·원본 만료(#165) 뒤 같은 사진 재업로드. 옛 문서 행을 잠근 채 조건을 다시 보고, 문서를 지운 뒤
+     * (document_fields 는 CASCADE) 새 문서·R2 원본·OCR 작업을 만든다. 옛 R2 원본이 남아 있으면 커밋 뒤 지운다(원본 만료
+     * 문서는 이미 지워져 object_key 가 NULL). 옛 작업 행은 남는다(ai_jobs.resource_id 에 FK 가 없어 지워진 문서 id 를
+     * 가리킨 채 남음. 끝나지 않은 작업이면 worker 가 원본 위치를 못 찾아 실패로 보고한다).
      *
      * @return 새 문서 id. 잠근 뒤 보니 이미 지워졌거나 조건이 바뀌었으면 null(동시에 온 다른 요청이 먼저 바꿈)
      */
-    private Long replaceFailed(Long userId, Long failedId, DocumentSide side, String contentType, byte[] bytes,
-                               String sha256) {
-        Document failed = documentRepository.findByIdForUpdate(failedId).orElse(null);
-        if (failed == null || !failed.getUserId().equals(userId) || !ocrFailed(failed)) {
+    private Long replaceStale(Long userId, Long oldId, DocumentSide side, String contentType, byte[] bytes,
+                              String sha256) {
+        Document old = documentRepository.findByIdForUpdate(oldId).orElse(null);
+        if (old == null || !old.getUserId().equals(userId) || !replaceable(old)) {
             return null;
         }
-        String oldKey = failed.getObjectKey();
-        documentRepository.delete(failed);
+        String reason = old.originalDeletedBeforeConfirm() ? "original-expired" : "OCR-failed";
+        String oldKey = old.getObjectKey();
+        documentRepository.delete(old);
         // Hibernate 는 한 번의 flush 에서 INSERT 를 DELETE 보다 먼저 보낸다. uq(user_id, sha256) 때문에 삭제를 먼저 내보낸다
         documentRepository.flush();
         if (oldKey != null) {
-            deleteAfterCommit(failedId, oldKey);
+            deleteAfterCommit(oldId, oldKey);
         }
         Long documentId = create(userId, side, contentType, bytes, sha256);
-        log.info("document {} replaced OCR-failed document {}", documentId, failedId);
+        log.info("document {} replaced {} document {}", documentId, reason, oldId);
         return documentId;
     }
 
