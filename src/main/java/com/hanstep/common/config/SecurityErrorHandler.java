@@ -1,5 +1,6 @@
 package com.hanstep.common.config;
 
+import com.hanstep.common.error.ClientErrorLog;
 import com.hanstep.common.error.ErrorCode;
 import com.hanstep.common.error.ErrorResponse;
 import com.hanstep.common.web.RequestIdFilter;
@@ -25,6 +26,7 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint {
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException authException) throws IOException {
         ErrorCode code = ErrorCode.UNAUTHORIZED;
+        ClientErrorLog.info(request, code);   // 토큰 없음·만료. 헤더(토큰)는 남기지 않는다
         response.setStatus(code.getStatus().value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");

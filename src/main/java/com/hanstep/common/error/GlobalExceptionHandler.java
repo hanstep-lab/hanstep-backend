@@ -1,6 +1,7 @@
 package com.hanstep.common.error;
 
 import com.hanstep.common.web.RequestIdFilter;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -18,6 +19,8 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
@@ -139,10 +142,21 @@ public class GlobalExceptionHandler {
 
     private ResponseEntity<ErrorResponse> build(ErrorCode code, String message, Map<String, Object> details,
                                                 HttpHeaders headers) {
+        // 4xx 는 INFO 한 줄(#156). 5xx 는 위 핸들러가 WARN·ERROR 로 남긴다
+        if (code.getStatus().is4xxClientError()) {
+            ClientErrorLog.info(currentRequest(), code);
+        }
         // Content-Type 을 미리 정해 Accept 협상을 건너뛴다. CHT-04 처럼 Accept: text/event-stream 요청도 오류는 JSON 으로 받는다
         return ResponseEntity.status(code.getStatus())
                 .headers(headers)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(ErrorResponse.of(code, message, details, RequestIdFilter.current()));
+    }
+
+    // 지금 처리 중인 요청(@ExceptionHandler 는 요청을 처리하던 스레드에서 돈다). 없으면 null
+    private static HttpServletRequest currentRequest() {
+        return RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes
+                ? attributes.getRequest()
+                : null;
     }
 }
