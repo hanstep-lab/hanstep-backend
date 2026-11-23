@@ -15,9 +15,10 @@ public final class ChatStreamEvents {
     public static final String BLOCKS_DESCRIPTION = "AI가 도구 성공 시 코드로 만든 카드 배열(그대로 저장·전달). 없으면 null. "
             + "type: REMITTANCE_CONFIRM(quote_remittance), E74_SCORE_CARD·MISSING_INPUTS(calculate_e74_score), "
             + "FX_SUMMARY_CARD(fx_rate_summary, 프롬프트 v4.4부터), "
-            + "PRODUCT_RECOMMEND_CARD(recommend_savings_products, 프롬프트 v4.5부터, 기권이면 products=[]·abstainReason). "
+            + "PRODUCT_RECOMMEND_CARD(recommend_savings_products, 프롬프트 v4.5부터, 기권이면 products=[]·abstainReason), "
+            + "VISA_ROADMAP_LINK(get_visa_roadmap, 프롬프트 v4.7부터: roadmapId·stepCount·applicableFrom·ruleStatus, 뒤에 MISSING_INPUTS 가 올 수 있다). "
             + "E74_SCORE_CARD 의 ruleStatus 는 DRAFT 또는 APPROVED. "
-            + "MISSING_INPUTS 는 fields[]: {field, question}(판정에 더 필요한 입력)";
+            + "MISSING_INPUTS 는 fields[]: {field, question}(판정에 더 필요한 입력, calculate_e74_score·get_visa_roadmap)";
 
     private ChatStreamEvents() {
     }

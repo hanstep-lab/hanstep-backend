@@ -71,7 +71,7 @@ class ChatOpenApiDocsTest {
                     : schemas.path(blocks.path("$ref").asString().replace("#/components/schemas/", ""))
                             .path("description").asString();
             assertThat(description).contains("REMITTANCE_CONFIRM", "E74_SCORE_CARD", "MISSING_INPUTS",
-                    "FX_SUMMARY_CARD", "PRODUCT_RECOMMEND_CARD");
+                    "FX_SUMMARY_CARD", "PRODUCT_RECOMMEND_CARD", "VISA_ROADMAP_LINK");
         }
     }
 
