@@ -247,6 +247,79 @@ alias dc='docker compose -f deploy/compose.prod.yml'
   - `cpus`를 바꾸면 `OCR_CPU_THREADS`도 같이 바꾼다.
 - 값이 서버 코어 수보다 크면 컨테이너가 뜨지 않는다. 서버 코어가 2개면 Worker가 CPU를 전부 쓸 수 있으므로 1로 낮춘다.
 
+## 등록증 원본 보관 기한 만료 삭제
+
+업로드한 등록증 원본은 확정(`POST /api/v1/documents/{id}/confirm`)하면 바로 지워진다. 확정하지 않고 떠난 문서와 OCR이 실패한 문서는 Spring 스케줄러가 보관 기한(`documents.retention_until`, 업로드 + 24시간)이 지난 뒤 지운다(#162). 시연 전 예열로 올린 문서도 확정하지 않으면 24시간 뒤 지워진다.
+
+### 설정
+
+모두 비워 두면 기본값을 쓴다(`deploy/.env`).
+
+| 키 | 기본값 | 용도 |
+|---|---|---|
+| `ARC_ORIGINAL_EXPIRY_ENABLED` | `true` | 켜기·끄기. `false`면 스케줄러를 만들지 않는다 |
+| `ARC_ORIGINAL_EXPIRY_INTERVAL_MS` | `3600000`(1시간) | 주기. 앞 실행이 끝난 뒤부터 잰다(fixedDelay). 첫 실행은 기동 1분 뒤 |
+| `ARC_ORIGINAL_EXPIRY_BATCH_SIZE` | `100` | 한 번에 처리하는 문서 수. 남은 문서는 다음 주기에 처리한다 |
+
+### 처리 순서
+
+대상은 `retention_until`이 지났고 `object_key`가 남은 문서다. 확정된 문서는 `object_key`가 이미 NULL이라 빠진다. 문서마다 트랜잭션을 따로 쓰고, 한 건이 실패해도 나머지는 계속한다.
+
+1. 문서 행을 잠근다(확정·OCR 결과 보고와 같은 잠금). 잠근 뒤 조건을 다시 보고, 그 사이 확정됐거나 기한이 바뀌었으면 건너뛴다.
+2. R2 원본을 지운다. 없는 키를 지워도 성공으로 본다(수명 주기 규칙이 먼저 지웠을 수 있다).
+3. R2 삭제가 성공한 뒤에 DB를 바꾼다: `object_key` NULL, `original_deleted_at` 기록, `document_fields` 값 비우기(`status`·`confidence`는 남김). 문서 `status`는 바꾸지 않는다.
+
+R2 삭제가 실패하면 그 행은 바꾸지 않고 다음 주기에 다시 한다. DB를 먼저 바꾸고 커밋 뒤에 지우면, R2 삭제가 실패했을 때 "지웠다"고 기록된 채 원본이 남는다.
+
+### R2 수명 주기 규칙(arc-expire-1d)과의 역할 차이
+
+| | 이 스케줄러 | R2 수명 주기 규칙 `arc-expire-1d`(11/23 추가) |
+|---|---|---|
+| 대상 | DB 행이 있고 `object_key`가 남은 문서 | 버킷의 `arc/` 아래 모든 객체(DB 행 유무와 관계없음) |
+| 시점 | `retention_until`(업로드 + 24시간)이 지난 뒤 다음 주기 | 객체를 만든 지 1일 뒤, R2가 정한 시점에 비동기로 |
+| DB | 같이 정리한다(`object_key` NULL·`original_deleted_at`·항목 값) | 모른다. 규칙이 먼저 지우면 DB에는 `object_key`가 남고, 다음 주기에 스케줄러가 없는 키를 지우며(성공) DB를 정리한다 |
+| DB 행이 없는 객체(고아) | 찾을 수 없다 | 지운다 |
+
+- 고아 객체는 DB 행이 지워졌는데 R2 삭제가 실패했거나(업로드 롤백·OCR 실패 후 재업로드·데모 초기화), R2를 지우지 않는 경로로 행이 지워졌을 때 남는다. 11/23 기준선: DB에서 원본을 가리키는 문서 0건, R2 `arc/front/`에 DB 행이 없는 객체 5개(11/17~11/19 업로드). 이 5개는 수명 주기 규칙이 지운다.
+- 두 장치는 서로를 대신하지 않는다. 규칙을 지우면 고아 객체가 남고, 스케줄러를 끄면 DB의 항목 값(마스킹 등록번호 포함)이 남는다.
+
+### 로그
+
+`dc logs spring | grep 'arc original expiry'`. 문서 id·건수·예외 클래스 이름만 남긴다(`object_key`·항목 값·등록번호 없음).
+
+- 요약(대상이 있을 때만 한 주기에 한 줄): `arc original expiry: expired=3, deleted=2, failed=1`. `expired`는 이번 주기 대상 수, `deleted`는 지운 수, `failed`는 실패 수. 잠근 뒤 보니 이미 확정된 문서는 어느 쪽에도 세지 않는다.
+- 문서 실패: `arc original expiry failed: documentId=42, reason=ArcStorageException`(R2 삭제 실패, 다음 주기에 다시)
+- 대상 조회 실패: `arc original expiry run failed: reason=...`(다음 주기에 다시)
+
+### 만료 뒤 앱 응답
+
+원본을 지운 문서는 상태가 그대로여서 조회(`GET /api/v1/documents/{id}`)는 200이고 `fields`의 `value`가 모두 null이다. 확정은 확인 대기 문서면 422 `INSUFFICIENT_DATA`(항목 값 `required`), OCR 결과 전 문서면 409 `INVALID_STATE`다. 다시 하려면 등록증을 새로 찍어 올린다.
+
+### 배포 후 확인(운영 재현)
+
+1. 앱에서 합성 등록증(실제 등록증 아님)을 올리고 확정하지 않는다. 문서 id를 적어 둔다.
+2. 그 문서의 보관 기한을 과거로 당긴다. `{문서ID}`를 바꿔 실행한다.
+
+   ```bash
+   dc exec -T mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' <<'SQL'
+   UPDATE documents SET retention_until = UTC_TIMESTAMP(3) - INTERVAL 1 MINUTE WHERE id = {문서ID} AND object_key IS NOT NULL;
+   SQL
+   ```
+
+3. 다음 주기(최대 1시간, `dc restart spring`이면 1분 뒤) 뒤 확인한다.
+   - DB: `object_key`가 NULL이고 `original_deleted_at`이 찍혔는지, 항목 값이 비었는지
+
+     ```bash
+     dc exec -T mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' <<'SQL'
+     SELECT id, status, object_key IS NULL AS original_gone, original_deleted_at, retention_until FROM documents WHERE id = {문서ID};
+     SELECT COUNT(*) AS values_left FROM document_fields
+     WHERE document_id = {문서ID} AND (extracted_value IS NOT NULL OR confirmed_value IS NOT NULL);
+     SQL
+     ```
+
+   - R2: Cloudflare 대시보드 → R2 → `hanstep-arc-private` → `arc/front/`에서 그 객체가 사라졌는지(키는 2 전에 `SELECT object_key ...`로 확인해 둔다. 로그에는 남지 않는다)
+   - 로그: `dc logs spring | grep 'arc original expiry'`에 `expired=1, deleted=1, failed=0` 줄이 있는지
+
 ## 환율 수집기
 
 화면·챗봇은 `exchange_rates`만 읽는다. 외부 환율 API를 부르는 곳은 Spring의 환율 수집기 하나뿐이다(#119). 환율은 실데이터만 두고, 못 받은 날짜는 비워 둔다(화면·챗봇이 "데이터 부족"으로 처리).

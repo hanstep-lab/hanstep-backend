@@ -112,6 +112,10 @@ services:
       R2_OCR_ACCESS_KEY_ID: ${R2_OCR_ACCESS_KEY_ID}
       R2_OCR_SECRET_ACCESS_KEY: ${R2_OCR_SECRET_ACCESS_KEY}
       R2_ARC_BUCKET: ${R2_ARC_BUCKET:-hanstep-arc-private}
+      # 등록증 원본 보관 기한 만료 삭제(#162). 빈 값이 Spring 에 가면 꺼지거나(enabled) 기동에 실패하므로(주기) 기본값을 꼭 둔다
+      ARC_ORIGINAL_EXPIRY_ENABLED: ${ARC_ORIGINAL_EXPIRY_ENABLED:-true}
+      ARC_ORIGINAL_EXPIRY_INTERVAL_MS: ${ARC_ORIGINAL_EXPIRY_INTERVAL_MS:-3600000}
+      ARC_ORIGINAL_EXPIRY_BATCH_SIZE: ${ARC_ORIGINAL_EXPIRY_BATCH_SIZE:-100}
       # 환율 수집기(#119). 1시간 수집은 Mock 정리 SQL·백필을 끝낸 뒤 켠다(deploy/README.md "환율 수집기")
       KOREAEXIM_API_KEY: ${KOREAEXIM_API_KEY:-}
       FX_COLLECTOR_ENABLED: ${FX_COLLECTOR_ENABLED:-false}

@@ -117,6 +117,17 @@ public class Document {
         return original;
     }
 
+    /** 원본 보관 기한(retention_until)이 지났는데 원본이 남아 있는가(#162). 확정된 문서는 object_key 가 NULL 이라 아니다. */
+    public boolean originalExpired(Instant now) {
+        return objectKey != null && retentionUntil.isBefore(now);
+    }
+
+    /** 보관 기한이 지나 R2 원본을 지운 뒤 기록한다(#162). 문서 상태는 바꾸지 않는다. */
+    public void markOriginalExpired(Instant at) {
+        this.objectKey = null;
+        this.originalDeletedAt = at;
+    }
+
     /**
      * OCR 결과를 받을 수 있는 상태인가. 업로드 직후(UPLOADED)도 받는다: 발행 confirm 기록보다 worker 결과가 먼저 올 수 있다.
      */

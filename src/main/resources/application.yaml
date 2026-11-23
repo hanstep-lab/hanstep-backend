@@ -50,6 +50,14 @@ hanstep:
       initial-delay-ms: 60000
       min-idle-seconds: 30
       batch-size: 100
+  # 등록증 원본 보관 기한(retention_until, 업로드 + 24시간) 만료 삭제(#162). 확정하지 않은·OCR 실패 문서의 R2 원본과 항목 값을
+  # 지운다. DB 행이 없는 R2 객체는 R2 수명 주기 규칙(arc-expire-1d)이 맡는다. 테스트는 build.gradle 에서 끈다
+  arc-original-expiry:
+    enabled: ${ARC_ORIGINAL_EXPIRY_ENABLED:true}
+    interval-ms: ${ARC_ORIGINAL_EXPIRY_INTERVAL_MS:3600000}
+    initial-delay-ms: 60000
+    # 한 번에 처리하는 문서 수. 남은 문서는 다음 주기에
+    batch-size: ${ARC_ORIGINAL_EXPIRY_BATCH_SIZE:100}
   # 외국인등록증 원본(R2 hanstep-arc-private). 등록증 버킷 전용 키(R2_OCR_*)를 쓴다(정책·상품 키 R2_ACCESS_KEY_ID 아님)
   arc-storage:
     endpoint: ${R2_ENDPOINT_URL:}
