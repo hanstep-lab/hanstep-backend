@@ -67,6 +67,25 @@ class SolGlobalLoanReyesSeedTest {
     void setUp() {
         reyesId = jdbc.queryForObject("SELECT id FROM users WHERE external_user_key = 'demo-e9-ph-reyes'", Long.class);
         bearer = "Bearer " + jwtTokenProvider.issue(reyesId);
+        // 기존 단정은 한국어 사용자 기준(Reyes 시드는 en). 영어는 Reyes_시드_언어_en 이면_영어_문구
+        jdbc.update("UPDATE users SET preferred_language = 'ko' WHERE id = ?", reyesId);
+    }
+
+    @Test
+    void Reyes_시드_언어_en_이면_영어_문구() throws Exception {
+        jdbc.update("UPDATE users SET preferred_language = 'en' WHERE id = ?", reyesId);
+        loadMydata();
+
+        mockMvc.perform(get("/api/v1/credit/loans/sol-global").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("SOL Global Loan"))
+                .andExpect(jsonPath("$.eligibility.conditions[0].desc").value("Employed 3+ months · Shinhan Bank "
+                        + "payroll for the last 1+ month · Currently 12 months of salary deposits in a row, Shinhan "
+                        + "payroll account: yes"))
+                .andExpect(jsonPath("$.eligibility.conditions[2].desc").value(
+                        "Vietnam·Indonesia·Cambodia·Kazakhstan·Uzbekistan·Philippines·Nepal · Current: Philippines"))
+                .andExpect(jsonPath("$.eligibility.conditions[4].desc")
+                        .value("Currently KRW 32,100,000 a year (based on 2025 income records)"));
     }
 
     @Test

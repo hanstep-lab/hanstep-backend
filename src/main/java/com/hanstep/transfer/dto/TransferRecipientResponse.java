@@ -12,7 +12,7 @@ public record TransferRecipientResponse(
         @Schema(description = "받는 분 영문 이름", example = "LORNA REYES")
         String name,
 
-        @Schema(description = "관계 표시 문구(임시 매핑)", example = "어머니", nullable = true)
+        @Schema(description = "관계 표시 문구(임시 매핑). preferred_language 가 en 이면 영어(vi·zh 도 영어)(예: Mother)", example = "어머니", nullable = true)
         String relation,
 
         @Schema(description = "받는 은행", example = "BDO")
@@ -35,10 +35,20 @@ public record TransferRecipientResponse(
     private static final Map<String, String> RELATION_LABELS = Map.of(
             "MOTHER", "어머니", "FATHER", "아버지", "SPOUSE", "배우자", "CHILD", "자녀",
             "SIBLING", "형제자매", "SELF", "본인 계좌", "OTHER", "기타");
+    private static final Map<String, String> RELATION_LABELS_EN = Map.of(
+            "MOTHER", "Mother", "FATHER", "Father", "SPOUSE", "Spouse", "CHILD", "Child",
+            "SIBLING", "Sibling", "SELF", "Own account", "OTHER", "Other");
     private static final Map<String, String> COUNTRY_LABELS = Map.of("PH", "필리핀", "VN", "베트남");
 
+    /** 한국어 관계 문구. */
     public static TransferRecipientResponse from(RemittanceRecipient r) {
-        String relation = r.relationship() == null ? null : RELATION_LABELS.get(r.relationship());
+        return from(r, false);
+    }
+
+    /** english 면 관계 문구만 영어. 나라 표시 이름은 언어와 상관없이 같다. */
+    public static TransferRecipientResponse from(RemittanceRecipient r, boolean english) {
+        String relation = r.relationship() == null ? null
+                : (english ? RELATION_LABELS_EN : RELATION_LABELS).get(r.relationship());
         return new TransferRecipientResponse(r.recipientId(), r.nameEn(), relation, r.bankName(), r.accountLast4(),
                 COUNTRY_LABELS.getOrDefault(r.countryCode(), r.countryCode()), r.countryCode(), r.currency());
     }

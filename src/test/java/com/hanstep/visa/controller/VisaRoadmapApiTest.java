@@ -85,6 +85,8 @@ class VisaRoadmapApiTest {
         jdbc.update("UPDATE e74_rule_sets SET approval_status = 'APPROVED' WHERE rule_version = 'E74-2026-v1'");
         userId = insertUser("test-roadmap");
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
+        // 기존 단정은 한국어 사용자 기준(기본값 en 이면 AI 요청에 language 가 들어감)
+        jdbc.update("UPDATE users SET preferred_language = 'ko' WHERE id = ?", userId);
         assessment = sample("e74/calculate_response.json");
         roadmap = sample("visa/roadmap_response.json");
         when(aiE74Client.calculate(any())).thenAnswer(invocation -> assessment.deepCopy());
@@ -202,6 +204,34 @@ class VisaRoadmapApiTest {
         assertThat(roadmapCount()).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM e74_assessments WHERE user_id = ?",
                 Integer.class, userId)).isEqualTo(1);
+    }
+
+    @Test
+    void 영어_사용자면_평가와_로드맵_요청에_같은_language를_넣는다() throws Exception {
+        jdbc.update("UPDATE users SET preferred_language = 'en' WHERE id = ?", userId);
+
+        create("{}").andExpect(status().isCreated());
+
+        ArgumentCaptor<JsonNode> e74 = ArgumentCaptor.forClass(JsonNode.class);
+        verify(aiE74Client).calculate(e74.capture());
+        ArgumentCaptor<JsonNode> sent = ArgumentCaptor.forClass(JsonNode.class);
+        verify(aiRoadmapClient).create(sent.capture());
+        assertThat(e74.getValue().path("language").stringValue()).isEqualTo("en");
+        assertThat(sent.getValue().path("language").stringValue()).isEqualTo("en");
+        assertThat(sent.getValue().propertyNames())
+                .containsExactlyInAnyOrder("asOfDate", "stayExpiresOn", "profile", "language");
+    }
+
+    @Test
+    void 한국어_사용자면_평가와_로드맵_요청에_language가_없다() throws Exception {
+        create("{}").andExpect(status().isCreated());
+
+        ArgumentCaptor<JsonNode> e74 = ArgumentCaptor.forClass(JsonNode.class);
+        verify(aiE74Client).calculate(e74.capture());
+        ArgumentCaptor<JsonNode> sent = ArgumentCaptor.forClass(JsonNode.class);
+        verify(aiRoadmapClient).create(sent.capture());
+        assertThat(e74.getValue().has("language")).isFalse();
+        assertThat(sent.getValue().has("language")).isFalse();
     }
 
     @Test

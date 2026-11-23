@@ -76,6 +76,8 @@ class E74AssessmentApiTest {
         jdbc.update("UPDATE e74_rule_sets SET approval_status = 'APPROVED' WHERE rule_version = 'E74-2026-v1'");
         userId = insertUserWithProfile("test-e74");
         bearer = bearer(userId);
+        // 기존 단정은 한국어 사용자 기준(기본값 en 이면 AI 요청에 language 가 들어감)
+        jdbc.update("UPDATE users SET preferred_language = 'ko' WHERE id = ?", userId);
         try (InputStream in = new ClassPathResource("e74/calculate_response.json").getInputStream()) {
             sample = (ObjectNode) MAPPER.readTree(in);
         }
@@ -284,6 +286,24 @@ class E74AssessmentApiTest {
                 .andExpect(jsonPath("$.code").value("INSUFFICIENT_DATA"))
                 .andExpect(jsonPath("$.details.reason").value("NO_VISA_PROFILE"));
         verify(aiE74Client, never()).calculate(any());
+    }
+
+    @Test
+    void 한국어_사용자면_AI_요청에_language가_없다() throws Exception {
+        create("{}").andExpect(status().isCreated());
+
+        assertThat(sentRequest().has("language")).isFalse();
+    }
+
+    @Test
+    void 영어_사용자면_AI_요청에_language를_넣는다() throws Exception {
+        jdbc.update("UPDATE users SET preferred_language = 'en' WHERE id = ?", userId);
+
+        create("{}").andExpect(status().isCreated());
+
+        JsonNode request = sentRequest();
+        assertThat(request.propertyNames()).containsExactlyInAnyOrder("asOfDate", "profile", "scenario", "language");
+        assertThat(request.path("language").stringValue()).isEqualTo("en");
     }
 
     @Test

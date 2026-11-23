@@ -55,6 +55,8 @@ class SolGlobalLoanApiTest {
         today = LocalDate.now(KstDates.KST);
         userId = TestUsers.create(jdbc, "test-sol-global", "TEST SOL GLOBAL");
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
+        // 기존 단정은 한국어 사용자 기준(users.preferred_language 기본값은 en)
+        language("ko");
     }
 
     @Test
@@ -264,6 +266,88 @@ class SolGlobalLoanApiTest {
     @Test
     void 토큰이_없으면_401() throws Exception {
         mockMvc.perform(get(URL)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 영어_사용자는_문구가_영어이고_key_met_숫자는_같다() throws Exception {
+        language("en");
+        LocalDate expiresOn = today.plusYears(5);
+        visaProfile("E-9", "VNM", expiresOn);
+        transactions(6, true);
+        incomeRecord(2025, 30_000_000, "DOCUMENT", "VERIFIED");
+
+        solGlobal()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.productTag").value("Shinhan Bank loan product"))
+                .andExpect(jsonPath("$.name").value("SOL Global Loan"))
+                .andExpect(jsonPath("$.summary").value("A credit loan for employed foreign residents."))
+                .andExpect(jsonPath("$.notice").value("This is Shinhan Step's own mock calculation. It does not "
+                        + "reflect DSR or loans at other banks, and actual eligibility and interest rates depend on "
+                        + "the bank's review."))
+                .andExpect(jsonPath("$.eligibility.title").value("Eligibility check"))
+                .andExpect(jsonPath("$.eligibility.source")
+                        .value("Checked with MyData, residence card and income information"))
+                .andExpect(jsonPath("$.eligibility.resultLabel").value("5 of 5 met"))
+                .andExpect(jsonPath("$.eligibility.conditions[*].key")
+                        .value(contains("salary", "visa", "nationality", "stay", "income")))
+                .andExpect(jsonPath("$.eligibility.conditions[*].met").value(everyItem(is(true))))
+                .andExpect(jsonPath("$.eligibility.conditions[*].title").value(contains("Employment and payroll",
+                        "Eligible visa", "Eligible nationality", "More than 6 months until stay expiry",
+                        "Annual income of KRW 20 million or more")))
+                .andExpect(jsonPath("$.eligibility.conditions[0].desc").value("Employed 3+ months · Shinhan Bank "
+                        + "payroll for the last 1+ month · Currently 6 months of salary deposits in a row, Shinhan "
+                        + "payroll account: yes"))
+                .andExpect(jsonPath("$.eligibility.conditions[1].desc").value("One of E-9·E-7·F-2·F-5 · Current: E-9"))
+                .andExpect(jsonPath("$.eligibility.conditions[2].desc").value(
+                        "Vietnam·Indonesia·Cambodia·Kazakhstan·Uzbekistan·Philippines·Nepal · Current: Vietnam"))
+                .andExpect(jsonPath("$.eligibility.conditions[3].desc").value("Expires "
+                        + expiresOn.format(DateTimeFormatter.ofPattern("yyyy.MM.dd")) + " · About 60 months left"))
+                .andExpect(jsonPath("$.eligibility.conditions[4].desc")
+                        .value("Currently KRW 30,000,000 a year (based on 2025 income records)"))
+                .andExpect(jsonPath("$.terms.title").value("Product terms"))
+                .andExpect(jsonPath("$.terms.basis").value("Based on Shinhan Bank product information"))
+                .andExpect(jsonPath("$.terms.rows[*].key").value(contains("limit", "term", "repayment", "rate")))
+                .andExpect(jsonPath("$.terms.rows[*].label")
+                        .value(contains("Loan limit", "Loan term", "Repayment", "Interest rate")))
+                .andExpect(jsonPath("$.terms.rows[?(@.key == 'limit')].value").value("Up to KRW 50,000,000"))
+                .andExpect(jsonPath("$.terms.rows[?(@.key == 'repayment')].value")
+                        .value("Equal principal installments"))
+                .andExpect(jsonPath("$.terms.rows[?(@.key == 'rate')].value").value("See the product description"))
+                // 숫자는 언어와 상관없이 같다(한국어 테스트와 같은 입력, 기존 대출 없음)
+                .andExpect(jsonPath("$.limitEstimate.estimatedLimit.amount").value(24_000_000));
+    }
+
+    @Test
+    void 베트남어_사용자도_영어_문구이고_미충족_조건도_영어() throws Exception {
+        language("vi");
+        eligibleData();
+        jdbc.update("UPDATE financial_accounts SET is_salary_account = FALSE WHERE user_id = ?", userId);
+
+        solGlobal()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.productTag").value("Shinhan Bank loan product"))
+                .andExpect(jsonPath("$.eligibility.resultLabel").value("4 of 5 met"))
+                .andExpect(jsonPath("$.eligibility.conditions[?(@.key == 'salary')].met").value(false))
+                .andExpect(jsonPath("$.eligibility.conditions[?(@.key == 'salary')].desc").value(contains(
+                        containsString("6 months of salary deposits in a row, Shinhan payroll account: no"))))
+                .andExpect(jsonPath("$.eligibility.conditions[?(@.key == 'nationality')].desc")
+                        .value(contains(containsString("· Current: Philippines"))));
+    }
+
+    @Test
+    void 영어_사용자에게_정보가_없으면_없다고_영어로_쓴다() throws Exception {
+        language("en");
+        visaProfile("E-9", "PHL", today.plusYears(2));
+        transactions(6, true);
+
+        solGlobal()
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.eligibility.conditions[?(@.key == 'income')].desc")
+                        .value(contains("No annual income information")));
+    }
+
+    private void language(String language) {
+        jdbc.update("UPDATE users SET preferred_language = ? WHERE id = ?", language, userId);
     }
 
     /** E-9·PHL·만료 2년 뒤·급여 6개월·연소득 3,000만 원(2025 VERIFIED): 다섯 조건 모두 충족. */

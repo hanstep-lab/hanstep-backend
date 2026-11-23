@@ -39,6 +39,8 @@ class FxRateMockIncludedTest {
         long userId = TestUsers.create(jdbc, "test-fx-rates-mock", "TEST FX RATES MOCK");
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
         jdbc.update("INSERT INTO visa_profiles (user_id, nationality_code) VALUES (?, 'XTL')", userId);
+        // 기존 단정은 한국어 사용자 기준(users.preferred_language 기본값은 en)
+        jdbc.update("UPDATE users SET preferred_language = 'ko' WHERE id = ?", userId);
     }
 
     @Test

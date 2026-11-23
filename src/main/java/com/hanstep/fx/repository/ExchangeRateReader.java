@@ -30,6 +30,11 @@ public class ExchangeRateReader {
     // 원천 우선순위. FIELD 는 목록에 없는 값에 0 을 주지만 source 는 이 세 값뿐이다(ENUM)
     private static final String PRIORITY = "FIELD(source, 'KOREAEXIM', 'MARKET_REF', 'MOCK')";
 
+    /** MARKET_REF 출처 문구. 송금 견적의 PHP 참고 환율도 같은 문구를 쓴다. */
+    public static final String MARKET_REF_LABEL = "ECB 기준환율 기반 참고값";
+    public static final String MARKET_REF_LABEL_EN = "Reference rate based on the ECB rate";
+    static final String KOREAEXIM_LABEL_EN = "Korea Eximbank published base rate";
+
     private final JdbcTemplate jdbc;
     private final FxRatesProperties properties;
 
@@ -43,12 +48,17 @@ public class ExchangeRateReader {
                             LocalDate rateDate, Instant rateAt, BigDecimal baseRate, BigDecimal sendRate,
                             BigDecimal receiveRate, boolean mock, Instant fetchedAt, Instant createdAt) {
 
-        /** 출처 표시 문구. USD 는 은행이 정한 값이 아니라 수출입은행 고시 기준이다. */
+        /** 출처 표시 문구(한국어). USD 는 은행이 정한 값이 아니라 수출입은행 고시 기준이다. */
         public String sourceLabel() {
+            return sourceLabel(false);
+        }
+
+        /** 출처 표시 문구. english 면 영어(preferred_language 가 ko 가 아닌 사용자). */
+        public String sourceLabel(boolean english) {
             return switch (source) {
-                case "KOREAEXIM" -> "수출입은행 고시 매매기준율";
-                case "MARKET_REF" -> "ECB 기준환율 기반 참고값";
-                default -> "Mock 환율(로컬 개발용)";
+                case "KOREAEXIM" -> english ? KOREAEXIM_LABEL_EN : "수출입은행 고시 매매기준율";
+                case "MARKET_REF" -> english ? MARKET_REF_LABEL_EN : MARKET_REF_LABEL;
+                default -> english ? "Mock rate (local development only)" : "Mock 환율(로컬 개발용)";
             };
         }
     }

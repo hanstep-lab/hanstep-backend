@@ -10,6 +10,7 @@ import com.hanstep.fx.dto.FxRateResponse;
 import com.hanstep.fx.dto.FxRateResponse.PeriodAverage;
 import com.hanstep.fx.repository.ExchangeRateReader;
 import com.hanstep.fx.repository.ExchangeRateReader.DailyRate;
+import com.hanstep.user.repository.UserRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
@@ -59,11 +60,14 @@ public class FxRateService {
     private final ExchangeRateReader reader;
     private final JdbcTemplate jdbc;
     private final FxRatesProperties properties;
+    private final UserRepository userRepository;
 
-    public FxRateService(ExchangeRateReader reader, JdbcTemplate jdbc, FxRatesProperties properties) {
+    public FxRateService(ExchangeRateReader reader, JdbcTemplate jdbc, FxRatesProperties properties,
+                         UserRepository userRepository) {
         this.reader = reader;
         this.jdbc = jdbc;
         this.properties = properties;
+        this.userRepository = userRepository;
     }
 
     /** FX-001. currency 를 안 주면 모국 통화(없으면 USD). 화면 통화가 아니면 400, 데이터가 없으면 404. */
@@ -85,7 +89,7 @@ public class FxRateService {
         PERIODS.forEach((period, months) -> averages.add(average(period, asOf.minusMonths(months), days, earliest, current)));
         return new FxRateResponse(target, latest.unitAmount(), Decimals.plain(current), Decimals.plain(latest.sendRate()),
                 Decimals.plain(latest.receiveRate()), Decimals.plain(change), Decimals.plain(changeRate), asOf,
-                latest.sourceLabel(), latest.source(), latest.mock(), kst(latest.rateAt()), kst(latest.fetchedAt()),
+                latest.sourceLabel(userRepository.prefersEnglish(userId)), latest.source(), latest.mock(), kst(latest.rateAt()), kst(latest.fetchedAt()),
                 stale(latest, Instant.now()), notices(latest), averages, screen);
     }
 

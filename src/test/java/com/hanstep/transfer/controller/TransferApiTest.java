@@ -56,6 +56,8 @@ class TransferApiTest {
     void setUp() {
         userId = insertUser("test-transfer", "MARK ANTHONY REYES");
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
+        // 기존 단정은 한국어 사용자 기준(users.preferred_language 기본값은 en)
+        language("ko");
         motherId = insertRecipient(userId, "test-mother", "LORNA REYES", "MOTHER", "BDO", "****5566", true);
         selfId = insertRecipient(userId, "test-self", "MARK ANTHONY REYES", "SELF", "BPI", "****7788", true);
         insertRecipient(userId, "test-unconfirmed", "JUAN DELA CRUZ", "OTHER", "BPI", "****1234", false);
@@ -105,6 +107,37 @@ class TransferApiTest {
                 .andExpect(jsonPath("$.recipient.bank").value("BPI"))
                 .andExpect(jsonPath("$.purpose.code").value("OWN_ACCOUNT"))
                 .andExpect(jsonPath("$.purpose.label").value("본인 계좌 송금 (Own account)"));
+    }
+
+    @Test
+    void 영어_사용자는_관계_목적_계좌_이름이_영어이고_나라_이름은_그대로() throws Exception {
+        language("en");
+
+        mockMvc.perform(get("/api/v1/transfers/context").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recipient.relation").value("Mother"))
+                .andExpect(jsonPath("$.recipient.country").value("필리핀"))
+                .andExpect(jsonPath("$.recipients[1].relation").value("Own account"))
+                .andExpect(jsonPath("$.account.name").value("Shinhan Main Bank Preferred Account"))
+                .andExpect(jsonPath("$.purpose.code").value("FAMILY_SUPPORT"))
+                .andExpect(jsonPath("$.purpose.label").value("Family support"));
+        mockMvc.perform(get("/api/v1/transfers/context").param("recipientId", String.valueOf(selfId))
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.purpose.code").value("OWN_ACCOUNT"))
+                .andExpect(jsonPath("$.purpose.label").value("Own account"));
+    }
+
+    @Test
+    void 베트남어_사용자도_영어이고_모르는_계좌_이름은_원문_그대로() throws Exception {
+        language("vi");
+        jdbc.update("UPDATE financial_accounts SET product_name = '신한 쏠편한 입출금통장' WHERE user_id = ?", userId);
+
+        mockMvc.perform(get("/api/v1/transfers/context").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recipient.relation").value("Mother"))
+                .andExpect(jsonPath("$.account.name").value("신한 쏠편한 입출금통장"))
+                .andExpect(jsonPath("$.purpose.label").value("Family support"));
     }
 
     @Test
@@ -443,6 +476,22 @@ class TransferApiTest {
     }
 
     @Test
+    void 영어_사용자는_화면과_내부_견적_모두_참고_환율_출처가_영어이고_서로_같다() throws Exception {
+        language("en");
+
+        String screen = quote(700_000, "KRW", motherId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.appliedRate.sourceLabel").value("Reference rate based on the ECB rate"))
+                .andExpect(jsonPath("$.receiveAmount.amount").value(32_963))
+                .andReturn().getResponse().getContentAsString();
+        String inner = internal(get(INTERNAL + "/users/" + userId + "/remittance-quote")
+                        .param("recipientId", String.valueOf(motherId)).param("amount", "700000")
+                        .param("currency", "KRW"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(inner).isEqualTo(screen);
+    }
+
+    @Test
     void 내부_견적은_잔액을_보지_않고_쏠빠른_한도를_넘으면_그_상품만_못_보낸다() throws Exception {
         // 잔액 1,000,000 보다 크지만 챗봇 견적은 잔액을 보지 않는다. 쏠빠른 5,000.01 USD(손 계산표 6725719 행)
         internal(get(INTERNAL + "/users/" + userId + "/remittance-quote").param("recipientId",
@@ -524,6 +573,10 @@ class TransferApiTest {
 
     private String bearerOf(long id) {
         return "Bearer " + jwtTokenProvider.issue(id);
+    }
+
+    private void language(String language) {
+        jdbc.update("UPDATE users SET preferred_language = ? WHERE id = ?", language, userId);
     }
 
     private long insertUser(String key, String name) {

@@ -137,6 +137,7 @@ public class VisaRoadmapService {
         request.put("asOfDate", asOf.toString());
         request.put("stayExpiresOn", stayExpiresOn.toString());
         request.set("profile", profile);
+        e74AssessmentService.putLanguage(request, userId);
 
         Optional<Stored> existing = find(userId, assessmentId, stayExpiresOn);
         if (existing.isPresent()) {

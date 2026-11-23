@@ -30,7 +30,8 @@ public record TransferContextResponse(
 
     @Schema(name = "TransferAccount", description = "출금 계좌(financial_accounts)")
     public record Account(
-            @Schema(description = "상품명", example = "신한 주거래 우대통장", nullable = true)
+            @Schema(description = "상품명. preferred_language 가 en 이면(vi·zh 도) 데모 상품명 '신한 주거래 우대통장'만 영어, "
+                    + "그 밖은 원문", example = "신한 주거래 우대통장", nullable = true)
             String name,
 
             @Schema(description = "마스킹된 계좌번호(저장값 그대로)", example = "110-***-**4821")
@@ -46,7 +47,7 @@ public record TransferContextResponse(
             @Schema(description = "목적 코드", example = "FAMILY_SUPPORT")
             String code,
 
-            @Schema(description = "표시 문구", example = "가족 생활비 (Family support)")
+            @Schema(description = "표시 문구. preferred_language 가 en 이면 영어(vi·zh 도 영어, 예: Family support)", example = "가족 생활비 (Family support)")
             String label
     ) {
     }

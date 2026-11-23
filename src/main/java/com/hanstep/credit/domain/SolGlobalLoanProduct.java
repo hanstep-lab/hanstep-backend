@@ -22,6 +22,12 @@ public final class SolGlobalLoanProduct {
     // TODO: 출처 URL·확인일 확인 후 보강
     public static final String BASIS = "신한은행 상품 안내 기준";
 
+    /** 영어 문구(preferred_language 가 ko 가 아닌 사용자). */
+    public static final String PRODUCT_TAG_EN = "Shinhan Bank loan product";
+    public static final String NAME_EN = "SOL Global Loan";
+    public static final String SUMMARY_EN = "A credit loan for employed foreign residents.";
+    public static final String BASIS_EN = "Based on Shinhan Bank product information";
+
     /** 대상 체류자격. E-7 은 세부 자격(E-7-1~E-7-4 등)을 모두 포함한다. */
     public static final List<String> VISA_CODES = List.of("E-9", "E-7", "F-2", "F-5");
 
@@ -38,6 +44,21 @@ public final class SolGlobalLoanProduct {
         nationalities.put("PHL", "필리핀");
         nationalities.put("NPL", "네팔");
         NATIONALITIES = Collections.unmodifiableMap(nationalities);
+    }
+
+    /** 대상 국적 영어 이름. 키와 순서는 NATIONALITIES 와 같다. */
+    public static final Map<String, String> NATIONALITIES_EN;
+
+    static {
+        Map<String, String> nationalities = new LinkedHashMap<>();
+        nationalities.put("VNM", "Vietnam");
+        nationalities.put("IDN", "Indonesia");
+        nationalities.put("KHM", "Cambodia");
+        nationalities.put("KAZ", "Kazakhstan");
+        nationalities.put("UZB", "Uzbekistan");
+        nationalities.put("PHL", "Philippines");
+        nationalities.put("NPL", "Nepal");
+        NATIONALITIES_EN = Collections.unmodifiableMap(nationalities);
     }
 
     /** 체류 만료까지 이 개월 수를 넘게 남아야 한다(초과). */
@@ -60,6 +81,7 @@ public final class SolGlobalLoanProduct {
     public static final int MAX_TERM_MONTHS = 36;
 
     public static final String REPAYMENT_METHOD = "원금분할상환";
+    public static final String REPAYMENT_METHOD_EN = "Equal principal installments";
 
     /** 체류자격이 대상인지. E-7 은 E-7 자체와 E-7-n 세부 자격을 모두 대상으로 본다. */
     public static boolean isEligibleVisa(String visaCode) {
