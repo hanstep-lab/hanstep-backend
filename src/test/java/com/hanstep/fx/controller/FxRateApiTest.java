@@ -55,6 +55,37 @@ class FxRateApiTest {
         userId = TestUsers.create(jdbc, "test-fx-rates", "TEST FX RATES");
         bearer = "Bearer " + jwtTokenProvider.issue(userId);
         nationality(userId, "XTL");
+        // 기존 단정은 한국어 사용자 기준(users.preferred_language 기본값은 en)
+        language("ko");
+    }
+
+    private void language(String language) {
+        jdbc.update("UPDATE users SET preferred_language = ? WHERE id = ?", language, userId);
+    }
+
+    @Test
+    void 영어_사용자는_수출입은행_출처_문구가_영어() throws Exception {
+        language("en");
+        koreaeximSeries();
+
+        rate("XTS")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source").value("KOREAEXIM"))
+                .andExpect(jsonPath("$.sourceLabel").value("Korea Eximbank published base rate"))
+                .andExpect(jsonPath("$.rate").value(1300));
+    }
+
+    @Test
+    void 베트남어_사용자도_참고_환율_출처_문구가_영어() throws Exception {
+        language("vi");
+        nationality(userId, "XXL");
+        marketRef("XXX", "2099-03-31", "2099-03-31 14:00:00", "20.9840", nowUtc());
+
+        rate("XXX")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source").value("MARKET_REF"))
+                .andExpect(jsonPath("$.sourceLabel").value("Reference rate based on the ECB rate"))
+                .andExpect(jsonPath("$.notices[0]").value("REFERENCE_RATE_ONLY"));
     }
 
     /**

@@ -40,7 +40,7 @@ public record FxRateResponse(
         LocalDate asOf,
 
         @Schema(description = "출처 표시 문구. KOREAEXIM 은 수출입은행 고시 매매기준율(은행이 정한 송금 환율이 아님), "
-                + "MARKET_REF 는 ECB 기준환율 기반 참고값", example = "ECB 기준환율 기반 참고값")
+                + "MARKET_REF 는 ECB 기준환율 기반 참고값. preferred_language 가 en 이면 영어(vi·zh 도 영어)", example = "ECB 기준환율 기반 참고값")
         String sourceLabel,
 
         @Schema(description = "출처. KOREAEXIM(수출입은행) / MARKET_REF(Frankfurter ECB) / MOCK(로컬 개발 전용)",

@@ -53,6 +53,8 @@ class AiFxSummaryInternalApiTest {
     @BeforeEach
     void setUp() {
         userId = TestUsers.create(jdbc, "test-ai-fx-summary", "TEST AI FX SUMMARY");
+        // 기존 단정은 한국어 사용자 기준(users.preferred_language 기본값은 en)
+        jdbc.update("UPDATE users SET preferred_language = 'ko' WHERE id = ?", userId);
         nationality("XTL");
         // USD: 2099-03-30·03-31 수출입은행 고시. XTS: 2099-02-28~03-31 4영업일(1M 평균 가능, 3M 이상 데이터 부족)
         koreaexim("USD", "2099-03-30", "1400.0000", "1414.0000");
