@@ -15,6 +15,7 @@ import com.hanstep.document.domain.DocumentStatus;
 import com.hanstep.document.dto.DocumentResponse;
 import com.hanstep.document.repository.DocumentFieldRepository;
 import com.hanstep.document.repository.DocumentRepository;
+import com.hanstep.document.service.UploadTimer.Outcome;
 import com.hanstep.document.storage.ArcImageStorage;
 import jakarta.persistence.EntityManager;
 import java.io.IOException;
@@ -102,8 +103,10 @@ public class DocumentService {
      * 면 하나: 검사(형식·크기·매직 바이트) → 같은 사진이면 기존 문서(단, OCR 이 실패했거나 원본이 만료된 문서면 지우고 새 문서) → 아니면 한
      * 트랜잭션에서 documents 저장, R2 PUT, OCR 작업 등록. R2 PUT 이 실패하면 롤백되어 행이 남지 않고, 롤백되면 그 키를 지운다(PUT 이 응답 전에 끊긴 경우 포함).
      * OCR 작업은 커밋 후 발행된다(실패해도 응답은 성공, 발행 대기로 남아 재발행 대상).
+     * 성공한 업로드마다 구간별 처리 시간 한 줄을 남긴다({@link UploadTimer}, #167).
      */
     private UploadResult uploadSide(Long userId, DocumentSide side, MultipartFile file) {
+        UploadTimer timer = new UploadTimer();
         String part = side.name().toLowerCase(Locale.ROOT);
         String contentType = contentType(part, file);
         byte[] bytes = read(part, file);
@@ -114,23 +117,32 @@ public class DocumentService {
         Long documentId;
         try {
             if (existing.isPresent() && !replaceable(existing.get())) {
-                return new UploadResult(false, view(existing.get()));
+                return timed(timer, side, Outcome.EXISTING, bytes, new UploadResult(false, view(existing.get())));
             }
+            // tx.execute 를 그대로 부르고 시간만 잰다
             documentId = existing.isEmpty()
-                    ? tx.execute(status -> create(userId, side, contentType, bytes, sha256))
-                    : tx.execute(status -> replaceStale(userId, existing.get().getId(), side, contentType, bytes,
-                            sha256));
+                    ? timer.inTransaction(tx, () -> create(userId, side, contentType, bytes, sha256, timer))
+                    : timer.inTransaction(tx, () -> replaceStale(userId, existing.get().getId(), side, contentType,
+                            bytes, sha256, timer));
         } catch (DataIntegrityViolationException e) {
             // 같은 사진이 동시에 두 번 올라왔다. 먼저 저장된 문서를 준다
             Document first = documentRepository.findByUserIdAndSha256(userId, sha256).orElseThrow(() -> e);
-            return new UploadResult(false, view(first));
+            return timed(timer, side, Outcome.EXISTING, bytes, new UploadResult(false, view(first)));
         }
         if (documentId == null) {
             // 다른 요청이 먼저 옛 문서를 바꿨다(또는 그 사이 상태가 바뀜). 지금 문서를 준다
             Document current = documentRepository.findByUserIdAndSha256(userId, sha256).orElseThrow();
-            return new UploadResult(false, view(current));
+            return timed(timer, side, Outcome.EXISTING, bytes, new UploadResult(false, view(current)));
         }
-        return new UploadResult(true, view(documentRepository.findById(documentId).orElseThrow()));
+        return timed(timer, side, existing.isEmpty() ? Outcome.CREATED : Outcome.REPLACED, bytes,
+                new UploadResult(true, view(documentRepository.findById(documentId).orElseThrow())));
+    }
+
+    // 응답을 만든 뒤 반환 직전에 처리 시간 한 줄(#167)
+    private static UploadResult timed(UploadTimer timer, DocumentSide side, Outcome outcome, byte[] bytes,
+                                      UploadResult result) {
+        log.info(timer.line(result.body().documentId(), side, outcome, bytes.length));
+        return result;
     }
 
     /** 같은 사진 재업로드를 새 문서로 받는 조건: OCR 이 실패했거나(#73 A안) 확정 전에 원본이 만료돼 지워졌다(#165). */
@@ -153,7 +165,7 @@ public class DocumentService {
      * @return 새 문서 id. 잠근 뒤 보니 이미 지워졌거나 조건이 바뀌었으면 null(동시에 온 다른 요청이 먼저 바꿈)
      */
     private Long replaceStale(Long userId, Long oldId, DocumentSide side, String contentType, byte[] bytes,
-                              String sha256) {
+                              String sha256, UploadTimer timer) {
         Document old = documentRepository.findByIdForUpdate(oldId).orElse(null);
         if (old == null || !old.getUserId().equals(userId) || !replaceable(old)) {
             return null;
@@ -166,7 +178,7 @@ public class DocumentService {
         if (oldKey != null) {
             deleteAfterCommit(oldId, oldKey);
         }
-        Long documentId = create(userId, side, contentType, bytes, sha256);
+        Long documentId = create(userId, side, contentType, bytes, sha256, timer);
         log.info("document {} replaced {} document {}", documentId, reason, oldId);
         return documentId;
     }
@@ -185,7 +197,8 @@ public class DocumentService {
         });
     }
 
-    private Long create(Long userId, DocumentSide side, String contentType, byte[] bytes, String sha256) {
+    private Long create(Long userId, DocumentSide side, String contentType, byte[] bytes, String sha256,
+                        UploadTimer timer) {
         // 키는 R2 업로드 전에 만든다: arc/{side}/{UUID}.{ext}
         String objectKey = "arc/%s/%s.%s".formatted(side.name().toLowerCase(Locale.ROOT), UUID.randomUUID(),
                 EXTENSIONS.get(contentType));
@@ -193,7 +206,7 @@ public class DocumentService {
                 bytes.length, sha256, Instant.now().plus(RETENTION)));
         // PUT 전에 등록한다: PUT 이 응답 전에 끊겨도(객체는 써졌을 수 있음) 롤백되면 지운다. 없는 키 삭제는 성공으로 본다
         deleteOnRollback(doc.getId(), objectKey);
-        storage.put(objectKey, bytes, contentType);
+        timer.r2Put(() -> storage.put(objectKey, bytes, contentType));
         aiJobEnqueueService.enqueue(AiJobType.OCR, AiJobResourceType.DOCUMENT, doc.getId(), userId,
                 ocrIdempotencyKey(doc.getId()));
         entityManager.refresh(doc);   // created_at(DB 기본값)
