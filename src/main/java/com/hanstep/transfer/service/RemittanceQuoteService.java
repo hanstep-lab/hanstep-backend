@@ -9,6 +9,7 @@ import com.hanstep.fx.repository.ExchangeRateReader;
 import com.hanstep.transfer.config.RemittanceProperties;
 import com.hanstep.transfer.dto.AppliedRate;
 import com.hanstep.transfer.dto.RemittanceQuoteResponse;
+import com.hanstep.user.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -29,13 +30,16 @@ public class RemittanceQuoteService {
     private final RemittanceQuoteCalculator calculator;
     private final RemittanceProperties properties;
     private final ExchangeRateReader rateReader;
+    private final UserRepository userRepository;
 
     public RemittanceQuoteService(JdbcTemplate jdbcTemplate, RemittanceQuoteCalculator calculator,
-                                  RemittanceProperties properties, ExchangeRateReader rateReader) {
+                                  RemittanceProperties properties, ExchangeRateReader rateReader,
+                                  UserRepository userRepository) {
         this.jdbcTemplate = jdbcTemplate;
         this.calculator = calculator;
         this.properties = properties;
         this.rateReader = rateReader;
+        this.userRepository = userRepository;
     }
 
     /** 관계를 확인한 본인의 활성 받는 분. MOTHER 먼저, 그다음 id 순. */
@@ -77,6 +81,7 @@ public class RemittanceQuoteService {
      * - 환율은 환율 화면과 같은 조회(ExchangeRateReader, 운영은 실데이터만). USD 최신 값이 KOREAEXIM 이 아니거나 없으면
      *   404 FX_RATE_NOT_FOUND(스프레드가 신한 매매기준율 기준이라 수출입은행 고시만 쓴다)
      * - 국적이 PHP 참고 대상(필리핀)이 아니거나 PHP 환율이 없으면 PHP 참고값만 null
+     * - appliedRate.sourceLabel 은 preferred_language 가 ko 면 한국어, 그 밖이면 영어(화면 TRF-02·챗봇 INT-18 같음)
      */
     public RemittanceQuoteResponse quote(long userId, Long recipientId, long amount, String currency) {
         if (amount < 1) {
@@ -97,7 +102,7 @@ public class RemittanceQuoteService {
         LocalDate today = LocalDate.now(KstDates.KST);
         try {
             return calculator.calculate(new RemittanceQuoteCalculator.Input(resolved, amount, usd, php,
-                    pastRemittances(userId, today), today));
+                    pastRemittances(userId, today), today, userRepository.prefersEnglish(userId)));
         } catch (ArithmeticException e) {
             throw invalid("amount", "too large");
         }

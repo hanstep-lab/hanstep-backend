@@ -93,6 +93,15 @@ class RemittanceQuoteCalculatorTest {
     }
 
     @Test
+    void english_면_참고_환율_출처_문구만_영어이고_나머지는_같다() {
+        RemittanceQuoteResponse korean = calculator.calculate(new Input(7, 700_000, USD, PHP, 0, TODAY));
+        RemittanceQuoteResponse english = calculator.calculate(new Input(7, 700_000, USD, PHP, 0, TODAY, true));
+
+        assertThat(english.appliedRate().sourceLabel()).isEqualTo("Reference rate based on the ECB rate");
+        assertThat(english).usingRecursiveComparison().ignoringFields("appliedRate.sourceLabel").isEqualTo(korean);
+    }
+
+    @Test
     void 기존_PHP_필드는_쏠편한_기준_참고값이다() {
         RemittanceQuoteResponse response = calculator.calculate(new Input(7, 700_000, USD, PHP, 0, TODAY));
 

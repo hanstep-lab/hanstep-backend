@@ -15,7 +15,7 @@ public record AppliedRate(
         @Schema(description = "unit 외화당 원화(끝자리 0 제거, 지수 표기 없음)", example = "22.32")
         BigDecimal rate,
 
-        @Schema(description = "출처 표시 문구", example = "ECB 기준환율 기반 참고값")
+        @Schema(description = "출처 표시 문구. preferred_language 가 en 이면 영어(vi·zh 도 영어)", example = "ECB 기준환율 기반 참고값")
         String sourceLabel,
 
         @Schema(description = "기준일(KST)", example = "2026-11-06")

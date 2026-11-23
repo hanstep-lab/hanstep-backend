@@ -1,6 +1,7 @@
 package com.hanstep.transfer.service;
 
 import com.hanstep.common.dto.Money;
+import com.hanstep.fx.repository.ExchangeRateReader;
 import com.hanstep.transfer.config.RemittanceProperties;
 import com.hanstep.transfer.config.RemittanceProperties.SolEasy;
 import com.hanstep.transfer.config.RemittanceProperties.SolFast;
@@ -49,7 +50,6 @@ public class RemittanceQuoteCalculator {
     static final String AMOUNT_CAPPED_AT_FEE_BOUNDARY = "AMOUNT_CAPPED_AT_FEE_BOUNDARY";
 
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
-    private static final String PHP_LABEL = "ECB 기준환율 기반 참고값";
     private static final Source USD_RATE_SOURCE_TITLE = new Source("한국수출입은행 현재환율 Open API 매매기준율(USD)",
             null, null);
     private static final Source PHP_RATE_SOURCE_TITLE = new Source("Frankfurter v2 ECB 기준환율(PHP)", null, null);
@@ -61,8 +61,17 @@ public class RemittanceQuoteCalculator {
         this.properties = properties;
     }
 
-    /** 계산 입력. php 가 null 이면 PHP 참고값 없이(USD 견적은 그대로) 낸다. pastRemittances 는 이번 건을 뺀 1년 건수. */
-    public record Input(long recipientId, long amountKrw, Rate usd, Rate php, int pastRemittances, LocalDate asOf) {
+    /**
+     * 계산 입력. php 가 null 이면 PHP 참고값 없이(USD 견적은 그대로) 낸다. pastRemittances 는 이번 건을 뺀 1년 건수.
+     * english 면 참고 환율 출처 문구(appliedRate.sourceLabel)를 영어로 낸다.
+     */
+    public record Input(long recipientId, long amountKrw, Rate usd, Rate php, int pastRemittances, LocalDate asOf,
+                        boolean english) {
+
+        /** 한국어 문구. */
+        public Input(long recipientId, long amountKrw, Rate usd, Rate php, int pastRemittances, LocalDate asOf) {
+            this(recipientId, amountKrw, usd, php, pastRemittances, asOf, false);
+        }
     }
 
     /** 환율 1개(원/1 외화)와 기준일, 출처 이름(KOREAEXIM·frankfurter-ecb·MOCK), Mock 여부. */
@@ -84,7 +93,8 @@ public class RemittanceQuoteCalculator {
         Money receive = easy.recipientAmountPhpRef() == null ? null
                 : new Money(easy.recipientAmountPhpRef().setScale(0, RoundingMode.DOWN).longValueExact(), PHP);
         AppliedRate phpRate = input.php() == null ? null
-                : new AppliedRate(PHP, 1, RemittanceQuoteService.plain(input.php().rate()), PHP_LABEL,
+                : new AppliedRate(PHP, 1, RemittanceQuoteService.plain(input.php().rate()),
+                input.english() ? ExchangeRateReader.MARKET_REF_LABEL_EN : ExchangeRateReader.MARKET_REF_LABEL,
                 input.php().rateDate(), input.php().mock());
         QuoteRates rates = new QuoteRates(RemittanceQuoteService.plain(base), input.usd().rateDate(),
                 sourceOr(input.usd(), USD_SOURCE),
