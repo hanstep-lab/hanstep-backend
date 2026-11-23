@@ -41,6 +41,10 @@ public record DocumentResponse(
         DocumentStatus status,
         @Schema(description = "실패 코드(status=FAILED 일 때, OCR 작업의 error_code)", nullable = true, example = "OCR_FAILED")
         String failureCode,
+        @Schema(description = "확정 전에 원본 보관 기한(업로드 24시간)이 지나 원본과 항목 값이 지워졌는가. true 면 status 는 "
+                + "그대로이고 fields 의 value 가 모두 null 이다. 같은 사진을 다시 올리면 새 문서로 받는다(202, 새 documentId). "
+                + "수정·확정은 막지 않는다(값을 다시 넣으면 확정된다). 확정된 문서는 false", example = "false")
+        boolean originalExpired,
         @Schema(description = "가장 최근 OCR 작업. 진행·실패 상태는 여기서 본다", nullable = true)
         OcrJob ocrJob,
         @Schema(description = "OCR 항목. OCR 결과가 오기 전에는 빈 배열. 확정 후에는 value 가 null 이고 status·confidence 만 남는다")
@@ -121,7 +125,8 @@ public record DocumentResponse(
             failureCode = failureCode != null ? failureCode : ocrJob.getErrorCode();
         }
         return new DocumentResponse(doc.getId(), doc.getDocumentType(), doc.getSide(), status,
-                status == DocumentStatus.FAILED ? failureCode : null, OcrJob.of(ocrJob), ordered,
+                status == DocumentStatus.FAILED ? failureCode : null, doc.originalDeletedBeforeConfirm(),
+                OcrJob.of(ocrJob), ordered,
                 confirmed ? null : daysRemaining(byKey.get(ArcFieldKey.STAY_EXPIRY.key())),
                 kst(doc.getCreatedAt()), kst(doc.getConfirmedAt()));
     }
