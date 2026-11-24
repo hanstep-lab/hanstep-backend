@@ -111,6 +111,7 @@ public class ChatStreamService {
         });
 
         String language = chatRepository.userLanguage(userId);
+        String nationalityCode = chatRepository.userNationality(userId);
         // 답변이 완료된 쌍만 보내 USER 로 시작하고 USER·ASSISTANT 가 번갈아 오게 한다(실패·끊긴 질문은 빠짐)
         List<HistoryItem> history = new ArrayList<>();
         for (String[] pair : chatRepository.recentCompletedPairs(sessionId, HISTORY_PAIRS)) {
@@ -134,7 +135,8 @@ public class ChatStreamService {
             // 동시에 같은 clientMessageId 가 들어와 유니크 키에 걸림
             throw duplicate(chatRepository.findMessageIdByClientId(sessionId, clientMessageId).orElse(null));
         }
-        ChatRequest agentRequest = new ChatRequest(runId, userId, sessionId, language, history, message);
+        ChatRequest agentRequest = new ChatRequest(runId, userId, sessionId, language, nationalityCode, history,
+                message);
         return new Run(runId, sessionId, ids[0], ids[1], receivedNanos, agentRequest).start();
     }
 
