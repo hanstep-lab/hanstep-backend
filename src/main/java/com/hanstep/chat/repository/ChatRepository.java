@@ -142,6 +142,13 @@ public class ChatRepository {
         return jdbc.queryForObject("SELECT preferred_language FROM users WHERE id = ?", String.class, userId);
     }
 
+    /** 비자 프로필의 국적(ISO 3166-1 alpha-3, 예: PHL). 프로필이나 값이 없으면 null. */
+    public String userNationality(long userId) {
+        List<String> codes = jdbc.queryForList("SELECT nationality_code FROM visa_profiles WHERE user_id = ?",
+                String.class, userId);
+        return codes.isEmpty() ? null : codes.get(0);
+    }
+
     /** USER·ASSISTANT 메시지 1행. 같은 대화방 같은 client_message_id 면 DuplicateKeyException. */
     public long insertMessage(long sessionId, ChatRole role, String content, ChatMessageStatus status,
                               String clientMessageId, String runId, Long replyToId, Instant now) {

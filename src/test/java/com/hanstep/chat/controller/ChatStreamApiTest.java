@@ -213,6 +213,9 @@ class ChatStreamApiTest {
         assertThat(sent.path("userId").asLong()).isEqualTo(userId);
         assertThat(sent.path("sessionId").asLong()).isEqualTo(sessionId);
         assertThat(sent.path("language").asString()).isEqualTo("vi");
+        // 비자 프로필이 없으면 국적은 null(#174)
+        assertThat(sent.has("nationalityCode")).isTrue();
+        assertThat(sent.path("nationalityCode").isNull()).isTrue();
         assertThat(sent.path("message").asString()).isEqualTo("my ARC ******-******* card ****************");
         assertThat(sent.path("history").valueStream().map(h -> h.path("content").asString()).toList())
                 .containsExactly("m3", "m4", "m5", "m6", "m7", "m8");
@@ -224,6 +227,33 @@ class ChatStreamApiTest {
 
         long userMessageId = json(result.first("chat.started")).path("userMessageId").asLong();
         assertThat(row(userMessageId).get("content")).isEqualTo("my ARC ******-******* card ****************");
+    }
+
+    @Test
+    void AI로_보낸_요청에_비자_프로필_국적_코드를_넣는다() throws Exception {
+        // #174: visa_profiles.nationality_code(ISO 3166-1 alpha-3)를 그대로 넘긴다(AI #130 현지화 지침용)
+        jdbc.update("INSERT INTO visa_profiles (user_id, nationality_code) VALUES (?, 'PHL')", userId);
+        AI.script((request, out) -> out.event("agent.done", "{\"content\":\"ok\"}"));
+
+        Result result = client.stream(bearer, sessionId, SseTestClient.body("c-nat", "hi"), null);
+        assertThat(result.names()).last().isEqualTo("chat.done");
+
+        JsonNode sent = MAPPER.readTree(AI.received().get(0).body());
+        assertThat(sent.path("nationalityCode").asString()).isEqualTo("PHL");
+        assertThat(sent.path("language").asString()).isEqualTo("vi");
+    }
+
+    @Test
+    void 비자_프로필에_국적이_비어_있으면_null로_넘긴다() throws Exception {
+        jdbc.update("INSERT INTO visa_profiles (user_id, nationality_code) VALUES (?, NULL)", userId);
+        AI.script((request, out) -> out.event("agent.done", "{\"content\":\"ok\"}"));
+
+        Result result = client.stream(bearer, sessionId, SseTestClient.body("c-nat-null", "hi"), null);
+        assertThat(result.names()).last().isEqualTo("chat.done");
+
+        JsonNode sent = MAPPER.readTree(AI.received().get(0).body());
+        assertThat(sent.has("nationalityCode")).isTrue();
+        assertThat(sent.path("nationalityCode").isNull()).isTrue();
     }
 
     @Test

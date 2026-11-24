@@ -24,8 +24,12 @@ public class AgentStreamClient {
         this.aiStreamRestClient = aiStreamRestClient;
     }
 
-    public record ChatRequest(String runId, Long userId, Long sessionId, String language, List<HistoryItem> history,
-                              String message) {
+    /**
+     * INT-05 요청 본문. language 는 users.preferred_language, nationalityCode 는 visa_profiles.nationality_code
+     * (ISO 3166-1 alpha-3, 예: PHL. 비자 프로필이나 값이 없으면 null, hanstep-AI #130 현지화 지침용).
+     */
+    public record ChatRequest(String runId, Long userId, Long sessionId, String language, String nationalityCode,
+                              List<HistoryItem> history, String message) {
     }
 
     public record HistoryItem(String role, String content) {

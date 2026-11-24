@@ -35,3 +35,4 @@ docker compose up -d      # MySQL(3307), RabbitMQ, MongoDB 실행
 - AI → Spring(`/internal/v1/**`): AI가 `X-Internal-Token: {SPRING_INTERNAL_API_KEY}`를 보낸다
 - Spring → AI: `aiRestClient` 빈이 `AI_INTERNAL_API_URL`(기본 `http://localhost:8000`)로 `X-Internal-Token: {AI_INTERNAL_API_TOKEN}`, `X-Request-Id`를 붙여 호출한다
 - 두 키 모두 AI 서버 `.env`와 같은 값, 32자 이상. 방향마다 다른 값을 쓴다. `AI_INTERNAL_API_TOKEN`이 없어도 서버는 뜨지만 시작 로그에 경고가 남고 AI 호출은 401
+- 챗봇 요청(INT-05 `POST /internal/v1/agent/chat/stream`) 본문: `runId`·`userId`·`sessionId`·`language`(`users.preferred_language`)·`nationalityCode`(`visa_profiles.nationality_code`, ISO 3166-1 alpha-3, 예: `PHL`. 비자 프로필이나 값이 없으면 null)·`history`(최근 완성 3쌍)·`message`. AI는 모르는 필드를 거부하므로 필드를 더할 때는 AI를 먼저 배포한다(`nationalityCode`는 hanstep-AI #130)
