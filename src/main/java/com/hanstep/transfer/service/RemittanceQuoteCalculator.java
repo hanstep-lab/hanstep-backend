@@ -26,8 +26,11 @@ import org.springframework.stereotype.Component;
  *   <li>적용 송금 환율 = USD 매매기준율 × (1 + 스프레드 × (1 − 우대율)), 소수 2자리 반올림</li>
  *   <li>SOL_EASY: 송금 USD = (amount − 송금수수료 − 전신료) ÷ 적용 환율. 송금수수료는 송금 USD 로 정해진다(아래 feeFor)</li>
  *   <li>SOL_FAST: 송금 USD = amount ÷ 적용 환율 − 수수료 USD(우대 없음)</li>
- *   <li>송금 USD 는 0.01 내림, 원화 송금액·출금 총액은 원 단위 올림(보낼 원화 올림, 기존 TRF-02 관례)이라 출금 총액은
- *       amount 를 넘지 않는다. 환전 마진은 비용 설명이라 원 단위 반올림</li>
+ *   <li>송금 USD 는 0.01 내림. 출금 총액은 입력 amount 그대로다(#176). 0.01 USD 아래로 버린 끝전(1센트 미만)은 환전에
+ *       쓰인 원화에 포함해, 버린 USD 를 다시 원화로 바꿔 출금 총액을 줄이지 않는다.
+ *       쏠편한 원화 송금액 = amount − 송금수수료 − 전신료, 쏠빠른 원화 송금액 = 송금 USD × 적용 환율(원 단위 올림)</li>
+ *   <li>예외: 쏠편한이 수수료 기준(USD 5,000)에 걸려 USD 5,000.00 까지만 보낼 때는 원화 송금액을 원 단위 올림으로 계산하고
+ *       출금 총액 = 원화 송금액 + 수수료, 남는 원화는 unusedKrw 로 알린다. 환전 마진은 비용 설명이라 원 단위 반올림</li>
  *   <li>PHP 는 참고값만: USD/PHP = USD 매매기준율 ÷ PHP 참고 환율(소수 4자리 반올림), 수령 PHP = 받는 USD × USD/PHP(0.01 반올림)</li>
  * </ul>
  * 중계·수취은행 수수료와 현지 환전은 금액을 만들지 않고 notice 로만 안내한다.
@@ -166,7 +169,10 @@ public class RemittanceQuoteCalculator {
         if (usd.signum() <= 0) {
             return unavailable(SOL_EASY, AMOUNT_TOO_SMALL, pref, count, rate, easy.deliveryType(), notices, sources);
         }
-        long principal = krw(usd.multiply(rate));
+        // 출금 총액은 입력 금액 그대로(#176). 센트 아래를 버린 USD 를 다시 원화로 바꾸면 끝전(최대 1센트어치)만큼
+        // 출금 총액이 입력보다 작아져 화면마다 금액이 달라진다. 끝전은 환전에 쓰인 원화(principal)에 포함한다.
+        // 수수료 기준에 걸려 USD 5,000.00 까지만 보낼 때만 원화를 그만큼만 쓰고 나머지는 unusedKrw 로 알린다
+        long principal = capped ? krw(usd.multiply(rate)) : input.amountKrw() - fee - tel;
         long total = principal + fee + tel;
         if (capped) {
             notices.addFirst(AMOUNT_CAPPED_AT_FEE_BOUNDARY);
@@ -195,9 +201,11 @@ public class RemittanceQuoteCalculator {
             return unavailable(SOL_FAST, LIMIT_EXCEEDED, BigDecimal.ZERO, null, rate, fast.deliveryType(), notices,
                     sources);
         }
+        // 출금 총액은 입력 금액 그대로(#176). (송금 USD + 수수료 USD) 는 amount ÷ 환율을 센트 아래로 버린 값이라,
+        // 다시 원화로 바꾸면 끝전만큼 작아진다. 끝전은 환전에 포함한다
         return new ProductQuote(SOL_FAST, true, null, usd, spreadPct(), BigDecimal.ZERO, null, rate,
                 krw(usd.multiply(rate)), margin(usd, rate, input.usd().rate()), null, null,
-                RemittanceQuoteService.plain(fast.feeUsd()), krw(usd.add(fast.feeUsd()).multiply(rate)), null, usd,
+                RemittanceQuoteService.plain(fast.feeUsd()), input.amountKrw(), null, usd,
                 phpRef(usd, usdPhp), fast.deliveryType(), notices, sources);
     }
 

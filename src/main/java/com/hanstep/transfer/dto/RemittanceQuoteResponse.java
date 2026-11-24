@@ -110,7 +110,9 @@ public record RemittanceQuoteResponse(
                     example = "1342.63")
             BigDecimal usdAppliedRate,
 
-            @Schema(description = "송금 USD 의 원화(원 단위 올림)", example = "694999", nullable = true)
+            @Schema(description = "환전에 쓰는 원화. 쏠편한 = amount − 송금수수료 − 전신료(0.01 USD 아래로 버린 끝전 포함, "
+                    + "수수료 기준에 걸려 USD 5,000.00 까지만 보낼 때는 송금 USD × 적용 환율 원 단위 올림), "
+                    + "쏠빠른 = 송금 USD × 적용 환율(원 단위 올림)", example = "695000", nullable = true)
             Long krwPrincipal,
 
             @Schema(description = "환전 마진(원) = 송금 USD × (적용 환율 − 매매기준율), 원 단위 반올림. "
@@ -130,9 +132,10 @@ public record RemittanceQuoteResponse(
                     nullable = true)
             BigDecimal feeUsd,
 
-            @Schema(description = "출금 총액(원). 쏠편한 = 원화 송금액 + 송금수수료 + 전신료, "
-                    + "쏠빠른 = (송금 USD + 3.5) × 적용 환율(원 단위 올림). 요청 amount 를 넘지 않는다",
-                    example = "699999", nullable = true)
+            @Schema(description = "출금 총액(원) = 요청 amount(#176). 0.01 USD 아래로 버린 끝전으로 줄이지 않는다. "
+                    + "예외: 쏠편한이 수수료 기준(USD 5,000)에 걸려 USD 5,000.00 까지만 보낼 때는 원화 송금액 + 송금수수료 + 전신료"
+                    + "(남는 원화는 unusedKrw)",
+                    example = "700000", nullable = true)
             Long totalWithdrawKrw,
 
             @Schema(description = "쓰지 않고 남는 원화(요청 amount − totalWithdrawKrw). 쏠편한이 수수료 기준(USD 5,000)에 걸려 "
