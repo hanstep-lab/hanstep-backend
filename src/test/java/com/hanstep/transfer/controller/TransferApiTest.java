@@ -232,7 +232,7 @@ class TransferApiTest {
                 .andExpect(jsonPath("$.quotes[1].fxMarginKrw").value(6_569))
                 .andExpect(jsonPath("$.quotes[1].sendFeeKrw").isEmpty())
                 .andExpect(jsonPath("$.quotes[1].feeUsd").value(3.5))
-                .andExpect(jsonPath("$.quotes[1].totalWithdrawKrw").value(699_993))
+                .andExpect(jsonPath("$.quotes[1].totalWithdrawKrw").value(700_000)) // #176: 출금 총액 = 입력 금액
                 .andExpect(jsonPath("$.quotes[1].recipientAmountPhpRef").value(32821.12))
                 .andExpect(jsonPath("$.quotes[1].deliveryType").value("WESTERN_UNION"))
                 .andExpect(jsonPath("$.quotes[1].notices[0]").value("LOCAL_PAYOUT_RATE_BY_AGENT"));
@@ -277,7 +277,7 @@ class TransferApiTest {
                 .andExpect(jsonPath("$.quotes[0].preferentialPct").value(70))
                 .andExpect(jsonPath("$.quotes[0].usdAppliedRate").value(1335.31))
                 .andExpect(jsonPath("$.quotes[0].sendAmountUsd").value(520.47))
-                .andExpect(jsonPath("$.quotes[0].totalWithdrawKrw").value(699_989))
+                .andExpect(jsonPath("$.quotes[0].totalWithdrawKrw").value(700_000)) // #176: 출금 총액 = 입력 금액
                 .andExpect(jsonPath("$.quotes[1].usdAppliedRate").value(1344.2));
     }
 
