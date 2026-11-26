@@ -1,5 +1,6 @@
 # 송금 견적 손 계산표(#121): USD 매매기준율 1331.50, PHP 참고 20.984(USD/PHP 63.4531), 스프레드 0.954%
 # Java 구현과 별개로 요청 규칙만 보고 Python Decimal 로 계산. pastRemittances 는 이번 건을 뺀 1년 건수. 마진은 원 단위 반올림
+# #176: 출금 총액 = amountKrw(쏠편한 수수료 경계에서 USD 5,000.00 까지만 보낼 때 제외), 쏠편한 krwPrincipal = amountKrw − 송금수수료 − 전신료(버린 끝전 포함)
 # USD 지점 표: 상품·우대 구간마다 송금 USD 가 targetUsd(20·520·5,000.00·5,000.01)가 되는 가장 작은 원화를 역산. 쏠편한 5,000.00 은 수수료 0원, 5,000.01 은 10,000원. 쏠빠른 5,000.01 은 LIMIT_EXCEEDED
 # targetUsd,amountKrw,pastRemittances,product,available,unavailableReason,preferentialPct,remittanceCount1y,usdAppliedRate,sendAmountUsd,krwPrincipal,fxMarginKrw,sendFeeKrw,telegraphicFeeKrw,feeUsd,totalWithdrawKrw,unusedKrw,recipientAmountPhpRef
 20.00,31757,0,SOL_EASY,true,,50,1,1337.85,20.00,26757,127,0,5000,,31757,,1269.06

@@ -74,9 +74,29 @@ class RemittanceQuoteCalculatorTest {
         assertDecimal(quote.recipientAmountPhpRef(), row.getString(offset + 16));
         assertDecimal(quote.recipientAmountUsd(), row.getString(offset + 8));
         if (quote.available()) {
-            assertThat(quote.totalWithdrawKrw()).isLessThanOrEqualTo(amount);
+            // #176: 출금 총액은 입력 금액 그대로. 수수료 경계에서 USD 5,000.00 까지만 보낼 때만 작고, 그 차이가 unusedKrw
+            long unused = quote.unusedKrw() == null ? 0 : quote.unusedKrw();
+            assertThat(quote.totalWithdrawKrw() + unused).isEqualTo(amount);
         }
         return quote;
+    }
+
+    @Test
+    void 출금_총액은_입력_금액_그대로이고_센트_아래를_버린_USD_로_다시_계산해_줄이지_않는다() {
+        // #176 재현: 500,000원 → 쏠편한 (500,000 − 5,000) ÷ 1,337.85 = 369.997… → 369.99 USD.
+        // 예전에는 369.99 × 1,337.85 = 494,991.1 → 494,992 로 다시 바꿔 출금 총액 499,992(8원 적게)였다
+        RemittanceQuoteResponse response = calculator.calculate(new Input(7, 500_000, USD, PHP, 0, TODAY));
+        ProductQuote easy = product(response, "SOL_EASY");
+        ProductQuote fast = product(response, "SOL_FAST");
+
+        assertThat(easy.sendAmountUsd()).isEqualByComparingTo("369.99"); // 보내는 USD 는 그대로 센트 아래 버림
+        assertThat(easy.krwPrincipal()).isEqualTo(495_000);
+        assertThat(easy.totalWithdrawKrw()).isEqualTo(500_000);
+        assertThat(easy.unusedKrw()).isNull();
+        // 쏠빠른: 500,000 ÷ 1,344.20 = 371.968… → 371.96 − 3.5 = 368.46 USD. 예전 출금 총액은 499,989
+        assertThat(fast.sendAmountUsd()).isEqualByComparingTo("368.46");
+        assertThat(fast.totalWithdrawKrw()).isEqualTo(500_000);
+        assertThat(fast.unusedKrw()).isNull();
     }
 
     @Test
